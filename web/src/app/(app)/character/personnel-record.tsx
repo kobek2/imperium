@@ -1,0 +1,110 @@
+export type PersonnelProfile = {
+  character_name: string | null;
+  date_of_birth: string | null;
+  residence_state: string | null;
+  home_district_code: string | null;
+  party: string | null;
+  bio: string | null;
+  face_claim_url: string | null;
+  former_positions: string | null;
+  discord_username: string | null;
+};
+
+function partyShort(party: string | null) {
+  if (party === "democrat") return "Democratic";
+  if (party === "republican") return "Republican";
+  return "Independent";
+}
+
+export function PersonnelRecord({
+  profile,
+  primaryTitle,
+}: {
+  profile: PersonnelProfile;
+  primaryTitle: string;
+}) {
+  return (
+    <section
+      className="mb-10 border-2 border-[var(--psc-ink)] bg-[var(--psc-panel)] p-8 pr-24 shadow-sm"
+      aria-labelledby="personnel-record-heading"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--psc-border)] pb-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[var(--psc-muted)]">
+            Federal personnel record
+          </p>
+          <h1
+            id="personnel-record-heading"
+            className="mt-1 text-2xl font-semibold tracking-tight text-[var(--psc-ink)]"
+          >
+            {profile.character_name ?? "Unnamed"}
+          </h1>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            Party: <span className="font-semibold text-[var(--psc-ink)]">{partyShort(profile.party)}</span>
+          </p>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            Current position:{" "}
+            <span className="font-semibold text-[var(--psc-ink)]">{primaryTitle}</span>
+          </p>
+        </div>
+        {profile.face_claim_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={profile.face_claim_url}
+            alt=""
+            className="h-24 w-24 border border-[var(--psc-border)] object-cover"
+          />
+        ) : null}
+      </div>
+
+      <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Date of birth
+          </dt>
+          <dd className="mt-1 font-mono text-[var(--psc-ink)]">
+            {profile.date_of_birth
+              ? new Date(profile.date_of_birth + "T12:00:00").toLocaleDateString()
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Discord
+          </dt>
+          <dd className="mt-1 break-all text-[var(--psc-ink)]">
+            {profile.discord_username ? (
+              <>@{profile.discord_username}</>
+            ) : (
+              <span className="text-[var(--psc-muted)]">—</span>
+            )}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Congressional district (claimed)
+          </dt>
+          <dd className="mt-1 font-mono text-[var(--psc-ink)]">
+            {profile.home_district_code ? profile.home_district_code : <span className="text-[var(--psc-muted)]">—</span>}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Biography
+          </dt>
+          <dd className="mt-1 whitespace-pre-wrap text-[var(--psc-ink)]">
+            {profile.bio?.trim() ? profile.bio : "—"}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Former positions (RP)
+          </dt>
+          <dd className="mt-1 whitespace-pre-wrap text-[var(--psc-ink)]">
+            {profile.former_positions?.trim() ? profile.former_positions : "—"}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}

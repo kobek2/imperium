@@ -1,0 +1,21 @@
+{
+  "1277748551971110912": "president",
+  "1277748706669494313": "vice_president",
+  "1277750294410694687": "chief_justice",
+  "1277750335334645791": "associate_justice",
+  "1277748736813961236": "speaker",
+  "1277748761350635623": "president_pro_tempore",
+  "1277748790471692329": "senate_majority_leader",
+  "1277748816510062645": "senate_majority_whip",
+  "1277748845605818400": "senate_minority_leader",
+  "1277748869102440459": "senate_minority_whip",
+  "1277748901079945409": "house_majority_leader",
+  "1277748927466045490": "house_majority_whip",
+  "1277749059637084236": "house_minority_leader",
+  "1277749108873891902": "house_minority_whip",
+  "1277749403695710339": "senator",
+  "1277749457517150239": "representative",
+  "1277749494624030812": "party_democrat",
+  "1277749520645623870": "party_republican",
+  "1277749473711230976": "citizen"
+}

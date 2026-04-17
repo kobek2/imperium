@@ -1,0 +1,10 @@
+# Supabase
+.branches
+.temp
+
+# Secrets & local env (never commit)
+.env
+.env.local
+.env.*.local
+.env.keys
+!.env.example
