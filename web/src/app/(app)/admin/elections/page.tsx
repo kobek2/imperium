@@ -1,8 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
+import {
+  AdminElectionsList,
+  type AdminElectionRow,
+} from "./admin-elections-list";
 
 export default async function AdminElectionsPage() {
   if (!(await getIsAdmin())) redirect("/");
@@ -14,47 +17,32 @@ export default async function AdminElectionsPage() {
 
   const { data: rows } = await supabase
     .from("elections")
-    .select("id, office, state, district_code, phase, filing_opens_at, filing_closes_at")
+    .select(
+      "id, office, state, district_code, senate_class, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at",
+    )
     .order("filing_opens_at", { ascending: false });
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Elections</h2>
-        <Link
-          href="/admin/elections/new"
-          className="admin-cardlink border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110 active:brightness-90"
-        >
-          New race
-        </Link>
-      </div>
+  const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
 
-      {!rows?.length ? (
-        <p className="text-sm text-[var(--psc-muted)]">No elections yet. Create one to get started.</p>
-      ) : (
-        <ul className="divide-y divide-[var(--psc-border)] border border-[var(--psc-border)] bg-[var(--psc-panel)]">
-          {rows.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-              <div>
-                <p className="font-mono text-xs text-[var(--psc-muted)]">{r.phase}</p>
-                <p className="font-semibold">
-                  {r.office.toUpperCase()} · {r.district_code ?? r.state ?? "Nationwide"}
-                </p>
-                <p className="text-xs text-[var(--psc-muted)]">
-                  Filing {new Date(r.filing_opens_at).toLocaleString()} —{" "}
-                  {new Date(r.filing_closes_at).toLocaleString()}
-                </p>
-              </div>
-              <Link
-                href={`/admin/elections/${r.id}`}
-                className="admin-textlink text-sm font-semibold text-[var(--psc-accent)] underline decoration-2 underline-offset-2"
-              >
-                Operate
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+  const countsById: Record<string, number> = {};
+  if (list.length) {
+    const { data: candRows } = await supabase
+      .from("election_candidates")
+      .select("election_id")
+      .in(
+        "election_id",
+        list.map((r) => r.id),
+      );
+    for (const row of candRows ?? []) {
+      const id = row.election_id as string;
+      countsById[id] = (countsById[id] ?? 0) + 1;
+    }
+  }
+
+  const dashboardRows: AdminElectionRow[] = list.map((r) => ({
+    ...r,
+    candidate_count: countsById[r.id] ?? 0,
+  }));
+
+  return <AdminElectionsList rows={dashboardRows} />;
 }

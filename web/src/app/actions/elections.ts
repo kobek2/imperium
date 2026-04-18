@@ -106,6 +106,23 @@ export async function updateElectionPrimaryBallot(formData: FormData): Promise<v
   revalidatePath(`/elections/${election_id}`);
 }
 
+/**
+ * Admin phase override.
+ *
+ * Forward transitions run the full closeout for the phase we're leaving:
+ *   filing  -> primary  : re-set primary_closes_at (from form), optionally pick a "who would win filing"
+ *                         (no-op; filing has no votes).
+ *   primary -> general  : pick primary winners per party (plurality, tiebreak by filing order).
+ *   general -> closed   : finalize. House/Senate use the full FEC score; President uses plurality of
+ *                         general votes. If every candidate has 0 votes, the first-filer wins.
+ *
+ * Backward transitions (e.g. closed -> general) just update the phase/end time and do not retract
+ * winner_user_id or primary_winner flags — the admin can clear those manually by picking a new winner
+ * or unsetting primary_winner in the candidate card if needed.
+ *
+ * end_at (optional): datetime-local string. When moving *into* a phase with a timer (primary/general),
+ * we write it to the matching *_closes_at column so auto-advance doesn't immediately fire.
+ */
 export async function setElectionPhase(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
   const id = String(formData.get("election_id"));
@@ -113,46 +130,131 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
   if (!["filing", "primary", "general", "closed"].includes(phase)) {
     throw new Error("Invalid phase.");
   }
-  const { error } = await supabase.from("elections").update({ phase }).eq("id", id);
+  const endAtRaw = String(formData.get("end_at") ?? "").trim();
+  const endAtIso = endAtRaw ? parseLocalDateTime(endAtRaw) : null;
+
+  const { data: current } = await supabase
+    .from("elections")
+    .select(
+      "id, phase, office, state, district_code, filing_closes_at, primary_closes_at, general_closes_at, winner_user_id",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (!current) throw new Error("Election not found.");
+
+  const prevPhase = current.phase as ElectionPhase;
+  const updates: Record<string, unknown> = { phase };
+
+  // Attach the new end timestamp to whichever field the target phase drives.
+  if (endAtIso) {
+    if (phase === "filing") updates.filing_closes_at = endAtIso;
+    else if (phase === "primary") updates.primary_closes_at = endAtIso;
+    else if (phase === "general") updates.general_closes_at = endAtIso;
+  }
+
+  // Forward transition hooks: fill in vote-based winners for the phase we're leaving.
+  const forwardFrom: Record<ElectionPhase, ElectionPhase[]> = {
+    filing: ["primary", "general", "closed"],
+    primary: ["general", "closed"],
+    general: ["closed"],
+    closed: [],
+  };
+  const isForward = forwardFrom[prevPhase].includes(phase);
+
+  if (isForward && (phase === "general" || phase === "closed")) {
+    // Ensure primary winners are flagged before moving out of primary (or through it).
+    if (
+      prevPhase === "filing" ||
+      prevPhase === "primary" ||
+      (prevPhase === "primary" && phase === "closed")
+    ) {
+      await pickPrimaryWinners(supabase, id);
+    }
+  }
+
+  // Finalize general winner when moving into closed.
+  if (isForward && phase === "closed") {
+    const winnerUserId = await computeGeneralWinner(supabase, id, {
+      office: current.office,
+      district_code: current.district_code,
+      state: current.state,
+    });
+    if (winnerUserId) {
+      updates.winner_user_id = winnerUserId;
+    }
+  }
+
+  const { error } = await supabase.from("elections").update(updates).eq("id", id);
   if (error) throw new Error(error.message);
+
+  if (phase === "closed") {
+    const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+      e_election: id,
+    });
+    if (roleErr) {
+      console.warn("[setElectionPhase] role transition warning:", roleErr.message);
+    }
+  }
+
   revalidatePath("/admin/elections");
   revalidatePath(`/admin/elections/${id}`);
   revalidatePath("/elections");
   revalidatePath(`/elections/${id}`);
 }
 
-/** Manual primary closeout; mirrors `advance_election_phases_by_schedule` in migration 20260420090000_election_auto_phase_schedule.sql. */
-export async function endPrimarySelectWinners(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const election_id = String(formData.get("election_id"));
+type FilingCandidate = {
+  id: string;
+  user_id: string;
+  party: string;
+  campaign_points_total: number | null;
+  primary_winner: boolean | null;
+  created_at: string | null;
+};
 
-  const { data: election } = await supabase.from("elections").select("phase").eq("id", election_id).single();
-  if (!election || election.phase !== "primary") {
-    throw new Error(
-      `End primary only works when the race is in the primary phase (current: ${election?.phase ?? "unknown"}). Use the Primary phase button first, then run this after primary votes.`,
-    );
-  }
+/** Sort helper: most votes first, tiebreak by earliest filing time (then stable on id). */
+function sortByVotesThenFilingOrder<T extends { id: string; created_at: string | null }>(
+  arr: T[],
+  votes: Record<string, number>,
+) {
+  return [...arr].sort((a, b) => {
+    const va = votes[a.id] ?? 0;
+    const vb = votes[b.id] ?? 0;
+    if (va !== vb) return vb - va;
+    const ta = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
+}
 
+/**
+ * Picks one nominee per party from primary_votes plurality.
+ * Ties (including everyone-at-zero) resolve to the earliest filer, then lexicographically smallest id.
+ * Idempotent — safe to call when some primary_winner flags are already set.
+ */
+async function pickPrimaryWinners(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  election_id: string,
+) {
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, party")
+    .select("id, user_id, party, campaign_points_total, primary_winner, created_at")
     .eq("election_id", election_id);
 
-  if (!candidates?.length) throw new Error("No candidates.");
+  const candList = (candidates ?? []) as FilingCandidate[];
+  if (!candList.length) return;
 
   const { data: votes } = await supabase
     .from("primary_votes")
     .select("candidate_id")
     .eq("election_id", election_id);
-
   const counts: Record<string, number> = {};
   for (const v of votes ?? []) {
     counts[v.candidate_id] = (counts[v.candidate_id] ?? 0) + 1;
   }
 
-  /** Primary = site votes only (no campaign points). One nominee per filed party by in-party plurality. */
-  const byParty = new Map<string, { id: string; party: string }[]>();
-  for (const c of candidates) {
+  const byParty = new Map<string, FilingCandidate[]>();
+  for (const c of candList) {
     const list = byParty.get(c.party) ?? [];
     list.push(c);
     byParty.set(c.party, list);
@@ -160,35 +262,121 @@ export async function endPrimarySelectWinners(formData: FormData): Promise<void>
 
   const winnerIds = new Set<string>();
   for (const group of byParty.values()) {
-    const sorted = [...group].sort((a, b) => a.id.localeCompare(b.id));
-    if (sorted.length === 1) {
-      winnerIds.add(sorted[0]!.id);
-      continue;
-    }
-    let bestId = sorted[0]!.id;
-    let best = -1;
-    for (const c of sorted) {
-      const n = counts[c.id] ?? 0;
-      if (n > best) {
-        best = n;
-        bestId = c.id;
-      }
-    }
-    if (best <= 0) {
-      bestId = sorted[0]!.id;
-    }
-    winnerIds.add(bestId);
+    const sorted = sortByVotesThenFilingOrder(group, counts);
+    if (sorted.length) winnerIds.add(sorted[0]!.id);
   }
 
-  for (const c of candidates) {
+  for (const c of candList) {
+    const shouldBeWinner = winnerIds.has(c.id);
+    if ((c.primary_winner ?? false) === shouldBeWinner) continue;
     const { error } = await supabase
       .from("election_candidates")
-      .update({ primary_winner: winnerIds.has(c.id) })
+      .update({ primary_winner: shouldBeWinner })
       .eq("id", c.id);
     if (error) throw new Error(error.message);
   }
+}
 
-  const { error: pe } = await supabase.from("elections").update({ phase: "general" }).eq("id", election_id);
+/**
+ * Resolve a general-election winner for admin-forced closes.
+ * House / Senate:   full 60/40 FEC scoring (campaign pts + district PVI + community votes).
+ * President:        plurality of general_votes (admin can still override via finalizePresident).
+ * If nobody has any votes, the earliest filer wins. If zero candidates, returns null.
+ */
+async function computeGeneralWinner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  election_id: string,
+  meta: { office: string; district_code: string | null; state: string | null },
+): Promise<string | null> {
+  const { data: candidates } = await supabase
+    .from("election_candidates")
+    .select("id, user_id, party, campaign_points_total, primary_winner, created_at")
+    .eq("election_id", election_id);
+
+  const candList = (candidates ?? []) as FilingCandidate[];
+  if (!candList.length) return null;
+
+  const hasPrimaryFlag = candList.some((c) => c.primary_winner);
+  const active = hasPrimaryFlag ? candList.filter((c) => c.primary_winner) : candList;
+  if (!active.length) return null;
+
+  const { data: gv } = await supabase
+    .from("general_votes")
+    .select("candidate_id")
+    .eq("election_id", election_id);
+  const tally: Record<string, number> = {};
+  for (const v of gv ?? []) {
+    tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
+  }
+
+  if (meta.office !== "house" && meta.office !== "senate") {
+    // President fallback: plurality + filing-order tiebreak.
+    const sorted = sortByVotesThenFilingOrder(active, tally);
+    return sorted[0]!.user_id;
+  }
+
+  let partisanLean = 0;
+  if (meta.office === "house" && meta.district_code) {
+    const { data: d } = await supabase
+      .from("districts")
+      .select("pvi")
+      .eq("code", meta.district_code)
+      .maybeSingle();
+    partisanLean = Number(d?.pvi ?? 0);
+  } else if (meta.office === "senate" && meta.state) {
+    const { data: s } = await supabase
+      .from("states")
+      .select("pvi")
+      .eq("code", meta.state)
+      .maybeSingle();
+    partisanLean = Number(s?.pvi ?? 0);
+  }
+
+  function leanFor(party: string) {
+    if (party === "democrat") return districtLeanBonus(partisanLean, "democrat");
+    if (party === "republican") return districtLeanBonus(partisanLean, "republican");
+    return 0;
+  }
+
+  const inputs = active.map((c) => ({
+    id: c.id,
+    party: c.party as Party,
+    campaignPoints: Math.max(0, Number(c.campaign_points_total ?? 0)) + leanFor(c.party),
+  }));
+
+  const scores = scoreGeneralElection(inputs, tally);
+  const ranked = sortByVotesThenFilingOrder(
+    active.map((c) => ({
+      ...c,
+      _score: scores[c.id] ?? 0,
+    })),
+    Object.fromEntries(active.map((c) => [c.id, (scores[c.id] ?? 0) * 1_000_000])),
+  );
+  return ranked[0]!.user_id;
+}
+
+/** Manual primary closeout. Uses filing-order tiebreak so the earliest filer wins on ties (including 0-vote ties). */
+export async function endPrimarySelectWinners(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const election_id = String(formData.get("election_id"));
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select("phase")
+    .eq("id", election_id)
+    .single();
+  if (!election || election.phase !== "primary") {
+    throw new Error(
+      `End primary only works when the race is in the primary phase (current: ${election?.phase ?? "unknown"}). Use the Primary phase button first, then run this after primary votes.`,
+    );
+  }
+
+  await pickPrimaryWinners(supabase, election_id);
+
+  const { error: pe } = await supabase
+    .from("elections")
+    .update({ phase: "general" })
+    .eq("id", election_id);
   if (pe) throw new Error(pe.message);
 
   revalidatePath("/admin/elections");
@@ -203,7 +391,7 @@ export async function finalizeHouseSenateGeneral(formData: FormData): Promise<vo
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, office, district_code")
+    .select("phase, office, district_code, state")
     .eq("id", election_id)
     .single();
 
@@ -216,76 +404,30 @@ export async function finalizeHouseSenateGeneral(formData: FormData): Promise<vo
     throw new Error("Use presidential finalize for president races.");
   }
 
-  const raceOffice = election.office;
-
-  let districtPvi = 0;
-  if (raceOffice === "house" && election.district_code) {
-    const { data: d } = await supabase
-      .from("districts")
-      .select("pvi")
-      .eq("code", election.district_code)
-      .maybeSingle();
-    districtPvi = Number(d?.pvi ?? 0);
-  }
-
-  const { data: candidates } = await supabase
-    .from("election_candidates")
-    .select("id, user_id, party, campaign_points_total, primary_winner")
-    .eq("election_id", election_id);
-
-  if (!candidates?.length) throw new Error("No candidates.");
-
-  const hasPrimary = candidates.some((c) => c.primary_winner);
-  const active = hasPrimary ? candidates.filter((c) => c.primary_winner) : candidates;
-
-  const { data: gv } = await supabase
-    .from("general_votes")
-    .select("candidate_id")
-    .eq("election_id", election_id);
-
-  const tally: Record<string, number> = {};
-  for (const v of gv ?? []) {
-    tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
-  }
-
-  function leanForCandidate(party: string) {
-    if (raceOffice !== "house") return 0;
-    if (party === "democrat") return districtLeanBonus(districtPvi, "democrat");
-    if (party === "republican") return districtLeanBonus(districtPvi, "republican");
-    return 0;
-  }
-
-  const inputs = active.map((c) => ({
-    id: c.id,
-    party: c.party as Party,
-    campaignPoints: Math.max(0, Number(c.campaign_points_total ?? 0)) + leanForCandidate(c.party),
-  }));
-
-  const scores = scoreGeneralElection(inputs, tally);
-  let bestId: string | null = null;
-  let bestScore = -Infinity;
-  for (const c of active) {
-    const s = scores[c.id] ?? 0;
-    if (s > bestScore) {
-      bestScore = s;
-      bestId = c.id;
-    } else if (s === bestScore && bestId && c.id.localeCompare(bestId) < 0) {
-      bestId = c.id;
-    }
-  }
-
-  const winnerRow = active.find((c) => c.id === bestId);
-  if (!winnerRow) throw new Error("Unable to determine winner.");
+  const winnerUserId = await computeGeneralWinner(supabase, election_id, {
+    office: election.office,
+    district_code: election.district_code,
+    state: election.state,
+  });
+  if (!winnerUserId) throw new Error("No candidates.");
 
   const { error } = await supabase
     .from("elections")
     .update({
       phase: "closed",
-      winner_user_id: winnerRow.user_id,
+      winner_user_id: winnerUserId,
     })
     .eq("id", election_id);
 
   if (error) throw new Error(error.message);
+
+  const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+    e_election: election_id,
+  });
+  if (roleErr) {
+    console.warn("[finalizeHouseSenateGeneral] role transition warning:", roleErr.message);
+  }
+
   revalidatePath("/admin/elections");
   revalidatePath(`/admin/elections/${election_id}`);
   revalidatePath("/elections");
@@ -325,6 +467,14 @@ export async function finalizePresident(formData: FormData): Promise<void> {
     .eq("id", election_id);
 
   if (error) throw new Error(error.message);
+
+  const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+    e_election: election_id,
+  });
+  if (roleErr) {
+    console.warn("[finalizePresident] role transition warning:", roleErr.message);
+  }
+
   revalidatePath("/admin/elections");
   revalidatePath(`/admin/elections/${election_id}`);
   revalidatePath("/elections");
@@ -533,6 +683,12 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
   revalidatePath(`/elections/${election_id}`);
 }
 
+const SPEECH_MIN_WORDS = 200;
+const SPEECH_POINTS = 5;
+const RALLY_POINTS = 0.5;
+const RALLY_WINDOW_MS = 3 * 60 * 60 * 1000;
+const RALLY_LIMIT_PER_WINDOW = 10;
+
 export async function submitCampaignSpeech(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const {
@@ -542,16 +698,24 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
 
   const election_id = String(formData.get("election_id"));
   const content = String(formData.get("content") ?? "").trim();
+  const target_state =
+    String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
   const wordCount = countWords(content);
-  if (wordCount < 200) throw new Error("Speech must be at least 200 words.");
+  if (wordCount < SPEECH_MIN_WORDS) {
+    throw new Error(`Speech must be at least ${SPEECH_MIN_WORDS} words.`);
+  }
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, general_closes_at")
+    .select("phase, office, state, district_code, general_closes_at")
     .eq("id", election_id)
     .maybeSingle();
-  if (!election || election.phase !== "general") throw new Error("General election is not open.");
-  if (new Date() > new Date(election.general_closes_at)) throw new Error("General election is closed.");
+  if (!election || election.phase !== "general") {
+    throw new Error("General election is not open.");
+  }
+  if (new Date() > new Date(election.general_closes_at)) {
+    throw new Error("General election is closed.");
+  }
 
   const { data: candidate } = await supabase
     .from("election_candidates")
@@ -561,12 +725,33 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!candidate) throw new Error("Only candidates in this race can submit speeches.");
 
+  // Speech targeting:
+  //   house   -> auto-attributed to the district (and state) of the race.
+  //   senate  -> auto-attributed to the state of the race.
+  //   president -> caller picks a state; required so we can run per-state scoring later.
+  let stateForSpeech: string | null = null;
+  let districtForSpeech: string | null = null;
+  if (election.office === "house") {
+    stateForSpeech = election.state;
+    districtForSpeech = election.district_code;
+  } else if (election.office === "senate") {
+    stateForSpeech = election.state;
+  } else if (election.office === "president") {
+    if (!target_state || target_state.length !== 2) {
+      throw new Error("Presidential speeches must specify a target state.");
+    }
+    stateForSpeech = target_state;
+  }
+
   const { error } = await supabase.from("campaign_speeches").insert({
     election_id,
     candidate_id: candidate.id,
     author_id: user.id,
     content,
     word_count: wordCount,
+    points: SPEECH_POINTS,
+    target_state: stateForSpeech,
+    target_district: districtForSpeech,
   });
   if (error) throw new Error(error.message);
   revalidatePath(`/elections/${election_id}`);
@@ -600,36 +785,48 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!candidate) throw new Error("Only candidates in this race can rally.");
 
-  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
   const { count } = await supabase
     .from("campaign_rallies")
     .select("id", { count: "exact", head: true })
     .eq("election_id", election_id)
     .eq("candidate_id", candidate.id)
-    .gte("created_at", hourAgo);
-  if ((count ?? 0) >= 5) throw new Error("Rally cap reached: max 5 rallies per hour.");
+    .gte("created_at", windowStart);
+  if ((count ?? 0) >= RALLY_LIMIT_PER_WINDOW) {
+    throw new Error(
+      `Rally cap reached: ${RALLY_LIMIT_PER_WINDOW} rallies per 3-hour window. Try again later.`,
+    );
+  }
 
+  // Rally targeting:
+  //   house     -> must equal the race's district. Auto-filled by the UI.
+  //   senate    -> must equal the race's state. Auto-filled by the UI.
+  //   president -> caller picks any valid two-letter state.
+  let rallyState = target_state;
+  let rallyDistrict = target_district;
   if (election.office === "house") {
-    if (!election.district_code || target_district !== election.district_code) {
-      throw new Error("House candidates can only rally in their own district.");
-    }
+    if (!election.district_code) throw new Error("Race missing district.");
+    rallyDistrict = election.district_code;
+    rallyState = election.state;
   } else if (election.office === "senate") {
-    if (!election.state || target_state !== election.state) {
-      throw new Error("Senate candidates can only rally in their own state.");
-    }
+    if (!election.state) throw new Error("Race missing state.");
+    rallyState = election.state;
+    rallyDistrict = null;
   } else if (election.office === "president") {
     if (!target_state || target_state.length !== 2) {
       throw new Error("Presidential rallies must specify a valid two-letter state.");
     }
+    rallyState = target_state;
+    rallyDistrict = null;
   }
 
   const { error } = await supabase.from("campaign_rallies").insert({
     election_id,
     candidate_id: candidate.id,
     actor_id: user.id,
-    target_state,
-    target_district,
-    points: 0.5,
+    target_state: rallyState,
+    target_district: rallyDistrict,
+    points: RALLY_POINTS,
   });
   if (error) {
     const msg = error.message;

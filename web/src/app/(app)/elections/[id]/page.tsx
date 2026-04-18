@@ -35,7 +35,7 @@ export default async function ElectionDetailPage({
 
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, party, campaign_points_total, user_id, primary_winner")
+    .select("id, party, campaign_points_total, user_id, primary_winner, created_at")
     .eq("election_id", id)
     .order("id", { ascending: true });
 
@@ -78,6 +78,16 @@ export default async function ElectionDetailPage({
     primaryTally[cid] = (primaryTally[cid] ?? 0) + 1;
   }
 
+  const { data: generalVoteRows } = await supabase
+    .from("general_votes")
+    .select("candidate_id")
+    .eq("election_id", id);
+  const generalTally: Record<string, number> = {};
+  for (const row of generalVoteRows ?? []) {
+    const cid = row.candidate_id as string;
+    generalTally[cid] = (generalTally[cid] ?? 0) + 1;
+  }
+
   const { data: myPrimaryVote } = await supabase
     .from("primary_votes")
     .select("candidate_id")
@@ -99,6 +109,62 @@ export default async function ElectionDetailPage({
     .maybeSingle();
 
   const activeSlots = await loadActiveCandidacySlots(supabase, user.id);
+
+  // Partisan lean (house uses district pvi; senate uses state pvi; president is per-state but we expose
+  // it as 0 at the race level).
+  let partisanLean = 0;
+  if (election.office === "house" && election.district_code) {
+    const { data: d } = await supabase
+      .from("districts")
+      .select("pvi")
+      .eq("code", election.district_code)
+      .maybeSingle();
+    partisanLean = Number(d?.pvi ?? 0);
+  } else if (election.office === "senate" && election.state) {
+    const { data: s } = await supabase
+      .from("states")
+      .select("pvi")
+      .eq("code", election.state)
+      .maybeSingle();
+    partisanLean = Number(s?.pvi ?? 0);
+  }
+
+  // Per-candidate activity rollups so the UI can show "3 speeches · 6 rallies".
+  const speechCountBy: Record<string, number> = {};
+  const rallyCountBy: Record<string, number> = {};
+  let myRalliesInWindow = 0;
+  if (candList.length) {
+    const { data: speechRows } = await supabase
+      .from("campaign_speeches")
+      .select("candidate_id")
+      .eq("election_id", id);
+    for (const row of speechRows ?? []) {
+      const cid = row.candidate_id as string;
+      speechCountBy[cid] = (speechCountBy[cid] ?? 0) + 1;
+    }
+    const { data: rallyRows } = await supabase
+      .from("campaign_rallies")
+      .select("candidate_id")
+      .eq("election_id", id);
+    for (const row of rallyRows ?? []) {
+      const cid = row.candidate_id as string;
+      rallyCountBy[cid] = (rallyCountBy[cid] ?? 0) + 1;
+    }
+    const myCand = candList.find((c) => c.user_id === user.id);
+    if (myCand) {
+      const windowStart = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("campaign_rallies")
+        .select("id", { count: "exact", head: true })
+        .eq("election_id", id)
+        .eq("candidate_id", myCand.id)
+        .gte("created_at", windowStart);
+      myRalliesInWindow = count ?? 0;
+    }
+  }
+
+  // State list for presidential speech/rally targeting.
+  const { data: states } = await supabase.from("states").select("code, name").order("code");
 
   let winnerName: string | null = null;
   if (election.winner_user_id) {
@@ -123,10 +189,12 @@ export default async function ElectionDetailPage({
           ...c,
           primary_winner: c.primary_winner ?? false,
           campaign_points_total: c.campaign_points_total,
+          created_at: c.created_at ?? null,
         }))}
         nameBy={nameBy}
         candidateCardByUserId={candidateCardByUserId}
         primaryTally={primaryTally}
+        generalTally={generalTally}
         myPrimaryCandidateId={myPrimaryVote?.candidate_id ?? null}
         myGeneralCandidateId={myGeneralVote?.candidate_id ?? null}
         profileParty={myProfile?.party ?? null}
@@ -143,6 +211,11 @@ export default async function ElectionDetailPage({
         userId={user.id}
         isAdmin={isAdmin}
         winnerName={winnerName}
+        partisanLean={partisanLean}
+        speechCountBy={speechCountBy}
+        rallyCountBy={rallyCountBy}
+        myRalliesInWindow={myRalliesInWindow}
+        states={(states ?? []) as Array<{ code: string; name: string }>}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

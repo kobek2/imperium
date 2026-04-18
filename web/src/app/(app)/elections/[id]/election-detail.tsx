@@ -3,12 +3,16 @@ import {
   castGeneralVote,
   castPrimaryVote,
   fileCandidacy,
+  submitCampaignRally,
+  submitCampaignSpeech,
 } from "@/app/actions/elections";
+import { districtLeanBonus } from "@/lib/fec";
 import {
   getFilingEligibilityMessage,
   type ActiveCandidacySlots,
   type ProfileSeatFields,
 } from "@/lib/election-filing";
+import { SpeechTextareaWithCounter } from "./speech-textarea-with-counter";
 
 type ElectionRow = {
   id: string;
@@ -21,7 +25,6 @@ type ElectionRow = {
   primary_closes_at: string;
   general_closes_at: string;
   winner_user_id: string | null;
-  /** When true (default), any same-party member may vote in this primary regardless of residence. */
   primary_party_wide?: boolean | null;
 };
 
@@ -31,6 +34,7 @@ type CandRow = {
   party: string;
   campaign_points_total: number | null;
   primary_winner: boolean | null;
+  created_at?: string | null;
 };
 
 type CandidateCardFields = {
@@ -40,24 +44,57 @@ type CandidateCardFields = {
   home_district_code: string | null;
 };
 
-function partyLabel(p: string) {
-  if (p === "democrat") return "Democratic";
-  if (p === "republican") return "Republican";
-  if (p === "independent") return "Independent";
-  return p;
-}
+type PartyKey = "democrat" | "republican" | "independent";
+const PARTY_ORDER: PartyKey[] = ["democrat", "republican", "independent"];
 
-function seatLine(card: CandidateCardFields | undefined) {
-  const st = (card?.residence_state ?? "").trim().toUpperCase();
-  const dist = (card?.home_district_code ?? "").trim();
-  if (dist) return `${st || "—"} · ${dist}`;
-  if (st) return st;
-  return "—";
+function partyMeta(p: string) {
+  switch (p) {
+    case "democrat":
+      return {
+        label: "Democratic",
+        pill: "bg-blue-600 text-white border-blue-700",
+        accent: "border-blue-300",
+        cardBg: "bg-blue-50",
+        cardBorder: "border-blue-400",
+      };
+    case "republican":
+      return {
+        label: "Republican",
+        pill: "bg-red-600 text-white border-red-700",
+        accent: "border-red-300",
+        cardBg: "bg-red-50",
+        cardBorder: "border-red-400",
+      };
+    case "independent":
+      return {
+        label: "Independent",
+        pill: "bg-slate-700 text-white border-slate-800",
+        accent: "border-slate-300",
+        cardBg: "bg-slate-50",
+        cardBorder: "border-slate-400",
+      };
+    default:
+      return {
+        label: p || "Unaffiliated",
+        pill: "bg-slate-200 text-slate-900 border-slate-300",
+        accent: "border-slate-200",
+        cardBg: "bg-[var(--psc-panel)]",
+        cardBorder: "border-[var(--psc-border)]",
+      };
+  }
 }
 
 function displayName(card: CandidateCardFields | undefined, userId: string, nameBy: Record<string, string>) {
   const n = card?.character_name?.trim() || nameBy[userId]?.trim();
   return n || userId.slice(0, 8);
+}
+
+function seatLine(card: CandidateCardFields | undefined) {
+  const st = (card?.residence_state ?? "").trim().toUpperCase();
+  const dist = (card?.home_district_code ?? "").trim();
+  if (dist) return dist;
+  if (st) return st;
+  return "—";
 }
 
 function faceUrlOk(url: string | null | undefined) {
@@ -72,12 +109,640 @@ function initials(name: string) {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
+function formatDate(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return null;
+  }
+}
+
+type VoteMode = "none" | "primary" | "general";
+
+function CandidateCard({
+  cand,
+  card,
+  name,
+  isYou,
+  isWinner,
+  isLeader,
+  primaryCount,
+  generalCount,
+  showPrimaryCount,
+  showGeneralCount,
+  showCampaignActivity,
+  speechCount,
+  rallyCount,
+  selected,
+  mode,
+  electionId,
+  disabled,
+  emphasizeParty,
+}: {
+  cand: CandRow;
+  card: CandidateCardFields | undefined;
+  name: string;
+  isYou: boolean;
+  isWinner: boolean;
+  isLeader: boolean;
+  primaryCount: number | null;
+  generalCount: number | null;
+  showPrimaryCount: boolean;
+  showGeneralCount: boolean;
+  showCampaignActivity: boolean;
+  speechCount: number;
+  rallyCount: number;
+  selected: boolean;
+  mode: VoteMode;
+  electionId: string;
+  disabled: boolean;
+  emphasizeParty: boolean;
+}) {
+  const meta = partyMeta(cand.party);
+  const faceUrl = faceUrlOk(card?.face_claim_url) ? card!.face_claim_url! : null;
+  const filedOn = formatDate(cand.created_at);
+
+  const baseBg = emphasizeParty ? meta.cardBg : "bg-[var(--psc-panel)]";
+  const baseBorder = emphasizeParty
+    ? meta.cardBorder
+    : `border-[var(--psc-border)] ${meta.accent}`;
+
+  return (
+    <article
+      className={`flex h-full flex-col gap-3 rounded-lg border p-4 shadow-sm transition ${baseBg} ${
+        isWinner
+          ? "border-emerald-700 ring-2 ring-emerald-200"
+          : selected
+            ? "border-[var(--psc-accent)] ring-2 ring-[var(--psc-accent)]/30"
+            : baseBorder
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        {faceUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={faceUrl}
+            alt=""
+            className="h-14 w-14 shrink-0 rounded object-cover"
+          />
+        ) : (
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-white/70 text-sm font-semibold text-[var(--psc-ink)]">
+            {initials(name)}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-base font-semibold text-[var(--psc-ink)]">
+              {name}
+            </p>
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${meta.pill}`}
+            >
+              {meta.label}
+            </span>
+            {isYou ? (
+              <span className="rounded bg-[var(--psc-ink)] px-2 py-0.5 text-[10px] font-semibold uppercase text-white">
+                You
+              </span>
+            ) : null}
+            {cand.primary_winner ? (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
+                Nominee
+              </span>
+            ) : null}
+            {isLeader && !isWinner ? (
+              <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-900">
+                Leading
+              </span>
+            ) : null}
+            {isWinner ? (
+              <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-900">
+                Winner
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            {seatLine(card)}
+            {filedOn ? ` · Filed ${filedOn}` : ""}
+          </p>
+          {(showPrimaryCount && primaryCount !== null) ||
+          (showGeneralCount && generalCount !== null) ||
+          showCampaignActivity ? (
+            <div className="mt-2 flex flex-wrap gap-3 font-mono text-xs">
+              {showPrimaryCount && primaryCount !== null ? (
+                <span className="text-[var(--psc-muted)]">
+                  Primary:{" "}
+                  <span className="text-[var(--psc-ink)]">{primaryCount}</span>
+                </span>
+              ) : null}
+              {showGeneralCount && generalCount !== null ? (
+                <span className="text-[var(--psc-muted)]">
+                  General:{" "}
+                  <span className="text-[var(--psc-ink)]">{generalCount}</span>
+                </span>
+              ) : null}
+              {showCampaignActivity ? (
+                <>
+                  <span className="text-[var(--psc-muted)]">
+                    Speeches:{" "}
+                    <span className="text-[var(--psc-ink)]">{speechCount}</span>
+                  </span>
+                  <span className="text-[var(--psc-muted)]">
+                    Rallies:{" "}
+                    <span className="text-[var(--psc-ink)]">{rallyCount}</span>
+                  </span>
+                  <span className="text-[var(--psc-muted)]">
+                    Pts:{" "}
+                    <span className="text-[var(--psc-ink)]">
+                      {Number(cand.campaign_points_total ?? 0).toFixed(1)}
+                    </span>
+                  </span>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {mode !== "none" ? (
+        <form
+          action={mode === "primary" ? castPrimaryVote : castGeneralVote}
+          className="mt-auto"
+        >
+          <input type="hidden" name="election_id" value={electionId} />
+          <input type="hidden" name="candidate_id" value={cand.id} />
+          <button
+            type="submit"
+            disabled={disabled}
+            className={`w-full rounded border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
+              selected
+                ? "border-[var(--psc-accent)] bg-[var(--psc-accent)] text-white hover:brightness-110"
+                : "border-[var(--psc-ink)] bg-white text-[var(--psc-ink)] hover:bg-[var(--psc-canvas)]"
+            } ${disabled ? "cursor-not-allowed opacity-50 hover:brightness-100" : ""}`}
+          >
+            {selected ? "Unvote" : "Vote"}
+          </button>
+        </form>
+      ) : null}
+    </article>
+  );
+}
+
+type CandidateScore = {
+  id: string;
+  user_id: string;
+  party: string;
+  campaign_points_with_lean: number;
+  votes: number;
+  share: number;
+};
+
+function computeScores(
+  cands: CandRow[],
+  partisanLean: number,
+  generalTally: Record<string, number>,
+): CandidateScore[] {
+  const inputs = cands.map((c) => {
+    const lean =
+      c.party === "democrat"
+        ? districtLeanBonus(partisanLean, "democrat")
+        : c.party === "republican"
+          ? districtLeanBonus(partisanLean, "republican")
+          : 0;
+    const pts = Math.max(0, Number(c.campaign_points_total ?? 0) + lean);
+    const votes = generalTally[c.id] ?? 0;
+    return { cand: c, pts, votes };
+  });
+
+  const campTotal = inputs.reduce((s, i) => s + i.pts, 0);
+  const voteTotal = inputs.reduce((s, i) => s + i.votes, 0);
+  const n = Math.max(1, inputs.length);
+
+  const scored = inputs.map(({ cand, pts, votes }) => {
+    const campShare = campTotal > 0 ? pts / campTotal : 1 / n;
+    const voteShare = voteTotal > 0 ? votes / voteTotal : 1 / n;
+    const share = 0.6 * campShare + 0.4 * voteShare;
+    return {
+      id: cand.id,
+      user_id: cand.user_id,
+      party: cand.party,
+      campaign_points_with_lean: pts,
+      votes,
+      share,
+    };
+  });
+
+  const sum = scored.reduce((s, i) => s + i.share, 0) || 1;
+  return scored.map((s) => ({ ...s, share: s.share / sum }));
+}
+
+function SpreadBar({
+  scores,
+  nameBy,
+  candidateCardByUserId,
+}: {
+  scores: CandidateScore[];
+  nameBy: Record<string, string>;
+  candidateCardByUserId: Record<string, CandidateCardFields>;
+}) {
+  if (scores.length < 2) return null;
+
+  const sorted = [...scores].sort((a, b) => b.share - a.share);
+
+  const segments = sorted.map((s) => {
+    const meta = partyMeta(s.party);
+    const name =
+      candidateCardByUserId[s.user_id]?.character_name?.trim() ||
+      nameBy[s.user_id]?.trim() ||
+      s.user_id.slice(0, 8);
+    let color = "bg-slate-400";
+    if (s.party === "democrat") color = "bg-blue-600";
+    else if (s.party === "republican") color = "bg-red-600";
+    else if (s.party === "independent") color = "bg-slate-600";
+    return { ...s, meta, name, color };
+  });
+
+  return (
+    <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+          Projected vote
+        </h3>
+        <span className="text-[10px] text-[var(--psc-muted)]">
+          60% campaign points + 40% community votes
+        </span>
+      </div>
+      <div className="flex h-7 w-full overflow-hidden rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)]">
+        {segments.map((s) => (
+          <div
+            key={s.id}
+            className={`${s.color} flex items-center justify-center text-[10px] font-semibold text-white transition-[width]`}
+            style={{ width: `${Math.max(0, s.share * 100)}%` }}
+            title={`${s.name}: ${(s.share * 100).toFixed(1)}%`}
+          >
+            {s.share > 0.12 ? `${Math.round(s.share * 100)}%` : ""}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs">
+        {segments.map((s) => (
+          <div key={s.id} className="flex min-w-0 items-center gap-2">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.color}`} />
+            <span className="truncate">
+              <span className="font-semibold text-[var(--psc-ink)]">{s.name}</span>
+              <span className="ml-1 text-[var(--psc-muted)]">
+                · {(s.share * 100).toFixed(1)}% · {s.votes} votes · {s.campaign_points_with_lean.toFixed(1)} pts
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CampaignPanel({
+  election,
+  myCandidate,
+  myRalliesInWindow,
+  myRallyLimit,
+  myRallyWindowHours,
+  speechCount,
+  rallyCount,
+  states,
+  partisanLean,
+}: {
+  election: ElectionRow;
+  myCandidate: CandRow;
+  myRalliesInWindow: number;
+  myRallyLimit: number;
+  myRallyWindowHours: number;
+  speechCount: number;
+  rallyCount: number;
+  states: Array<{ code: string; name: string }>;
+  partisanLean: number;
+}) {
+  const remainingRallies = Math.max(0, myRallyLimit - myRalliesInWindow);
+  const meta = partyMeta(myCandidate.party);
+  const leanForMe =
+    myCandidate.party === "democrat"
+      ? districtLeanBonus(partisanLean, "democrat")
+      : myCandidate.party === "republican"
+        ? districtLeanBonus(partisanLean, "republican")
+        : 0;
+
+  const officeLabel = election.office;
+  const needsStatePicker = officeLabel === "president";
+
+  return (
+    <section className="space-y-4 border-2 border-[var(--psc-accent)]/40 bg-[var(--psc-panel)] p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--psc-ink)]">
+            Your campaign
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+            Running as{" "}
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${meta.pill}`}
+            >
+              {meta.label}
+            </span>
+            {leanForMe ? (
+              <>
+                {" "}
+                · Starting lean {leanForMe > 0 ? "+" : ""}
+                {leanForMe.toFixed(1)} pts
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3 text-xs text-[var(--psc-muted)]">
+          <span>
+            Speeches: <strong className="text-[var(--psc-ink)]">{speechCount}</strong>
+          </span>
+          <span>
+            Rallies: <strong className="text-[var(--psc-ink)]">{rallyCount}</strong>
+          </span>
+          <span>
+            Total points:{" "}
+            <strong className="text-[var(--psc-ink)]">
+              {Number(myCandidate.campaign_points_total ?? 0).toFixed(1)}
+            </strong>
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Speech */}
+        <form action={submitCampaignSpeech} className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Speech</h3>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              +5 pts each
+            </span>
+          </div>
+          <p className="text-xs text-[var(--psc-muted)]">
+            Minimum 200 words. Pasting is disabled — type your speech yourself.
+            {officeLabel === "house"
+              ? ` It attributes to ${election.district_code ?? "this district"}.`
+              : officeLabel === "senate"
+                ? ` It attributes to ${election.state ?? "this state"}.`
+                : " Pick a state below to target a region."}
+          </p>
+          <input type="hidden" name="election_id" value={election.id} />
+          {needsStatePicker ? (
+            <label className="grid gap-1 text-xs font-semibold">
+              Target state
+              <select
+                name="target_state"
+                required
+                defaultValue=""
+                className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
+              >
+                <option value="" disabled>
+                  Pick a state…
+                </option>
+                {states.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} · {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <SpeechTextareaWithCounter
+            name="content"
+            rows={8}
+            placeholder="Write your speech (min 200 words)…"
+            className="w-full min-h-[10rem] resize-vertical rounded border border-[var(--psc-border)] bg-white p-2 text-sm outline-none focus:border-[var(--psc-accent)]"
+          />
+          <button
+            type="submit"
+            className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110"
+          >
+            Deliver speech (+5 pts)
+          </button>
+        </form>
+
+        {/* Rally */}
+        <form action={submitCampaignRally} className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Rally</h3>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              +0.5 pts each
+            </span>
+          </div>
+          <p className="text-xs text-[var(--psc-muted)]">
+            {officeLabel === "house"
+              ? `Rallies stay in ${election.district_code ?? "your district"}.`
+              : officeLabel === "senate"
+                ? `Rallies stay in ${election.state ?? "your state"}.`
+                : "Choose any state — rallies affect only that state's tally."}
+          </p>
+          <div className="flex items-center justify-between rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-xs">
+            <span className="text-[var(--psc-muted)]">
+              Used this {myRallyWindowHours}h window
+            </span>
+            <span className="font-mono font-semibold text-[var(--psc-ink)]">
+              {myRalliesInWindow} / {myRallyLimit}
+            </span>
+          </div>
+          <input type="hidden" name="election_id" value={election.id} />
+          {needsStatePicker ? (
+            <label className="grid gap-1 text-xs font-semibold">
+              Target state
+              <select
+                name="target_state"
+                required
+                defaultValue=""
+                className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
+              >
+                <option value="" disabled>
+                  Pick a state…
+                </option>
+                {states.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} · {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {officeLabel === "house" && election.district_code ? (
+            <input type="hidden" name="target_district" value={election.district_code} />
+          ) : null}
+          {officeLabel === "senate" && election.state ? (
+            <input type="hidden" name="target_state" value={election.state} />
+          ) : null}
+          <button
+            type="submit"
+            disabled={remainingRallies <= 0}
+            className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
+          >
+            {remainingRallies > 0
+              ? `Hold rally (+0.5 pts · ${remainingRallies} left)`
+              : `Cap reached — try again later`}
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function PartyGroupedCandidates({
+  candidates,
+  card,
+  nameBy,
+  winnerUserId,
+  userId,
+  primaryTally,
+  generalTally,
+  speechCountBy,
+  rallyCountBy,
+  showPrimaryCount,
+  showGeneralCount,
+  showCampaignActivity,
+  leaderCandidateId,
+  primaryOpenForPartyOnly,
+  primaryPartyRestriction,
+  myPrimaryCandidateId,
+  myGeneralCandidateId,
+  electionId,
+  mode,
+  voteDisabled,
+  emptyMessage,
+  emphasizeParty,
+}: {
+  candidates: CandRow[];
+  card: Record<string, CandidateCardFields>;
+  nameBy: Record<string, string>;
+  winnerUserId: string | null;
+  userId: string;
+  primaryTally: Record<string, number>;
+  generalTally: Record<string, number>;
+  speechCountBy: Record<string, number>;
+  rallyCountBy: Record<string, number>;
+  showPrimaryCount: boolean;
+  showGeneralCount: boolean;
+  showCampaignActivity: boolean;
+  leaderCandidateId: string | null;
+  primaryOpenForPartyOnly: string | null;
+  primaryPartyRestriction: boolean;
+  myPrimaryCandidateId: string | null;
+  myGeneralCandidateId: string | null;
+  electionId: string;
+  mode: VoteMode;
+  voteDisabled: boolean;
+  emptyMessage: string;
+  emphasizeParty: boolean;
+}) {
+  if (!candidates.length) {
+    return (
+      <p className="rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-sm text-[var(--psc-muted)]">
+        {emptyMessage}
+      </p>
+    );
+  }
+
+  const groups = new Map<string, CandRow[]>();
+  for (const c of candidates) {
+    const key = PARTY_ORDER.includes(c.party as PartyKey) ? c.party : "independent";
+    const list = groups.get(key) ?? [];
+    list.push(c);
+    groups.set(key, list);
+  }
+
+  const orderedKeys = PARTY_ORDER.filter((k) => groups.has(k));
+  for (const k of groups.keys()) {
+    if (!orderedKeys.includes(k as PartyKey)) orderedKeys.push(k as PartyKey);
+  }
+
+  return (
+    <div className="space-y-6">
+      {orderedKeys.map((party) => {
+        const meta = partyMeta(party);
+        const list = groups.get(party) ?? [];
+        const canVoteInThisParty =
+          mode === "primary" &&
+          !voteDisabled &&
+          (primaryOpenForPartyOnly === null || primaryOpenForPartyOnly === party);
+        const mayVoteHere =
+          mode === "general" ? !voteDisabled : canVoteInThisParty;
+
+        return (
+          <div key={party} className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2">
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${meta.pill}`}
+                >
+                  {meta.label}
+                </span>
+                <span className="text-xs text-[var(--psc-muted)]">
+                  {list.length} candidate{list.length === 1 ? "" : "s"}
+                </span>
+              </h3>
+              {mode === "primary" &&
+              primaryPartyRestriction &&
+              primaryOpenForPartyOnly !== null &&
+              primaryOpenForPartyOnly !== party ? (
+                <span className="text-xs text-[var(--psc-muted)]">
+                  Voting locked — not your party
+                </span>
+              ) : null}
+            </div>
+            <ul className="grid gap-3 md:grid-cols-2">
+              {list.map((c) => {
+                const primaryCount = primaryTally[c.id] ?? 0;
+                const generalCount = generalTally[c.id] ?? 0;
+                const selected =
+                  mode === "primary"
+                    ? myPrimaryCandidateId === c.id
+                    : mode === "general"
+                      ? myGeneralCandidateId === c.id
+                      : false;
+                return (
+                  <li key={c.id}>
+                    <CandidateCard
+                      cand={c}
+                      card={card[c.user_id]}
+                      name={displayName(card[c.user_id], c.user_id, nameBy)}
+                      isYou={c.user_id === userId}
+                      isWinner={winnerUserId === c.user_id}
+                      isLeader={leaderCandidateId === c.id}
+                      primaryCount={primaryCount}
+                      generalCount={generalCount}
+                      showPrimaryCount={showPrimaryCount}
+                      showGeneralCount={showGeneralCount}
+                      showCampaignActivity={showCampaignActivity}
+                      speechCount={speechCountBy[c.id] ?? 0}
+                      rallyCount={rallyCountBy[c.id] ?? 0}
+                      selected={selected}
+                      mode={mayVoteHere ? mode : "none"}
+                      electionId={electionId}
+                      disabled={!mayVoteHere}
+                      emphasizeParty={emphasizeParty}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ElectionDetail({
   election,
   candidates,
   nameBy,
   candidateCardByUserId,
   primaryTally,
+  generalTally,
   myPrimaryCandidateId,
   myGeneralCandidateId,
   profileParty,
@@ -86,15 +751,19 @@ export function ElectionDetail({
   userId,
   isAdmin,
   winnerName,
+  partisanLean,
+  speechCountBy,
+  rallyCountBy,
+  myRalliesInWindow,
+  states,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
   nameBy: Record<string, string>;
   candidateCardByUserId: Record<string, CandidateCardFields>;
   primaryTally: Record<string, number>;
-  /** Your current primary ballot in this race, if any. */
+  generalTally: Record<string, number>;
   myPrimaryCandidateId: string | null;
-  /** Your current general ballot in this race, if any. */
   myGeneralCandidateId: string | null;
   profileParty: string | null;
   profileForFiling: ProfileSeatFields | null;
@@ -102,6 +771,11 @@ export function ElectionDetail({
   userId: string;
   isAdmin: boolean;
   winnerName: string | null;
+  partisanLean: number;
+  speechCountBy: Record<string, number>;
+  rallyCountBy: Record<string, number>;
+  myRalliesInWindow: number;
+  states: Array<{ code: string; name: string }>;
 }) {
   const now = new Date();
   const filingOpen =
@@ -126,9 +800,29 @@ export function ElectionDetail({
     ? candidates.filter((c) => c.primary_winner)
     : candidates;
 
-  const primaryPartyCandidates =
-    election.phase === "primary" && primaryOpen ? candidates.filter((c) => c.party === profileParty) : [];
-  const primaryPartyVoteTotal = primaryPartyCandidates.reduce((s, c) => s + (primaryTally[c.id] ?? 0), 0);
+  const primaryPartyRestricted =
+    election.primary_party_wide === false && election.office !== "president";
+  const primaryOpenForPartyOnly = profileParty ?? null;
+
+  // Live leader of the general: plurality of general votes among nominees, undefined if no votes cast.
+  let generalLeaderId: string | null = null;
+  if (election.phase === "general" || election.phase === "closed") {
+    let bestCount = 0;
+    for (const c of generalCandidates) {
+      const n = generalTally[c.id] ?? 0;
+      if (n > bestCount) {
+        bestCount = n;
+        generalLeaderId = c.id;
+      } else if (n === bestCount && bestCount > 0) {
+        generalLeaderId = null;
+      }
+    }
+  }
+
+  const seatLabel =
+    election.district_code ?? election.state ?? "United States";
+
+  const meta = partyMeta(profileParty ?? "");
 
   return (
     <div className="space-y-8">
@@ -141,14 +835,17 @@ export function ElectionDetail({
         </Link>
       ) : null}
 
-      <header className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-          {election.phase}
-        </p>
-        <h1 className="text-2xl font-semibold">
-          {election.district_code ?? election.state ?? "United States"} · {election.office}
-        </h1>
-        <dl className="mt-4 grid gap-2 text-xs text-[var(--psc-muted)] sm:grid-cols-2">
+      <header className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]">
+            {election.phase}
+          </span>
+          <span className="text-xs text-[var(--psc-muted)]">
+            {election.office.toUpperCase()}
+          </span>
+        </div>
+        <h1 className="text-2xl font-semibold">{seatLabel}</h1>
+        <dl className="grid gap-2 text-xs text-[var(--psc-muted)] sm:grid-cols-2">
           <div>
             Filing: {new Date(election.filing_opens_at).toLocaleString()} —{" "}
             {new Date(election.filing_closes_at).toLocaleString()}
@@ -158,186 +855,238 @@ export function ElectionDetail({
         </dl>
       </header>
 
-      {election.phase !== "closed" ? (
-        <aside className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-muted)]">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]">
-            How you use this race
-          </h2>
-          <ol className="mt-2 list-decimal space-y-1 pl-5">
-            <li>
-              <strong>Filing</strong>: While filing is open, use <strong>File candidacy</strong>. Your ballot
-              party is taken from your Character page; House and Senate seats must match your home district or
-              residence state. You may only have one active congressional filing at a time, but you may also
-              file for President alongside that seat. FEC-style point totals only affect <strong>general</strong>{" "}
-              certification, not the primary.
-            </li>
-            <li>
-              <strong>Primary</strong>: <strong>Player votes only</strong> — same-party ballot on this site.
-              {election.primary_party_wide !== false ? (
-                <>
-                  {" "}
-                  This race uses a <strong>party-wide</strong> primary: you may vote here even if this
-                  seat is not where your character lives, so your party can pick nominees in other
-                  districts. You may vote for yourself if you are on the ballot.
-                </>
-              ) : (
-                <>
-                  {" "}
-                  This race limits primary ballots to players whose <strong>Character</strong> home
-                  district (House) or residence state (Senate) matches this seat — except you may always
-                  vote for <strong>yourself</strong> if you are a candidate here.
-                </>
-              )}{" "}
-              After the primary deadline, each party&apos;s nominee is whoever got the most site votes in
-              that party (ties broken deterministically); the race then moves to general automatically.
-              Campaign points are not used in the primary.
-            </li>
-            <li>
-              <strong>General</strong>: Cast your site vote here. For House and Senate, certification blends{" "}
-              community votes with campaign points (60/40). House seats also apply the district&apos;s
-              partisan lean at certify time.
-            </li>
-          </ol>
-        </aside>
-      ) : null}
-
       {election.phase === "closed" && election.winner_user_id ? (
-        <section className="border-2 border-green-900 bg-green-50 p-6 text-green-950">
-          <h2 className="text-lg font-semibold">Certified winner</h2>
-          <p className="mt-2 text-xl font-semibold">{winnerName ?? election.winner_user_id}</p>
+        <section className="border-2 border-emerald-700 bg-emerald-50 p-6 text-emerald-950">
+          <h2 className="text-sm font-semibold uppercase tracking-wide">
+            Certified winner
+          </h2>
+          <p className="mt-1 text-2xl font-semibold">
+            {winnerName ?? election.winner_user_id}
+          </p>
         </section>
       ) : null}
 
-      {election.phase === "filing" && filingOpen && !myRow ? (
-        <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-          <h2 className="text-lg font-semibold">File for this office</h2>
-          <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            Declare a party for this run. It should match how you caucus in Discord primaries.
-          </p>
-          <form action={fileCandidacy} className="mt-4 flex flex-wrap items-end gap-3">
-            <input type="hidden" name="election_id" value={election.id} />
-            <label className="grid gap-1 text-sm font-semibold">
-              Party for this race
-              <select name="party" className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal">
-                <option value="democrat">Democratic Party</option>
-                <option value="republican">Republican Party</option>
-                <option value="independent">Independent</option>
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
-            >
-              File candidacy
-            </button>
-          </form>
-        </section>
-      ) : null}
-
-      {election.phase === "filing" && myRow && filingOpen ? (
-        <p className="text-sm text-[var(--psc-muted)]">
-          You are filed as <strong>{myRow.party}</strong> for this race. When the filing window ends, the race
-          moves to <strong>primary</strong> automatically (reload the page if it does not update right away).
-        </p>
-      ) : null}
-
-      {election.phase === "primary" && primaryOpen ? (
-        <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-          <h2 className="text-lg font-semibold">Primary ballot</h2>
-          <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            Your profile party is <strong>{profileParty ?? "—"}</strong>. You only see{" "}
-            <strong>your party’s</strong> candidates for this seat (other parties’ primaries are hidden).
-            You may vote for yourself if you are filed here. The primary is decided from{" "}
-            <strong>these votes only</strong> (no campaign-point scoring).
-            {election.primary_party_wide !== false || election.office === "president" ? (
-              <> This primary is open to your party nationwide — you do not need to live in this district.</>
-            ) : (
-              <>
-                {" "}
-                This primary is limited to players whose Character record matches this seat (except
-                candidates may vote for themselves).
-              </>
-            )}
-          </p>
-          <ul className="mt-4 space-y-3">
-            {candidates
-              .filter((c) => c.party === profileParty)
-              .map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border border-[var(--psc-border)] px-3 py-2">
-                  <span className="font-semibold">{nameBy[c.user_id] ?? c.user_id.slice(0, 8)}</span>
-                  <form action={castPrimaryVote}>
-                    <input type="hidden" name="election_id" value={election.id} />
-                    <input type="hidden" name="candidate_id" value={c.id} />
-                    <button
-                      type="submit"
-                      className="border border-[var(--psc-border)] px-3 py-1 text-xs font-semibold uppercase"
-                    >
-                      Vote
-                    </button>
-                  </form>
-                </li>
-              ))}
-          </ul>
-          {candidates.filter((c) => c.party === profileParty).length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--psc-muted)]">
-              No candidates in your party yet, or your profile party is not set. Update your character
-              party on the Character page.
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      {election.phase === "general" && generalOpen ? (
-        <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-          <h2 className="text-lg font-semibold">General election</h2>
-          <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            One vote per race. Unlike the primary, the general uses <strong>votes plus campaign points</strong>{" "}
-            (60/40) when an admin finalizes House and Senate races. President is finalized manually by
-            admins.
-          </p>
-          <ul className="mt-4 space-y-3">
-            {generalCandidates.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border border-[var(--psc-border)] px-3 py-2">
-                <div>
-                  <span className="font-semibold">{nameBy[c.user_id] ?? c.user_id.slice(0, 8)}</span>
-                  <span className="ml-2 text-sm text-[var(--psc-muted)]">{c.party}</span>
-                  <span className="ml-2 font-mono text-xs text-[var(--psc-muted)]">
-                    campaign pts {Number(c.campaign_points_total ?? 0)}
-                  </span>
-                </div>
-                <form action={castGeneralVote}>
+      {/* FILING PHASE */}
+      {election.phase === "filing" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+            <div className="min-w-0 max-w-2xl">
+              <h2 className="text-lg font-semibold">Filing window</h2>
+              <p className="mt-1 text-sm text-[var(--psc-muted)]">
+                Candidates file as their current party automatically.{" "}
+                {election.office === "house"
+                  ? "Only players whose home district matches this seat can file."
+                  : election.office === "senate"
+                    ? "Only players whose residence state matches this seat can file."
+                    : "Any eligible player can file for president."}
+              </p>
+            </div>
+            <div className="flex flex-col items-stretch gap-2">
+              {myRow ? (
+                <p className="rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  You&apos;re filed as{" "}
+                  <strong>{partyMeta(myRow.party).label}</strong>.
+                </p>
+              ) : !filingOpen ? (
+                <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Filing is not open right now.
+                </p>
+              ) : canFileCandidacy ? (
+                <form action={fileCandidacy}>
                   <input type="hidden" name="election_id" value={election.id} />
-                  <input type="hidden" name="candidate_id" value={c.id} />
                   <button
                     type="submit"
-                    className="border border-[var(--psc-border)] px-3 py-1 text-xs font-semibold uppercase"
+                    className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
                   >
-                    Vote
+                    File as{" "}
+                    <span className={`ml-1 rounded-sm px-1 ${meta.pill}`}>
+                      {meta.label}
+                    </span>
                   </button>
+                  <p className="mt-2 text-center text-[10px] text-[var(--psc-muted)]">
+                    Party auto-pulled from your Character page.
+                  </p>
                 </form>
-              </li>
-            ))}
-          </ul>
+              ) : (
+                <p className="max-w-xs rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {filingEligibilityMessage}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                Filed candidates
+              </h3>
+              <span className="text-xs text-[var(--psc-muted)]">
+                {candidates.length} total
+              </span>
+            </div>
+            <PartyGroupedCandidates
+              candidates={candidates}
+              card={candidateCardByUserId}
+              nameBy={nameBy}
+              winnerUserId={election.winner_user_id}
+              userId={userId}
+              primaryTally={primaryTally}
+              generalTally={generalTally}
+              speechCountBy={speechCountBy}
+              rallyCountBy={rallyCountBy}
+              showPrimaryCount={false}
+              showGeneralCount={false}
+              showCampaignActivity={false}
+              leaderCandidateId={null}
+              primaryOpenForPartyOnly={null}
+              primaryPartyRestriction={false}
+              myPrimaryCandidateId={null}
+              myGeneralCandidateId={null}
+              electionId={election.id}
+              mode="none"
+              voteDisabled
+              emptyMessage="No one has filed yet. Be the first — if you're eligible."
+              emphasizeParty={false}
+            />
+          </div>
         </section>
       ) : null}
 
-      {election.phase === "filing" && !filingOpen && !myRow ? (
-        <p className="text-sm text-amber-800">Filing is not open at this time.</p>
+      {/* PRIMARY PHASE */}
+      {election.phase === "primary" ? (
+        <section className="space-y-4">
+          <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+            <h2 className="text-lg font-semibold">Primary ballot</h2>
+            <p className="mt-1 text-sm text-[var(--psc-muted)]">
+              Your party is{" "}
+              <strong>{partyMeta(profileParty ?? "").label}</strong>. You can only
+              vote on candidates in your party.
+              {primaryPartyRestricted ? (
+                <> This primary is limited to players whose Character record matches this seat.</>
+              ) : (
+                <> This primary is open party-wide.</>
+              )}
+            </p>
+          </div>
+          <PartyGroupedCandidates
+            candidates={candidates}
+            card={candidateCardByUserId}
+            nameBy={nameBy}
+            winnerUserId={election.winner_user_id}
+            userId={userId}
+            primaryTally={primaryTally}
+            generalTally={generalTally}
+            speechCountBy={speechCountBy}
+            rallyCountBy={rallyCountBy}
+            showPrimaryCount
+            showGeneralCount={false}
+            showCampaignActivity={false}
+            leaderCandidateId={null}
+            primaryOpenForPartyOnly={primaryOpenForPartyOnly}
+            primaryPartyRestriction={primaryPartyRestricted}
+            myPrimaryCandidateId={myPrimaryCandidateId}
+            myGeneralCandidateId={null}
+            electionId={election.id}
+            mode="primary"
+            voteDisabled={!primaryOpen || !profileParty}
+            emptyMessage="No one filed for this race."
+            emphasizeParty
+          />
+        </section>
       ) : null}
-      {election.phase === "filing" && !filingOpen && myRow ? (
-        <p className="text-sm text-[var(--psc-muted)]">
-          Filing has closed and you remain on the ballot. This page should switch to <strong>primary</strong>{" "}
-          automatically; refresh if you still see &quot;filing&quot; in the header after a few seconds.
-        </p>
+
+      {/* GENERAL PHASE */}
+      {election.phase === "general" ? (
+        <section className="space-y-4">
+          <SpreadBar
+            scores={computeScores(generalCandidates, partisanLean, generalTally)}
+            nameBy={nameBy}
+            candidateCardByUserId={candidateCardByUserId}
+          />
+          {myRow && myRow.primary_winner ? (
+            <CampaignPanel
+              election={election}
+              myCandidate={myRow}
+              myRalliesInWindow={myRalliesInWindow}
+              myRallyLimit={10}
+              myRallyWindowHours={3}
+              speechCount={speechCountBy[myRow.id] ?? 0}
+              rallyCount={rallyCountBy[myRow.id] ?? 0}
+              states={states}
+              partisanLean={partisanLean}
+            />
+          ) : null}
+          <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+            <h2 className="text-lg font-semibold">General election</h2>
+            <p className="mt-1 text-sm text-[var(--psc-muted)]">
+              Vote once per race — you can vote for yourself. The live vote leader is visible to everyone,
+              but individual ballots stay private. For House and Senate, the final score blends community
+              votes with campaign points (60/40), starting from the partisan lean shown above.
+            </p>
+          </div>
+          <PartyGroupedCandidates
+            candidates={generalCandidates}
+            card={candidateCardByUserId}
+            nameBy={nameBy}
+            winnerUserId={election.winner_user_id}
+            userId={userId}
+            primaryTally={primaryTally}
+            generalTally={generalTally}
+            speechCountBy={speechCountBy}
+            rallyCountBy={rallyCountBy}
+            showPrimaryCount={false}
+            showGeneralCount
+            showCampaignActivity
+            leaderCandidateId={generalLeaderId}
+            primaryOpenForPartyOnly={null}
+            primaryPartyRestriction={false}
+            myPrimaryCandidateId={null}
+            myGeneralCandidateId={myGeneralCandidateId}
+            electionId={election.id}
+            mode="general"
+            voteDisabled={!generalOpen}
+            emptyMessage="No candidates on the general ballot."
+            emphasizeParty
+          />
+        </section>
       ) : null}
-      {election.phase === "primary" && !primaryOpen ? (
-        <p className="text-sm text-[var(--psc-muted)]">
-          Primary voting has ended. The race moves to <strong>general</strong> automatically; refresh if the
-          header still says primary.
-        </p>
-      ) : null}
-      {election.phase === "general" && !generalOpen ? (
-        <p className="text-sm text-[var(--psc-muted)]">General voting is closed.</p>
+
+      {/* CLOSED PHASE (final roster) */}
+      {election.phase === "closed" ? (
+        <section className="space-y-3">
+          <SpreadBar
+            scores={computeScores(generalCandidates, partisanLean, generalTally)}
+            nameBy={nameBy}
+            candidateCardByUserId={candidateCardByUserId}
+          />
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Final roster
+          </h3>
+          <PartyGroupedCandidates
+            candidates={candidates}
+            card={candidateCardByUserId}
+            nameBy={nameBy}
+            winnerUserId={election.winner_user_id}
+            userId={userId}
+            primaryTally={primaryTally}
+            generalTally={generalTally}
+            speechCountBy={speechCountBy}
+            rallyCountBy={rallyCountBy}
+            showPrimaryCount={false}
+            showGeneralCount
+            showCampaignActivity
+            leaderCandidateId={null}
+            primaryOpenForPartyOnly={null}
+            primaryPartyRestriction={false}
+            myPrimaryCandidateId={null}
+            myGeneralCandidateId={null}
+            electionId={election.id}
+            mode="none"
+            voteDisabled
+            emptyMessage="No candidates for this race."
+            emphasizeParty
+          />
+        </section>
       ) : null}
     </div>
   );
