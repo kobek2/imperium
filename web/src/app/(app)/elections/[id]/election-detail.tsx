@@ -3,8 +3,6 @@ import {
   castGeneralVote,
   castPrimaryVote,
   fileCandidacy,
-  submitCampaignRally,
-  submitCampaignSpeech,
 } from "@/app/actions/elections";
 import { districtLeanBonus } from "@/lib/fec";
 import {
@@ -12,7 +10,8 @@ import {
   type ActiveCandidacySlots,
   type ProfileSeatFields,
 } from "@/lib/election-filing";
-import { SpeechTextareaWithCounter } from "./speech-textarea-with-counter";
+import { RallyForm } from "./rally-form";
+import { SpeechForm } from "./speech-form";
 
 type ElectionRow = {
   id: string;
@@ -408,6 +407,7 @@ function CampaignPanel({
   myRalliesInWindow,
   myRallyLimit,
   myRallyWindowHours,
+  myNextRallyAt,
   speechCount,
   rallyCount,
   states,
@@ -418,12 +418,12 @@ function CampaignPanel({
   myRalliesInWindow: number;
   myRallyLimit: number;
   myRallyWindowHours: number;
+  myNextRallyAt: string | null;
   speechCount: number;
   rallyCount: number;
   states: Array<{ code: string; name: string }>;
   partisanLean: number;
 }) {
-  const remainingRallies = Math.max(0, myRallyLimit - myRalliesInWindow);
   const meta = partyMeta(myCandidate.party);
   const leanForMe =
     myCandidate.party === "democrat"
@@ -431,9 +431,6 @@ function CampaignPanel({
       : myCandidate.party === "republican"
         ? districtLeanBonus(partisanLean, "republican")
         : 0;
-
-  const officeLabel = election.office;
-  const needsStatePicker = officeLabel === "president";
 
   return (
     <section className="space-y-4 border-2 border-[var(--psc-accent)]/40 bg-[var(--psc-panel)] p-5 shadow-sm">
@@ -475,117 +472,24 @@ function CampaignPanel({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Speech */}
-        <form action={submitCampaignSpeech} className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Speech</h3>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              +5 pts each
-            </span>
-          </div>
-          <p className="text-xs text-[var(--psc-muted)]">
-            Minimum 200 words. Pasting is disabled — type your speech yourself.
-            {officeLabel === "house"
-              ? ` It attributes to ${election.district_code ?? "this district"}.`
-              : officeLabel === "senate"
-                ? ` It attributes to ${election.state ?? "this state"}.`
-                : " Pick a state below to target a region."}
-          </p>
-          <input type="hidden" name="election_id" value={election.id} />
-          {needsStatePicker ? (
-            <label className="grid gap-1 text-xs font-semibold">
-              Target state
-              <select
-                name="target_state"
-                required
-                defaultValue=""
-                className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
-              >
-                <option value="" disabled>
-                  Pick a state…
-                </option>
-                {states.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code} · {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <SpeechTextareaWithCounter
-            name="content"
-            rows={8}
-            placeholder="Write your speech (min 200 words)…"
-            className="w-full min-h-[10rem] resize-vertical rounded border border-[var(--psc-border)] bg-white p-2 text-sm outline-none focus:border-[var(--psc-accent)]"
-          />
-          <button
-            type="submit"
-            className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110"
-          >
-            Deliver speech (+5 pts)
-          </button>
-        </form>
-
-        {/* Rally */}
-        <form action={submitCampaignRally} className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Rally</h3>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              +0.5 pts each
-            </span>
-          </div>
-          <p className="text-xs text-[var(--psc-muted)]">
-            {officeLabel === "house"
-              ? `Rallies stay in ${election.district_code ?? "your district"}.`
-              : officeLabel === "senate"
-                ? `Rallies stay in ${election.state ?? "your state"}.`
-                : "Choose any state — rallies affect only that state's tally."}
-          </p>
-          <div className="flex items-center justify-between rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-xs">
-            <span className="text-[var(--psc-muted)]">
-              Used this {myRallyWindowHours}h window
-            </span>
-            <span className="font-mono font-semibold text-[var(--psc-ink)]">
-              {myRalliesInWindow} / {myRallyLimit}
-            </span>
-          </div>
-          <input type="hidden" name="election_id" value={election.id} />
-          {needsStatePicker ? (
-            <label className="grid gap-1 text-xs font-semibold">
-              Target state
-              <select
-                name="target_state"
-                required
-                defaultValue=""
-                className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
-              >
-                <option value="" disabled>
-                  Pick a state…
-                </option>
-                {states.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code} · {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {officeLabel === "house" && election.district_code ? (
-            <input type="hidden" name="target_district" value={election.district_code} />
-          ) : null}
-          {officeLabel === "senate" && election.state ? (
-            <input type="hidden" name="target_state" value={election.state} />
-          ) : null}
-          <button
-            type="submit"
-            disabled={remainingRallies <= 0}
-            className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
-          >
-            {remainingRallies > 0
-              ? `Hold rally (+0.5 pts · ${remainingRallies} left)`
-              : `Cap reached — try again later`}
-          </button>
-        </form>
+        <SpeechForm
+          electionId={election.id}
+          office={election.office}
+          state={election.state}
+          districtCode={election.district_code}
+          states={states}
+        />
+        <RallyForm
+          electionId={election.id}
+          office={election.office}
+          state={election.state}
+          districtCode={election.district_code}
+          used={myRalliesInWindow}
+          limit={myRallyLimit}
+          windowHours={myRallyWindowHours}
+          nextUnlockAt={myNextRallyAt}
+          states={states}
+        />
       </div>
     </section>
   );
@@ -755,6 +659,7 @@ export function ElectionDetail({
   speechCountBy,
   rallyCountBy,
   myRalliesInWindow,
+  myNextRallyAt,
   states,
 }: {
   election: ElectionRow;
@@ -775,6 +680,7 @@ export function ElectionDetail({
   speechCountBy: Record<string, number>;
   rallyCountBy: Record<string, number>;
   myRalliesInWindow: number;
+  myNextRallyAt: string | null;
   states: Array<{ code: string; name: string }>;
 }) {
   const now = new Date();
@@ -1010,6 +916,7 @@ export function ElectionDetail({
               myRalliesInWindow={myRalliesInWindow}
               myRallyLimit={10}
               myRallyWindowHours={3}
+              myNextRallyAt={myNextRallyAt}
               speechCount={speechCountBy[myRow.id] ?? 0}
               rallyCount={rallyCountBy[myRow.id] ?? 0}
               states={states}

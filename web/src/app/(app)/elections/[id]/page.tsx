@@ -133,6 +133,11 @@ export default async function ElectionDetailPage({
   const speechCountBy: Record<string, number> = {};
   const rallyCountBy: Record<string, number> = {};
   let myRalliesInWindow = 0;
+  // When the user is at the rate limit, this is the `created_at` of their oldest rally inside the
+  // 3h window. Once that timestamp is more than 3h in the past, a new rally becomes available.
+  let myNextRallyAt: string | null = null;
+  const RALLY_WINDOW_MS = 3 * 60 * 60 * 1000;
+  const RALLY_LIMIT = 10;
   if (candList.length) {
     const { data: speechRows } = await supabase
       .from("campaign_speeches")
@@ -152,14 +157,20 @@ export default async function ElectionDetailPage({
     }
     const myCand = candList.find((c) => c.user_id === user.id);
     if (myCand) {
-      const windowStart = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-      const { count } = await supabase
+      const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
+      const { data: myRallyRows } = await supabase
         .from("campaign_rallies")
-        .select("id", { count: "exact", head: true })
+        .select("created_at")
         .eq("election_id", id)
         .eq("candidate_id", myCand.id)
-        .gte("created_at", windowStart);
-      myRalliesInWindow = count ?? 0;
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true });
+      const rows = myRallyRows ?? [];
+      myRalliesInWindow = rows.length;
+      if (myRalliesInWindow >= RALLY_LIMIT && rows[0]) {
+        const oldest = new Date(rows[0].created_at as string).getTime();
+        myNextRallyAt = new Date(oldest + RALLY_WINDOW_MS).toISOString();
+      }
     }
   }
 
@@ -215,6 +226,7 @@ export default async function ElectionDetailPage({
         speechCountBy={speechCountBy}
         rallyCountBy={rallyCountBy}
         myRalliesInWindow={myRalliesInWindow}
+        myNextRallyAt={myNextRallyAt}
         states={(states ?? []) as Array<{ code: string; name: string }>}
       />
       {isAdmin ? (

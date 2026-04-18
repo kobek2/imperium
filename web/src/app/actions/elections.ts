@@ -162,12 +162,10 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
   const isForward = forwardFrom[prevPhase].includes(phase);
 
   if (isForward && (phase === "general" || phase === "closed")) {
-    // Ensure primary winners are flagged before moving out of primary (or through it).
-    if (
-      prevPhase === "filing" ||
-      prevPhase === "primary" ||
-      (prevPhase === "primary" && phase === "closed")
-    ) {
+    // Ensure primary winners are flagged before moving out of filing/primary. Coming from general we
+    // skip this — winners are already set. Skipping filing -> {general,closed} is also fine because
+    // pickPrimaryWinners handles the "solo filer" and "all zero votes" cases via filing-order tiebreak.
+    if (prevPhase === "filing" || prevPhase === "primary") {
       await pickPrimaryWinners(supabase, id);
     }
   }
