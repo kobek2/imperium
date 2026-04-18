@@ -7,6 +7,10 @@ import { canFileFederalLegislation, originatingChamberForRoles } from "@/lib/leg
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canReviewAnyChamberLeadership } from "@/lib/role-capabilities";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
+import {
+  isActivePresidentialRunningMate,
+  userCanBreakSenateTie,
+} from "@/lib/presidential-running-mate";
 import { BillCard, type BillVote, type VoterProfile } from "./bill-card";
 
 export default async function CongressPage() {
@@ -38,11 +42,12 @@ export default async function CongressPage() {
   const origin = originatingChamberForRoles(roleKeys);
   const leadershipNav = canReviewAnyChamberLeadership(roleKeys);
 
-  const [{ data: bills }, { data: leadershipSessions }] = await Promise.all([
+  const [{ data: bills }, { data: leadershipSessions }, isRunningMate, canBreakSenateTie] =
+    await Promise.all([
     supabase
       .from("bills")
       .select(
-        "id, title, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at",
+        "id, title, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
       .neq("status", "dead")
       .order("created_at", { ascending: false }),
@@ -50,6 +55,8 @@ export default async function CongressPage() {
       .from("leadership_sessions")
       .select("id, chamber, closes_at")
       .eq("phase", "open"),
+    isActivePresidentialRunningMate(supabase, user.id),
+    userCanBreakSenateTie(supabase, user.id, roleKeys),
   ]);
 
   const billList = bills ?? [];
@@ -202,6 +209,8 @@ export default async function CongressPage() {
                 voterById={voterById}
                 userId={user.id}
                 userChambers={userChambers}
+                isPresidentialRunningMate={isRunningMate}
+                canBreakSenateTie={canBreakSenateTie}
               />
             ))}
           </div>

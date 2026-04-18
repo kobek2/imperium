@@ -45,15 +45,15 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error(profileError.message);
   }
 
-  await supabase
-    .from("districts")
-    .update({ claimed_by: null })
-    .eq("claimed_by", user.id);
+  // Release any legacy exclusive district claim so we never strand `claimed_by` after the
+  // player moves. Home district is not exclusive — multiple players may share a district
+  // and run competitively for the same House seat.
+  await supabase.from("districts").update({ claimed_by: null }).eq("claimed_by", user.id);
 
   if (home_district_code) {
     const { data: open, error: districtReadError } = await supabase
       .from("districts")
-      .select("code, claimed_by")
+      .select("code")
       .eq("code", home_district_code)
       .maybeSingle();
 
@@ -62,21 +62,6 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     }
     if (!open) {
       throw new Error("District not found.");
-    }
-    if (open.claimed_by && open.claimed_by !== user.id) {
-      throw new Error("That district is already claimed.");
-    }
-
-    const { error: claimError } = await supabase
-      .from("districts")
-      .update({ claimed_by: user.id })
-      .eq("code", home_district_code)
-      .is("claimed_by", null);
-
-    if (claimError) {
-      throw new Error(
-        claimError.message || "Unable to claim district. It may have been taken.",
-      );
     }
   }
 

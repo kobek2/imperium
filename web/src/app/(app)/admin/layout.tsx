@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <div className="mx-auto max-w-lg px-6 py-20 text-center">
         <h1 className="text-xl font-semibold text-[var(--psc-ink)]">Access restricted</h1>
         <p className="mt-3 text-sm text-[var(--psc-muted)]">
-          Command Center admin tools require{" "}
+          Imperium admin tools require{" "}
           <code className="font-mono">admin</code> in{" "}
           <code className="font-mono">profiles.office_role</code> or a matching{" "}
           <code className="font-mono">government_role_grants</code> row.

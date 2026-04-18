@@ -5,6 +5,21 @@ import { FormSubmitButton } from "@/components/form-submit-button";
 
 type ElectionOffice = "house" | "senate" | "president";
 
+export type DistrictOption = {
+  code: string;
+  state: string;
+  player_count: number;
+  incumbent_party: string | null;
+  incumbent_npc_name: string | null;
+};
+
+export type StateOption = {
+  code: string;
+  name: string;
+  player_count: number;
+  pvi: number;
+};
+
 const inputClass =
   "w-full min-w-0 border border-[var(--psc-border)] bg-white px-3 py-2 font-normal";
 const labelClass = "grid min-w-0 gap-1 text-sm font-semibold";
@@ -44,10 +59,18 @@ function addHoursLocal(value: string, hours: number) {
 
 export function CreateElectionForm({
   action,
+  districts,
+  states,
+  totalPlayers,
 }: {
   action: (formData: FormData) => Promise<void>;
+  districts: DistrictOption[];
+  states: StateOption[];
+  totalPlayers: number;
 }) {
   const [office, setOffice] = useState<ElectionOffice>("house");
+  const [stateCode, setStateCode] = useState<string>("");
+  const [districtCode, setDistrictCode] = useState<string>("");
 
   const initial = useMemo(() => {
     const start = nowRounded(5);
@@ -70,6 +93,32 @@ export function CreateElectionForm({
   const needsState = office === "house" || office === "senate";
   const needsDistrict = office === "house";
   const needsSenateClass = office === "senate";
+
+  // Filter districts to the picked state so the dropdown isn't 435 rows long.
+  const districtsForState = useMemo(() => {
+    if (!stateCode) return [] as DistrictOption[];
+    return districts.filter((d) => d.state.toUpperCase() === stateCode.toUpperCase());
+  }, [districts, stateCode]);
+
+  const selectedState = useMemo(
+    () => states.find((s) => s.code.toUpperCase() === stateCode.toUpperCase()) ?? null,
+    [states, stateCode],
+  );
+  const selectedDistrict = useMemo(
+    () => districts.find((d) => d.code.toUpperCase() === districtCode.toUpperCase()) ?? null,
+    [districts, districtCode],
+  );
+
+  // Which population matters for the current office selection. Used by the banner below
+  // so admins know at a glance whether anyone can actually file for this seat.
+  const relevantPlayerCount: number | null =
+    office === "house"
+      ? selectedDistrict?.player_count ?? null
+      : office === "senate"
+        ? selectedState?.player_count ?? null
+        : office === "president"
+          ? totalPlayers
+          : null;
 
   function handleReset() {
     const start = nowRounded(5);
@@ -109,32 +158,57 @@ export function CreateElectionForm({
           {needsState ? (
             <label className={labelClass}>
               State
-              <input
+              <select
                 name="state"
-                maxLength={2}
-                placeholder="CA"
                 required
-                autoComplete="off"
-                className={`${inputClass} font-mono uppercase`}
-              />
+                value={stateCode}
+                onChange={(e) => {
+                  setStateCode(e.target.value);
+                  setDistrictCode("");
+                }}
+                className={`${inputClass} font-mono`}
+              >
+                <option value="">Choose a state…</option>
+                {states.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} · {s.name} — {s.player_count}{" "}
+                    {s.player_count === 1 ? "player" : "players"}
+                    {s.player_count === 0 ? " (empty)" : ""}
+                  </option>
+                ))}
+              </select>
               <span className="text-xs font-normal text-[var(--psc-muted)]">
-                Two-letter USPS code.
+                Counts come from <code className="font-mono">profiles.residence_state</code>.
+                Empty states are still selectable — you'll get a warning below.
               </span>
             </label>
           ) : null}
 
           {needsDistrict ? (
             <label className={labelClass}>
-              District code
-              <input
+              District
+              <select
                 name="district_code"
-                placeholder="CA-01"
                 required
-                autoComplete="off"
+                value={districtCode}
+                onChange={(e) => setDistrictCode(e.target.value)}
+                disabled={!stateCode}
                 className={`${inputClass} font-mono`}
-              />
+              >
+                <option value="">
+                  {stateCode ? "Choose a district…" : "Pick a state first"}
+                </option>
+                {districtsForState.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.code} — {d.player_count}{" "}
+                    {d.player_count === 1 ? "player" : "players"}
+                    {d.player_count === 0 ? " (empty)" : ""}
+                    {d.incumbent_npc_name ? ` · held by ${d.incumbent_npc_name}` : ""}
+                  </option>
+                ))}
+              </select>
               <span className="text-xs font-normal text-[var(--psc-muted)]">
-                Must match a row in <code className="font-mono">districts</code>.
+                Counts come from <code className="font-mono">profiles.home_district_code</code>.
               </span>
             </label>
           ) : null}
@@ -157,6 +231,13 @@ export function CreateElectionForm({
             </p>
           ) : null}
         </div>
+
+        <SeatPopulationBanner
+          office={office}
+          relevantPlayerCount={relevantPlayerCount}
+          stateLabel={selectedState ? `${selectedState.code} ${selectedState.name}` : null}
+          districtLabel={selectedDistrict ? selectedDistrict.code : null}
+        />
       </div>
 
       <div className="space-y-3">
@@ -272,5 +353,75 @@ export function CreateElectionForm({
         className="mt-1 border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
       />
     </form>
+  );
+}
+
+function SeatPopulationBanner({
+  office,
+  relevantPlayerCount,
+  stateLabel,
+  districtLabel,
+}: {
+  office: ElectionOffice;
+  relevantPlayerCount: number | null;
+  stateLabel: string | null;
+  districtLabel: string | null;
+}) {
+  if (relevantPlayerCount === null) {
+    return null;
+  }
+
+  const seatLabel =
+    office === "house"
+      ? districtLabel ?? "this district"
+      : office === "senate"
+        ? stateLabel ?? "this state"
+        : "the whole country";
+
+  if (relevantPlayerCount === 0) {
+    return (
+      <div className="rounded border border-amber-400 bg-amber-50 p-3 text-xs text-amber-950">
+        <p className="font-semibold uppercase tracking-wide">No players here</p>
+        <p className="mt-1">
+          No players have {seatLabel} set on their Character page yet
+          {office === "house" || office === "senate"
+            ? ". If you spin up this race, only the incumbent NPC will be on the ballot unless " +
+              "someone updates their residence. Consider holding off, or create a party-wide " +
+              "primary so anyone can still file."
+            : "."}
+        </p>
+      </div>
+    );
+  }
+
+  if (relevantPlayerCount < 2 && office !== "president") {
+    return (
+      <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+        <p className="font-semibold uppercase tracking-wide">
+          Only {relevantPlayerCount} player in {seatLabel}
+        </p>
+        <p className="mt-1">
+          Without a second resident, the primary will be uncontested. You can still proceed —
+          the scheduler won&apos;t break — but nothing real will happen in the filing window.
+        </p>
+      </div>
+    );
+  }
+
+  const tone =
+    relevantPlayerCount >= 4
+      ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+      : "border-sky-300 bg-sky-50 text-sky-900";
+  return (
+    <div className={`rounded border p-3 text-xs ${tone}`}>
+      <p className="font-semibold uppercase tracking-wide">
+        {relevantPlayerCount} {relevantPlayerCount === 1 ? "player" : "players"} in {seatLabel}
+      </p>
+      <p className="mt-1">
+        {office === "president"
+          ? "Every player can file for president. Presidential races ignore residence for filing."
+          : "These are the players whose Character record currently matches this seat."}
+      </p>
+    </div>
   );
 }

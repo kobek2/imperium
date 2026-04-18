@@ -21,6 +21,8 @@ import {
 } from "@/lib/leadership";
 import { countWords } from "@/lib/word-count";
 import { loadPresidentialBundle, scorePresidentialBundle } from "@/lib/presidential-data";
+import { leanTiePriority } from "@/lib/election-tiebreak";
+import { resolvePresidentTicketCandidate } from "@/lib/presidential-running-mate";
 
 type ElectionPhase = "filing" | "primary" | "general" | "closed";
 
@@ -234,24 +236,23 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
   };
   const isForward = forwardFrom[prevPhase].includes(phase);
 
-  if (isForward && (phase === "general" || phase === "closed")) {
+  if (phase === "closed") {
+    const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+      id: current.id,
+      phase: prevPhase,
+      office: current.office,
+      state: current.state,
+      district_code: current.district_code,
+      leadership_role: current.leadership_role,
+    });
+    if (winner_user_id) {
+      updates.winner_user_id = winner_user_id;
+    }
+  } else if (isForward && phase === "general") {
     // Ensure primary winners are flagged before moving out of filing/primary. Leadership
     // races skip the primary entirely so we don't run pickPrimaryWinners for them.
     if ((prevPhase === "filing" || prevPhase === "primary") && !current.leadership_role) {
       await pickPrimaryWinners(supabase, id);
-    }
-  }
-
-  // Finalize general winner when moving into closed.
-  if (isForward && phase === "closed") {
-    const winnerUserId = await computeGeneralWinner(supabase, id, {
-      office: current.office,
-      district_code: current.district_code,
-      state: current.state,
-      leadership_role: current.leadership_role,
-    });
-    if (winnerUserId) {
-      updates.winner_user_id = winnerUserId;
     }
   }
 
@@ -291,6 +292,24 @@ function sortByVotesThenFilingOrder<T extends { id: string; created_at: string |
     const va = votes[a.id] ?? 0;
     const vb = votes[b.id] ?? 0;
     if (va !== vb) return vb - va;
+    const ta = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/** House/Senate general: highest blended score wins; ties use 2024 lean, then earliest filing. */
+function sortByBlendedScoreThenLeanThenFiling<
+  T extends { id: string; party: string; created_at: string | null },
+>(arr: T[], scores: Record<string, number>, signedMargin: number) {
+  return [...arr].sort((a, b) => {
+    const sa = scores[a.id] ?? 0;
+    const sb = scores[b.id] ?? 0;
+    if (sa !== sb) return sb - sa;
+    const la = leanTiePriority(a.party, signedMargin);
+    const lb = leanTiePriority(b.party, signedMargin);
+    if (la !== lb) return lb - la;
     const ta = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
     const tb = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
     if (ta !== tb) return ta - tb;
@@ -350,8 +369,9 @@ async function pickPrimaryWinners(
 
 /**
  * Resolve a general-election winner for admin-forced closes.
- * House / Senate:   full 60/40 FEC scoring (campaign pts + district PVI + community votes).
- * President:        plurality of general_votes (admin can still override via finalizePresident).
+ * House / Senate:   full 60/40 scoring (campaign pts + lean + community votes). Score ties
+ *                   break by 2024 presidential margin alignment, then earliest filing.
+ * President / other: plurality of general_votes (president is certified via finalizePresident).
  * If nobody has any votes, the earliest filer wins. If zero candidates, returns null.
  */
 async function computeGeneralWinner(
@@ -427,14 +447,122 @@ async function computeGeneralWinner(
   }));
 
   const scores = scoreGeneralElection(inputs, tally);
-  const ranked = sortByVotesThenFilingOrder(
-    active.map((c) => ({
-      ...c,
-      _score: scores[c.id] ?? 0,
-    })),
-    Object.fromEntries(active.map((c) => [c.id, (scores[c.id] ?? 0) * 1_000_000])),
-  );
+  const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, partisanLean);
   return ranked[0]!.user_id;
+}
+
+type ElectionCloseRow = {
+  id: string;
+  phase: ElectionPhase;
+  office: string;
+  state: string | null;
+  district_code: string | null;
+  leadership_role: string | null;
+};
+
+/**
+ * Shared closeout for seat races moving into `closed` (primary winners if needed, then general winner).
+ * Used by setElectionPhase and bulkEndElections so behaviour stays aligned.
+ */
+async function finalizeElectionToClosed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  current: ElectionCloseRow,
+): Promise<{ winner_user_id: string | null }> {
+  const id = current.id;
+  const prevPhase = current.phase;
+
+  const forwardFrom: Record<ElectionPhase, ElectionPhase[]> = {
+    filing: ["primary", "general", "closed"],
+    primary: ["general", "closed"],
+    general: ["closed"],
+    closed: [],
+  };
+  const isForward = forwardFrom[prevPhase].includes("closed");
+
+  if (isForward) {
+    if ((prevPhase === "filing" || prevPhase === "primary") && !current.leadership_role) {
+      await pickPrimaryWinners(supabase, id);
+    }
+  }
+
+  let winnerUserId: string | null = null;
+  if (isForward) {
+    winnerUserId = await computeGeneralWinner(supabase, id, {
+      office: current.office,
+      district_code: current.district_code,
+      state: current.state,
+      leadership_role: current.leadership_role,
+    });
+  }
+
+  return { winner_user_id: winnerUserId };
+}
+
+/** End every non-closed seat race for the offices you select (House, Senate, President). */
+export async function bulkEndElections(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const endHouse = String(formData.get("end_house") ?? "") === "1";
+  const endSenate = String(formData.get("end_senate") ?? "") === "1";
+  const endPresident = String(formData.get("end_president") ?? "") === "1";
+
+  if (!endHouse && !endSenate && !endPresident) {
+    throw new Error("Select at least one of House, Senate, or President.");
+  }
+
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .neq("phase", "closed")
+    .is("leadership_role", null);
+
+  if (qErr) throw new Error(qErr.message);
+
+  const targets = (rows ?? []).filter((r) => {
+    if (r.office === "house" && endHouse) return true;
+    if (r.office === "senate" && endSenate) return true;
+    if (r.office === "president" && endPresident) return true;
+    return false;
+  });
+
+  targets.sort((a, b) => a.id.localeCompare(b.id));
+
+  const errors: string[] = [];
+  for (const row of targets) {
+    try {
+      const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+        id: row.id,
+        phase: row.phase as ElectionPhase,
+        office: row.office,
+        state: row.state,
+        district_code: row.district_code,
+        leadership_role: row.leadership_role,
+      });
+      const upd: Record<string, unknown> = { phase: "closed" };
+      if (winner_user_id) upd.winner_user_id = winner_user_id;
+      const { error } = await supabase.from("elections").update(upd).eq("id", row.id);
+      if (error) throw new Error(error.message);
+      const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+        e_election: row.id,
+      });
+      if (roleErr) {
+        console.warn("[bulkEndElections] role transition warning:", roleErr.message);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${row.id}: ${msg}`);
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(`${errors.length} race(s) failed. ${errors.slice(0, 8).join("; ")}`);
+  }
+
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  for (const row of targets) {
+    revalidatePath(`/admin/elections/${row.id}`);
+    revalidatePath(`/elections/${row.id}`);
+  }
 }
 
 /** Manual primary closeout. Uses filing-order tiebreak so the earliest filer wins on ties (including 0-vote ties). */
@@ -695,6 +823,20 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
     if (block) throw new Error(block);
   }
 
+  if (election.office === "president") {
+    const { data: asMate } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("election_id", election_id)
+      .eq("running_mate_user_id", user.id)
+      .maybeSingle();
+    if (asMate) {
+      throw new Error(
+        "You are already another ticket’s running mate in this presidential race. Ask that candidate to remove you first.",
+      );
+    }
+  }
+
   const { error } = await supabase.from("election_candidates").insert({
     election_id,
     user_id: user.id,
@@ -702,6 +844,125 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
   });
 
   if (error) throw new Error(error.message);
+  await runElectionPhaseSchedule(supabase);
+  revalidatePath("/elections");
+  revalidatePath(`/elections/${election_id}`);
+}
+
+/** Presidential ticket: head candidate sets or updates their running mate (filing or primary). */
+export async function setPresidentialRunningMate(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const election_id = String(formData.get("election_id") ?? "");
+  const rawDiscord = String(formData.get("running_mate_discord") ?? "").trim();
+  const discordId = rawDiscord.replace(/\D/g, "") || rawDiscord;
+  if (!election_id || !discordId) {
+    throw new Error("Election and running mate Discord user id are required.");
+  }
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select("office, phase, primary_closes_at, filing_closes_at")
+    .eq("id", election_id)
+    .maybeSingle();
+  if (!election || election.office !== "president") {
+    throw new Error("Running mates apply only to presidential races.");
+  }
+  const now = new Date();
+  if (election.phase === "filing") {
+    if (now > new Date(election.filing_closes_at)) {
+      throw new Error("Filing has closed for this race.");
+    }
+  } else if (election.phase === "primary") {
+    if (!election.primary_closes_at || now > new Date(election.primary_closes_at)) {
+      throw new Error("Primary has closed for this race.");
+    }
+  } else {
+    throw new Error("You can only set a running mate during filing or primary.");
+  }
+
+  const { data: row } = await supabase
+    .from("election_candidates")
+    .select("id, party, user_id")
+    .eq("election_id", election_id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!row) throw new Error("Only a filed presidential candidate can set a running mate.");
+
+  const { data: mateProfile } = await supabase
+    .from("profiles")
+    .select("id, party")
+    .eq("discord_user_id", discordId)
+    .maybeSingle();
+  if (!mateProfile) {
+    throw new Error("No profile matches that Discord user id. Ask them to log in once to link Discord.");
+  }
+
+  if (mateProfile.id === user.id) throw new Error("You cannot be your own running mate.");
+  const mateParty = candidacyPartyFromProfile(mateProfile.party);
+  if (!mateParty || mateParty !== row.party) {
+    throw new Error("Running mate must be the same party as your ticket.");
+  }
+
+  const { data: mateAsHead } = await supabase
+    .from("election_candidates")
+    .select("id")
+    .eq("election_id", election_id)
+    .eq("user_id", mateProfile.id)
+    .maybeSingle();
+  if (mateAsHead) throw new Error("That player is already on the ballot as a head candidate.");
+
+  const { error } = await supabase
+    .from("election_candidates")
+    .update({ running_mate_user_id: mateProfile.id })
+    .eq("id", row.id)
+    .eq("user_id", user.id);
+
+  if (error) {
+    if (error.code === "23505" || error.message.toLowerCase().includes("unique")) {
+      throw new Error("That player is already another ticket’s running mate in this race.");
+    }
+    throw new Error(error.message);
+  }
+
+  await runElectionPhaseSchedule(supabase);
+  revalidatePath(`/elections/${election_id}`);
+  revalidatePath("/elections");
+}
+
+/** Remove your candidacy during filing so you can file elsewhere (e.g. switch House ↔ Senate). */
+export async function withdrawCandidacy(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const election_id = String(formData.get("election_id"));
+  if (!election_id) throw new Error("Missing election.");
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select("phase")
+    .eq("id", election_id)
+    .maybeSingle();
+
+  if (!election || election.phase !== "filing") {
+    throw new Error("You can only withdraw during the filing phase.");
+  }
+
+  const { error } = await supabase
+    .from("election_candidates")
+    .delete()
+    .eq("election_id", election_id)
+    .eq("user_id", user.id);
+
+  if (error) throw new Error(error.message);
+
   await runElectionPhaseSchedule(supabase);
   revalidatePath("/elections");
   revalidatePath(`/elections/${election_id}`);
@@ -716,67 +977,77 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
 
   const election_id = String(formData.get("election_id"));
   const candidate_id = String(formData.get("candidate_id"));
+  if (!election_id || !candidate_id) throw new Error("Missing election or candidate.");
 
-  const { data: election } = await supabase
-    .from("elections")
-    .select(
-      "phase, primary_closes_at, office, state, district_code, primary_party_wide, leadership_role",
-    )
-    .eq("id", election_id)
-    .single();
-
-  if (election?.leadership_role) {
-    throw new Error("Leadership races have no primary. Wait for the general vote.");
-  }
-
-  if (!election || election.phase !== "primary") {
-    throw new Error(
-      election?.phase === "general"
-        ? "This race has already moved to the general election. Refresh the page."
-        : "Primary is not open for this race. Refresh the page.",
-    );
-  }
-  const now = new Date();
-  if (now > new Date(election.primary_closes_at)) throw new Error("Primary voting has closed.");
-
-  // Unvote path: if the caller is clicking the same candidate they already voted for,
-  // always allow the delete regardless of eligibility. Otherwise a user who changed party
-  // or district after voting would be permanently stuck with their old vote.
-  const { data: existing } = await supabase
+  // STEP 1 — Unvote: ALWAYS allowed.
+  // We check the current ballot first, before any phase/eligibility gates. That way
+  // clicking "Unvote" keeps working even if (a) your profile changed after you voted,
+  // (b) the primary has since closed, or (c) the phase scheduler moved the race to
+  // general. Removing your own vote can never hurt anyone else, so we just let it
+  // through and bail out.
+  const { data: existingBefore } = await supabase
     .from("primary_votes")
     .select("candidate_id")
     .eq("election_id", election_id)
     .eq("voter_id", user.id)
     .maybeSingle();
 
-  if (existing?.candidate_id === candidate_id) {
+  if (existingBefore?.candidate_id === candidate_id) {
     const { error: delErr } = await supabase
       .from("primary_votes")
       .delete()
       .eq("election_id", election_id)
       .eq("voter_id", user.id);
-    if (delErr) throw new Error(delErr.message);
+    if (delErr) throw new Error(`Could not clear your vote: ${delErr.message}`);
     await runElectionPhaseSchedule(supabase);
     revalidatePath(`/elections/${election_id}`);
     return;
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("party, residence_state, home_district_code")
-    .eq("id", user.id)
-    .single();
+  // STEP 2 — Fresh vote / change vote. Gate by phase + eligibility.
+  const { data: election } = await supabase
+    .from("elections")
+    .select(
+      "phase, primary_closes_at, office, state, district_code, primary_party_wide, leadership_role",
+    )
+    .eq("id", election_id)
+    .maybeSingle();
 
-  const { data: cand } = await supabase
-    .from("election_candidates")
-    .select("party, user_id")
-    .eq("id", candidate_id)
-    .eq("election_id", election_id)
-    .single();
+  if (!election) throw new Error("Election not found.");
+  if (election.leadership_role) {
+    throw new Error("Leadership races have no primary. Wait for the general vote.");
+  }
+
+  if (election.phase !== "primary") {
+    throw new Error(
+      election.phase === "general"
+        ? "This race has already moved to the general election. Refresh the page."
+        : "Primary is not open for this race. Refresh the page.",
+    );
+  }
+  if (election.primary_closes_at && new Date() > new Date(election.primary_closes_at)) {
+    throw new Error("Primary voting has closed.");
+  }
+
+  const [{ data: profile }, { data: cand }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("party, residence_state, home_district_code")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("election_candidates")
+      .select("party, user_id")
+      .eq("id", candidate_id)
+      .eq("election_id", election_id)
+      .maybeSingle(),
+  ]);
 
   if (!cand) throw new Error("Candidate not found.");
-  if (!profile?.party) throw new Error("Set your party on the Character page before voting in a primary.");
-  if (profile.party !== cand.party) throw new Error("You may only vote in your party's primary.");
+  if (!profile?.party)
+    throw new Error("Set your party on the Character page before voting in a primary.");
+  if (profile.party !== cand.party)
+    throw new Error("You may only vote in your party's primary.");
 
   const normDistrict = (c: string | null | undefined) => (c ?? "").trim().toUpperCase();
   const normState = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
@@ -806,16 +1077,26 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
     }
   }
 
-  const { error } = await supabase.from("primary_votes").upsert(
-    {
+  // Explicit update-or-insert instead of upsert. The INSERT-on-conflict path in Supabase
+  // needs BOTH the insert and update RLS policies to be satisfied at once; going through
+  // the branch that matches reality avoids obscure "not authorized" errors when the
+  // combined check fails.
+  if (existingBefore) {
+    const { error: updErr } = await supabase
+      .from("primary_votes")
+      .update({ candidate_id })
+      .eq("election_id", election_id)
+      .eq("voter_id", user.id);
+    if (updErr) throw new Error(`Could not change your vote: ${updErr.message}`);
+  } else {
+    const { error: insErr } = await supabase.from("primary_votes").insert({
       election_id,
       voter_id: user.id,
       candidate_id,
-    },
-    { onConflict: "election_id,voter_id" },
-  );
+    });
+    if (insErr) throw new Error(`Could not record your vote: ${insErr.message}`);
+  }
 
-  if (error) throw new Error(error.message);
   await runElectionPhaseSchedule(supabase);
   revalidatePath(`/elections/${election_id}`);
 }
@@ -844,25 +1125,51 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, office, state, district_code, general_closes_at, leadership_role")
+    .select(
+      "phase, office, state, district_code, general_closes_at, primary_closes_at, leadership_role",
+    )
     .eq("id", election_id)
     .maybeSingle();
-  if (!election || election.phase !== "general") {
-    throw new Error("General election is not open.");
-  }
+  if (!election) throw new Error("Election not found.");
   if (election.leadership_role) {
     throw new Error("Speeches and rallies don't apply to leadership races — they're decided by plain plurality.");
   }
-  if (new Date() > new Date(election.general_closes_at)) {
+  if (election.office === "president") {
+    if (election.phase !== "primary" && election.phase !== "general") {
+      throw new Error("Presidential campaign speeches are only open during the primary or general.");
+    }
+  } else if (election.phase !== "general") {
+    throw new Error("General election is not open.");
+  }
+  if (election.phase === "primary") {
+    if (!election.primary_closes_at || new Date() > new Date(election.primary_closes_at)) {
+      throw new Error("Primary has ended.");
+    }
+  } else if (new Date() > new Date(election.general_closes_at)) {
     throw new Error("General election is closed.");
   }
 
-  const { data: candidate } = await supabase
-    .from("election_candidates")
-    .select("id")
-    .eq("election_id", election_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  let candidate: { id: string } | null = null;
+  if (election.office === "president") {
+    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
+    if (!tid) {
+      throw new Error("Only presidential candidates and their running mates can submit speeches.");
+    }
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("id", tid.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  } else {
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("election_id", election_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  }
   if (!candidate) throw new Error("Only candidates in this race can submit speeches.");
 
   // Speech targeting:
@@ -911,21 +1218,51 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, office, state, district_code, general_closes_at, leadership_role")
+    .select(
+      "phase, office, state, district_code, general_closes_at, primary_closes_at, leadership_role",
+    )
     .eq("id", election_id)
     .maybeSingle();
-  if (!election || election.phase !== "general") throw new Error("General election is not open.");
+  if (!election) throw new Error("Election not found.");
   if (election.leadership_role) {
     throw new Error("Speeches and rallies don't apply to leadership races — they're decided by plain plurality.");
   }
-  if (new Date() > new Date(election.general_closes_at)) throw new Error("General election is closed.");
+  if (election.office === "president") {
+    if (election.phase !== "primary" && election.phase !== "general") {
+      throw new Error("Presidential rallies are only open during the primary or general.");
+    }
+  } else if (election.phase !== "general") {
+    throw new Error("General election is not open.");
+  }
+  if (election.phase === "primary") {
+    if (!election.primary_closes_at || new Date() > new Date(election.primary_closes_at)) {
+      throw new Error("Primary has ended.");
+    }
+  } else if (new Date() > new Date(election.general_closes_at)) {
+    throw new Error("General election is closed.");
+  }
 
-  const { data: candidate } = await supabase
-    .from("election_candidates")
-    .select("id")
-    .eq("election_id", election_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  let candidate: { id: string } | null = null;
+  if (election.office === "president") {
+    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
+    if (!tid) {
+      throw new Error("Only presidential candidates and their running mates can rally.");
+    }
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("id", tid.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  } else {
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("election_id", election_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  }
   if (!candidate) throw new Error("Only candidates in this race can rally.");
 
   const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
@@ -1053,7 +1390,6 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
 }
 
 export async function castGeneralVote(formData: FormData): Promise<void> {
-
   const supabase = await createClient();
   const {
     data: { user },
@@ -1062,29 +1398,51 @@ export async function castGeneralVote(formData: FormData): Promise<void> {
 
   const election_id = String(formData.get("election_id"));
   const candidate_id = String(formData.get("candidate_id"));
+  if (!election_id || !candidate_id) throw new Error("Missing election or candidate.");
 
+  // STEP 1 — Unvote: ALWAYS allowed. See castPrimaryVote for the reasoning.
+  const { data: existingBefore } = await supabase
+    .from("general_votes")
+    .select("candidate_id")
+    .eq("election_id", election_id)
+    .eq("voter_id", user.id)
+    .maybeSingle();
+
+  if (existingBefore?.candidate_id === candidate_id) {
+    const { error: delErr } = await supabase
+      .from("general_votes")
+      .delete()
+      .eq("election_id", election_id)
+      .eq("voter_id", user.id);
+    if (delErr) throw new Error(`Could not clear your vote: ${delErr.message}`);
+    await runElectionPhaseSchedule(supabase);
+    revalidatePath(`/elections/${election_id}`);
+    return;
+  }
+
+  // STEP 2 — Fresh vote / change vote. Gate by phase + eligibility.
   const { data: election } = await supabase
     .from("elections")
     .select("phase, general_closes_at, leadership_role, restricted_party")
     .eq("id", election_id)
-    .single();
+    .maybeSingle();
 
-  if (!election || election.phase !== "general") throw new Error("General election is not open.");
-  const now = new Date();
-  if (now > new Date(election.general_closes_at)) throw new Error("General voting has closed.");
+  if (!election) throw new Error("Election not found.");
+  if (election.phase !== "general") throw new Error("General election is not open.");
+  if (election.general_closes_at && new Date() > new Date(election.general_closes_at)) {
+    throw new Error("General voting has closed.");
+  }
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("party, residence_state, home_district_code, office_role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   const voter_state =
     profile?.residence_state ??
     (profile?.home_district_code ? profile.home_district_code.slice(0, 2) : null);
 
-  // Leadership races restrict the ballot to the chamber (and, for partisan caucuses, to
-  // the same party). Admins can always vote so they can demo / fix stuck elections.
   if (isLeadershipRole(election.leadership_role)) {
     const leadershipRole = election.leadership_role as LeadershipRole;
     const needed = requiredChamberRoleKey(leadershipRole);
@@ -1112,39 +1470,27 @@ export async function castGeneralVote(formData: FormData): Promise<void> {
     .select("id")
     .eq("id", candidate_id)
     .eq("election_id", election_id)
-    .single();
+    .maybeSingle();
 
   if (!cand) throw new Error("Candidate not found.");
 
-  const { data: existing } = await supabase
-    .from("general_votes")
-    .select("candidate_id")
-    .eq("election_id", election_id)
-    .eq("voter_id", user.id)
-    .maybeSingle();
-
-  if (existing?.candidate_id === candidate_id) {
-    const { error: delErr } = await supabase
+  // Explicit update-or-insert instead of upsert — same reasoning as castPrimaryVote.
+  if (existingBefore) {
+    const { error: updErr } = await supabase
       .from("general_votes")
-      .delete()
+      .update({ candidate_id, voter_state })
       .eq("election_id", election_id)
       .eq("voter_id", user.id);
-    if (delErr) throw new Error(delErr.message);
-    await runElectionPhaseSchedule(supabase);
-    revalidatePath(`/elections/${election_id}`);
-    return;
-  }
-
-  const { error } = await supabase.from("general_votes").upsert(
-    {
+    if (updErr) throw new Error(`Could not change your vote: ${updErr.message}`);
+  } else {
+    const { error: insErr } = await supabase.from("general_votes").insert({
       election_id,
       voter_id: user.id,
       candidate_id,
       voter_state,
-    },
-    { onConflict: "election_id,voter_id" },
-  );
+    });
+    if (insErr) throw new Error(`Could not record your vote: ${insErr.message}`);
+  }
 
-  if (error) throw new Error(error.message);
   revalidatePath(`/elections/${election_id}`);
 }

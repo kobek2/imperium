@@ -43,7 +43,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
               U.S. Federal Simulation
             </p>
             <Link href="/" className="text-lg font-semibold tracking-tight">
-              PolSim Command Center
+              Imperium
             </Link>
           </div>
           <nav className="flex flex-wrap gap-4 text-sm font-medium">

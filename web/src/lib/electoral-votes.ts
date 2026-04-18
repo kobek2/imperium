@@ -8,6 +8,7 @@ export const STATE_ELECTORAL_VOTES: Record<string, number> = {
   CO: 10,
   CT: 7,
   DE: 3,
+  DC: 3,
   FL: 30,
   GA: 16,
   HI: 4,

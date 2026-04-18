@@ -51,7 +51,7 @@ export const POLITICAL_ROLE_LABELS: Record<string, string> = {
   caucus_house_democrats: "House Democrats",
   caucus_house_republicans: "House Republicans",
   // Site operator bypass (not a Discord role)
-  admin: "Command Center Admin",
+  admin: "Imperium Admin",
 };
 
 /** Keys we accept from Discord / DB (excluding admin which is manual). */

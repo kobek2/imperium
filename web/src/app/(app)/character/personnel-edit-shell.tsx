@@ -33,7 +33,7 @@ export function PersonnelEditShell({
       {setupMode ? (
         <section className="border-2 border-[var(--psc-accent)] bg-[var(--psc-accent)]/5 p-5">
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[var(--psc-accent)]">
-            Welcome to PolSim
+            Welcome to Imperium
           </p>
           <h2 className="mt-1 text-xl font-semibold text-[var(--psc-ink)]">
             Create your character

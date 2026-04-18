@@ -82,7 +82,7 @@ export function PersonnelRecord({
         </div>
         <div className="sm:col-span-2">
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            Congressional district (claimed)
+            Home congressional district
           </dt>
           <dd className="mt-1 font-mono text-[var(--psc-ink)]">
             {profile.home_district_code ? profile.home_district_code : <span className="text-[var(--psc-muted)]">—</span>}

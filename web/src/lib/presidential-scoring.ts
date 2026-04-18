@@ -3,13 +3,15 @@
  *
  * Each state scores independently:
  *   - 60% weight: share of campaign points in that state. Points come from speeches +
- *     rallies whose `target_state` matches, plus the state's PVI applied as a party
- *     lean bonus (mirroring how House/Senate scoring works).
+ *     rallies whose `target_state` matches, plus the state's stored 2024 presidential
+ *     margin (`pvi`) as a party lean bonus (mirroring House/Senate scoring).
  *   - 40% weight: share of general_votes whose `voter_state` matches.
  *
  * The top-scoring candidate in a state wins all of that state's electoral votes
- * (winner-take-all). Ties are broken by filing order (earliest filer wins), matching
- * the rest of the election engine.
+ * (winner-take-all). With no in-state raw campaign points and no in-state votes yet, the
+ * state is awarded to whichever major party matches the real 2024 winner here (same sign
+ * as `pvi`), so the tote opens like the last election instead of filing-order sweeps.
+ * After local activity exists, the usual 60/40 blend decides, with margin-based score ties.
  *
  * The overall winner of the race is the candidate with the most electoral votes.
  * If no one hits 270, we still return the plurality leader — this is a simulator,
@@ -17,6 +19,7 @@
  */
 
 import { districtLeanBonus } from "@/lib/fec";
+import { leanTiePriority, normalizePartisanParty } from "@/lib/election-tiebreak";
 import { STATE_ELECTORAL_VOTES as FALLBACK_EV } from "@/lib/electoral-votes";
 
 export type PresCandidate = {
@@ -62,6 +65,8 @@ export type StateResult = {
   scores: CandidateStateScore[];
   winner_candidate_id: string | null;
   total_points: number;
+  /** Sum of raw speech/rally points in this state (excludes margin lean). */
+  raw_points_total: number;
   total_votes: number;
 };
 
@@ -72,16 +77,44 @@ export type PresidentialResult = {
   totalElectoralVotes: number;
 };
 
-/** Turn a state's PVI (+D, -R) into a candidate-specific bonus added to raw campaign points. */
+/** Turn a state's signed 2024 margin (+D, -R) into a candidate-specific bonus added to raw campaign points. */
 function leanFor(party: string, pvi: number): number {
-  if (party === "democrat") return districtLeanBonus(pvi, "democrat");
-  if (party === "republican") return districtLeanBonus(pvi, "republican");
+  const p = normalizePartisanParty(party);
+  if (p === "democrat") return districtLeanBonus(pvi, "democrat");
+  if (p === "republican") return districtLeanBonus(pvi, "republican");
   return 0;
 }
 
 function filingRank(c: PresCandidate): number {
   const t = c.created_at ? Date.parse(c.created_at) : NaN;
   return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+}
+
+function pickEarliestFiler(cands: PresCandidate[]): string | null {
+  if (!cands.length) return null;
+  let best = cands[0]!;
+  let bestRank = filingRank(best);
+  for (let i = 1; i < cands.length; i++) {
+    const c = cands[i]!;
+    const r = filingRank(c);
+    if (r < bestRank || (r === bestRank && c.id.localeCompare(best.id) < 0)) {
+      best = c;
+      bestRank = r;
+    }
+  }
+  return best.id;
+}
+
+/**
+ * Before any in-state votes or raw campaign points, mirror the 2024 presidential winner's
+ * party among filed candidates. Returns null if the margin is a pure toss-up (0) or no
+ * candidate matches that party (e.g. only independents in a blue state).
+ */
+function resolveBaseline2024Winner(pvi: number, candidates: PresCandidate[]): string | null {
+  if (!(pvi > 0) && !(pvi < 0)) return null;
+  const want = pvi > 0 ? "democrat" : "republican";
+  const pool = candidates.filter((c) => normalizePartisanParty(c.party) === want);
+  return pickEarliestFiler(pool);
 }
 
 /**
@@ -113,7 +146,9 @@ export function scorePresidentialState(
     votesByCand[v.candidate_id] += 1;
   }
 
-  // Apply PVI lean to raw points per candidate. Floor at zero so a very red state
+  const rawPointsTotal = candidates.reduce((s, c) => s + pointsByCand[c.id]!, 0);
+
+  // Apply 2024-margin lean to raw points per candidate. Floor at zero so a very red state
   // can't give a Democrat negative campaign credit; they just get nothing from lean.
   const pointsWithLean: Record<string, number> = {};
   let totalPoints = 0;
@@ -144,18 +179,29 @@ export function scorePresidentialState(
     };
   });
 
-  // Winner = max score; filing-order tiebreak so the earliest filer wins on a tie.
-  let winner: { id: string; score: number; rank: number } | null = null;
+  // Winner = max score; 2024-margin alignment, then filing order.
+  let winner: { id: string; score: number; leanP: number; rank: number } | null = null;
   for (const c of candidates) {
     const s = scores.find((x) => x.candidate_id === c.id)!;
+    const leanP = leanTiePriority(c.party, stateMeta.pvi);
     const rank = filingRank(c);
     if (!winner) {
-      winner = { id: c.id, score: s.score, rank };
+      winner = { id: c.id, score: s.score, leanP, rank };
       continue;
     }
-    if (s.score > winner.score || (s.score === winner.score && rank < winner.rank)) {
-      winner = { id: c.id, score: s.score, rank };
+    if (
+      s.score > winner.score ||
+      (s.score === winner.score && leanP > winner.leanP) ||
+      (s.score === winner.score && leanP === winner.leanP && rank < winner.rank)
+    ) {
+      winner = { id: c.id, score: s.score, leanP, rank };
     }
+  }
+
+  let winnerCandidateId = winner?.id ?? null;
+  if (rawPointsTotal === 0 && totalVotes === 0) {
+    const baseline = resolveBaseline2024Winner(stateMeta.pvi, candidates);
+    if (baseline) winnerCandidateId = baseline;
   }
 
   return {
@@ -164,8 +210,9 @@ export function scorePresidentialState(
     pvi: stateMeta.pvi,
     electoral_votes: stateMeta.electoral_votes,
     scores,
-    winner_candidate_id: winner?.id ?? null,
+    winner_candidate_id: winnerCandidateId,
     total_points: totalPoints,
+    raw_points_total: rawPointsTotal,
     total_votes: totalVotes,
   };
 }

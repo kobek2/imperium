@@ -5,11 +5,13 @@ import {
   castGeneralVote,
   castPrimaryVote,
   fileCandidacy,
+  setPresidentialRunningMate,
 } from "@/app/actions/elections";
 import { districtLeanBonus } from "@/lib/fec";
 import type { LeadershipRole } from "@/lib/leadership";
 import { RallyForm } from "./rally-form";
 import { SpeechForm } from "./speech-form";
+import { WithdrawFilingForm } from "./withdraw-filing-form";
 
 type ElectionRow = {
   id: string;
@@ -40,6 +42,8 @@ type CandRow = {
   campaign_points_total: number | null;
   primary_winner: boolean | null;
   created_at?: string | null;
+  running_mate_user_id?: string | null;
+  running_mate_name?: string | null;
 };
 
 type CandidateCardFields = {
@@ -155,6 +159,12 @@ function CandidateCard({
             </span>
           ) : null}
         </div>
+      ) : null}
+      {cand.running_mate_name ? (
+        <p className="text-[10px] text-[var(--psc-muted)]">
+          Running mate:{" "}
+          <span className="font-semibold text-[var(--psc-ink)]">{cand.running_mate_name}</span>
+        </p>
       ) : null}
       {mode !== "none" ? (
         <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
@@ -334,6 +344,7 @@ function SpreadBar({
 function CampaignPanel({
   election,
   myCandidate,
+  userId,
   myRalliesInWindow,
   myRallyLimit,
   myRallyWindowHours,
@@ -345,6 +356,7 @@ function CampaignPanel({
 }: {
   election: ElectionRow;
   myCandidate: CandRow;
+  userId: string;
   myRalliesInWindow: number;
   myRallyLimit: number;
   myRallyWindowHours: number;
@@ -354,6 +366,7 @@ function CampaignPanel({
   states: Array<{ code: string; name: string }>;
   partisanLean: number;
 }) {
+  const isRunningMate = myCandidate.user_id !== userId;
   const meta = partyMeta(myCandidate.party);
   const leanForMe =
     myCandidate.party === "democrat"
@@ -367,9 +380,10 @@ function CampaignPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-[var(--psc-ink)]">
-            Your campaign
+            {isRunningMate ? "Your campaign (running mate)" : "Your campaign"}
           </h2>
           <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+            {isRunningMate ? "Co-campaigning on this ticket · " : null}
             Running as{" "}
             <span
               className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${meta.pill}`}
@@ -666,6 +680,10 @@ export function ElectionDetail({
     election.phase === "general" && now <= new Date(election.general_closes_at);
 
   const myRow = candidates.find((c) => c.user_id === userId);
+  const myTicketRow = candidates.find(
+    (c) => c.user_id === userId || c.running_mate_user_id === userId,
+  );
+  const campaignRow = election.office === "president" ? myTicketRow : myRow;
   const isLeadership = !!leadershipMeta;
   const canFileCandidacy = filingBlockReason === null;
   const hasPrimaryWinners = candidates.some((c) => c.primary_winner);
@@ -780,18 +798,48 @@ export function ElectionDetail({
                         : ""
                     } can file.`
                   : election.office === "house"
-                    ? "Only players whose home district matches this seat can file."
+                    ? "Anyone whose Character home district matches this seat may file; multiple candidates can run here. You may only be active in one House or Senate race at a time (President is separate)."
                     : election.office === "senate"
-                      ? "Only players whose residence state matches this seat can file."
+                      ? "Anyone whose Character residence state matches this seat may file. One House or Senate race at a time; President is separate."
                       : "Any eligible player can file for president."}
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-2">
               {myRow ? (
-                <p className="rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                  You&apos;re filed as{" "}
-                  <strong>{partyMeta(myRow.party).label}</strong>.
-                </p>
+                <div className="flex w-full max-w-xs flex-col gap-2">
+                  <p className="rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                    You&apos;re filed as{" "}
+                    <strong>{partyMeta(myRow.party).label}</strong>.
+                  </p>
+                  <WithdrawFilingForm electionId={election.id} />
+                  <p className="text-[10px] text-[var(--psc-muted)]">
+                    Withdraw if you want to file for a different House district, Senate seat, or
+                    switch between House and Senate.
+                  </p>
+                  {election.office === "president" && filingOpen ? (
+                    <form action={setPresidentialRunningMate} className="mt-3 space-y-2 border-t border-dashed border-[var(--psc-border)] pt-3">
+                      <input type="hidden" name="election_id" value={election.id} />
+                      <label className="block text-xs font-medium text-[var(--psc-ink)]">
+                        Running mate (Discord user id)
+                      </label>
+                      <input
+                        name="running_mate_discord"
+                        type="text"
+                        placeholder="Numeric Discord id"
+                        className="w-full rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+                      />
+                      <SubmitButton pendingLabel="Saving…" className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                        Save running mate
+                      </SubmitButton>
+                      {myRow.running_mate_name ? (
+                        <p className="text-xs text-[var(--psc-muted)]">
+                          Current running mate:{" "}
+                          <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
+                        </p>
+                      ) : null}
+                    </form>
+                  ) : null}
+                </div>
               ) : !filingOpen ? (
                 <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   Filing is not open right now.
@@ -860,7 +908,56 @@ export function ElectionDetail({
                 <> This primary is open party-wide.</>
               )}
             </p>
+            {election.office === "president" ? (
+              <p className="mt-2 text-xs text-[var(--psc-muted)]">
+                Presidential tickets: pick a running mate (same party) with their Discord user id.
+                They campaign on your ticket and may cast a Senate tie-breaker only while this primary
+                is open — they cannot file bills, act as president, or vote on ordinary Senate floor
+                votes during that time.
+              </p>
+            ) : null}
           </div>
+          {election.office === "president" && myRow && primaryOpen ? (
+            <form
+              action={setPresidentialRunningMate}
+              className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-4"
+            >
+              <input type="hidden" name="election_id" value={election.id} />
+              <p className="text-xs font-semibold text-[var(--psc-ink)]">Your running mate</p>
+              <input
+                name="running_mate_discord"
+                type="text"
+                placeholder="Discord user id (numeric)"
+                className="w-full max-w-md rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+              />
+              <SubmitButton
+                pendingLabel="Saving…"
+                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white"
+              >
+                Save running mate
+              </SubmitButton>
+              {myRow.running_mate_name ? (
+                <p className="text-xs text-[var(--psc-muted)]">
+                  Current: <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
+                </p>
+              ) : null}
+            </form>
+          ) : null}
+          {election.office === "president" && !isLeadership && myTicketRow && primaryOpen ? (
+            <CampaignPanel
+              election={election}
+              myCandidate={myTicketRow}
+              userId={userId}
+              myRalliesInWindow={myRalliesInWindow}
+              myRallyLimit={10}
+              myRallyWindowHours={3}
+              myNextRallyAt={myNextRallyAt}
+              speechCount={speechCountBy[myTicketRow.id] ?? 0}
+              rallyCount={rallyCountBy[myTicketRow.id] ?? 0}
+              states={states}
+              partisanLean={partisanLean}
+            />
+          ) : null}
           <PartyGroupedCandidates
             candidates={candidates}
             card={candidateCardByUserId}
@@ -892,16 +989,17 @@ export function ElectionDetail({
             nameBy={nameBy}
             candidateCardByUserId={candidateCardByUserId}
           />
-          {!isLeadership && myRow && myRow.primary_winner ? (
+          {!isLeadership && campaignRow && campaignRow.primary_winner ? (
             <CampaignPanel
               election={election}
-              myCandidate={myRow}
+              myCandidate={campaignRow}
+              userId={userId}
               myRalliesInWindow={myRalliesInWindow}
               myRallyLimit={10}
               myRallyWindowHours={3}
               myNextRallyAt={myNextRallyAt}
-              speechCount={speechCountBy[myRow.id] ?? 0}
-              rallyCount={rallyCountBy[myRow.id] ?? 0}
+              speechCount={speechCountBy[campaignRow.id] ?? 0}
+              rallyCount={rallyCountBy[campaignRow.id] ?? 0}
               states={states}
               partisanLean={partisanLean}
             />

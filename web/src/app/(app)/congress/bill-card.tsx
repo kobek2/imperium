@@ -24,6 +24,7 @@ export type BillForCard = {
   created_at: string;
   leadership_deadline_at: string | null;
   chamber_vote_deadline_at: string | null;
+  vp_tie_break_pending?: boolean | null;
 };
 
 const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain"] as const;
@@ -244,6 +245,8 @@ export function BillCard({
   voterById,
   userId,
   userChambers,
+  isPresidentialRunningMate = false,
+  canBreakSenateTie = false,
 }: {
   bill: BillForCard;
   votes: BillVote[];
@@ -251,6 +254,8 @@ export function BillCard({
   userId: string;
   /** Chambers the viewer holds a floor-voting role in. */
   userChambers: Array<"house" | "senate">;
+  isPresidentialRunningMate?: boolean;
+  canBreakSenateTie?: boolean;
 }) {
   const houseVotes = votes.filter((v) => v.chamber === "house");
   const senateVotes = votes.filter((v) => v.chamber === "senate");
@@ -280,6 +285,12 @@ export function BillCard({
           {bill.status === "hopper" && bill.leadership_deadline_at ? (
             <p className="mt-1 text-xs font-semibold text-amber-900">
               Leadership deadline: {fmt(bill.leadership_deadline_at)}
+            </p>
+          ) : null}
+          {bill.vp_tie_break_pending && bill.status === "senate_floor" ? (
+            <p className="mt-1 text-xs font-semibold text-violet-900">
+              Senate vote tied — Vice President or a presidential running mate may cast the
+              tie-breaker.
             </p>
           ) : null}
           {(bill.status === "house_floor" || bill.status === "senate_floor") &&
@@ -326,8 +337,18 @@ export function BillCard({
           bill={bill}
           chamber="senate"
           myVote={mySenateVote}
-          disabled={!userChambers.includes("senate")}
-          disabledReason="Only Senators may cast this vote."
+          disabled={
+            bill.vp_tie_break_pending
+              ? !canBreakSenateTie
+              : !userChambers.includes("senate") || isPresidentialRunningMate
+          }
+          disabledReason={
+            bill.vp_tie_break_pending
+              ? "Only the Vice President or a presidential running mate (during the primary) may cast a tie-breaking vote."
+              : isPresidentialRunningMate
+                ? "Presidential running mates may only vote to break a Senate tie."
+                : "Only Senators may cast this vote."
+          }
         />
       ) : null}
 

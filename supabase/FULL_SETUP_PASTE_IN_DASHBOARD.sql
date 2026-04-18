@@ -171,6 +171,7 @@ create table public.appointments (
   id uuid primary key default gen_random_uuid(),
   kind public.appointment_kind not null,
   title text not null,
+  granted_role_key text,
   nominee_user_id uuid not null references auth.users (id) on delete cascade,
   president_user_id uuid not null references auth.users (id) on delete cascade,
   confirmation_bill_id uuid references public.bills (id) on delete set null,
@@ -514,6 +515,19 @@ create policy "election_candidates update admin" on public.election_candidates f
 create policy "election_candidates delete admin" on public.election_candidates for delete
   using (public.is_staff_admin(auth.uid()));
 
+drop policy if exists "election_candidates delete own during filing" on public.election_candidates;
+create policy "election_candidates delete own during filing" on public.election_candidates for delete
+  to authenticated
+  using (
+    auth.uid() = user_id
+    and exists (
+      select 1
+      from public.elections e
+      where e.id = election_candidates.election_id
+        and e.phase = 'filing'::public.election_phase
+    )
+  );
+
 -- ---------- Seed states.pvi from 2024 presidential margins (positive = D lean) ----------
 -- Without this, every Senate race starts 50/50 because _close_general_for_election() and the
 -- web app both read states.pvi and get 0 for every state.
@@ -795,12 +809,14 @@ declare
   vote_total numeric := 0;
   best_user uuid := null;
   best_score numeric;
+  best_lean_priority numeric;
   best_created timestamptz;
   best_is_set boolean := false;
   cand_score numeric;
   cand_points numeric;
   cand_votes numeric;
   cand_lean numeric;
+  cand_lean_priority numeric;
   active_count numeric;
 begin
   select e.office, e.district_code, e.state, e.leadership_role
@@ -910,11 +926,19 @@ begin
               else 0
             end);
 
+    cand_lean_priority := 0;
+    if cand.party = 'democrat' then cand_lean_priority := partisan_lean;
+    elsif cand.party = 'republican' then cand_lean_priority := -1 * partisan_lean;
+    end if;
+
     if not best_is_set
        or cand_score > best_score
-       or (cand_score = best_score and (best_created is null or cand.created_at < best_created))
+       or (cand_score = best_score and cand_lean_priority > best_lean_priority)
+       or (cand_score = best_score and cand_lean_priority = best_lean_priority
+           and (best_created is null or cand.created_at < best_created))
     then
       best_score := cand_score;
+      best_lean_priority := cand_lean_priority;
       best_user := cand.user_id;
       best_created := cand.created_at;
       best_is_set := true;
@@ -1275,3 +1299,93 @@ grant execute on function public.advance_leadership_sessions_by_schedule() to an
 
 comment on function public.advance_leadership_sessions_by_schedule() is
   'Auto-closes leadership sessions whose closes_at has passed. Safe to call on every request.';
+
+-- ---------- Cabinet confirmation → directory (government_role_grants) ----------
+alter table public.appointments
+  add column if not exists granted_role_key text;
+
+create or replace function public.apply_appointment_confirmation(p_bill_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  appt record;
+  v_yea int := 0;
+  v_nay int := 0;
+  senate_size int := 0;
+  need int;
+begin
+  select a.* into appt
+  from public.appointments a
+  where a.confirmation_bill_id = p_bill_id
+    and a.status = 'pending'
+  limit 1;
+
+  if not found then
+    return;
+  end if;
+
+  select
+    count(*) filter (where vote = 'yea'),
+    count(*) filter (where vote = 'nay')
+  into v_yea, v_nay
+  from public.bill_votes
+  where bill_id = p_bill_id and chamber = 'senate';
+
+  select count(distinct g.user_id)::int into senate_size
+  from public.government_role_grants g
+  where g.role_key in (
+    'senator',
+    'president_pro_tempore',
+    'senate_majority_leader',
+    'senate_majority_whip',
+    'senate_minority_leader',
+    'senate_minority_whip',
+    'vice_president'
+  );
+
+  if senate_size is null or senate_size < 1 then
+    need := 1;
+  else
+    need := ceiling(senate_size::numeric / 2)::int;
+  end if;
+
+  if coalesce(v_yea, 0) >= need and coalesce(v_yea, 0) > coalesce(v_nay, 0) then
+    if appt.kind = 'cabinet'::public.appointment_kind
+       and appt.granted_role_key is not null
+       and length(trim(appt.granted_role_key)) > 0
+    then
+      delete from public.government_role_grants g
+      where g.role_key = appt.granted_role_key;
+
+      insert into public.government_role_grants (user_id, role_key)
+      values (appt.nominee_user_id, appt.granted_role_key);
+    end if;
+
+    update public.appointments
+      set status = 'confirmed'
+      where id = appt.id;
+
+    update public.bills
+      set status = 'law'::public.bill_status,
+          signed_at = coalesce(signed_at, now()),
+          chamber_vote_deadline_at = null
+      where id = p_bill_id;
+  else
+    update public.appointments
+      set status = 'rejected'
+      where id = appt.id;
+
+    update public.bills
+      set status = 'dead'::public.bill_status,
+          chamber_vote_deadline_at = null
+      where id = p_bill_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.apply_appointment_confirmation(uuid) from public;
+grant execute on function public.apply_appointment_confirmation(uuid) to authenticated;
+grant execute on function public.apply_appointment_confirmation(uuid) to service_role;

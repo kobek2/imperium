@@ -78,6 +78,9 @@ export function RallyForm({
     ok: false,
   });
 
+  /** Controlled so the presidential target state survives server-action re-renders. */
+  const [targetState, setTargetState] = useState("");
+
   // Live countdown for the "next rally unlocks in…" label.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -170,7 +173,8 @@ export function RallyForm({
           <select
             name="target_state"
             required
-            defaultValue=""
+            value={targetState}
+            onChange={(e) => setTargetState(e.target.value)}
             className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
           >
             <option value="" disabled>

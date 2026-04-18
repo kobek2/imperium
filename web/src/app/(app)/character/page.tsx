@@ -63,7 +63,7 @@ export default async function CharacterPage() {
   // Setup mode = user has never saved their character form (party is still null). Once they save
   // even once, party will be set (default "independent"), and we stop showing the welcome banner.
   // We intentionally don't require residence_state or home_district_code — a Senator/President
-  // doesn't need a House district, and some players may not want to claim a state seat.
+  // doesn't need a House district, and some players may leave district unset until they run.
   const setupMode = !profile.party;
 
   return (

@@ -90,7 +90,7 @@ export default async function ElectionDetailPage({
   ] = await Promise.all([
     supabase
       .from("election_candidates")
-      .select("id, party, campaign_points_total, user_id, primary_winner, created_at")
+      .select("id, party, campaign_points_total, user_id, primary_winner, created_at, running_mate_user_id")
       .eq("election_id", id)
       .order("id", { ascending: true }),
     supabase.from("primary_votes").select("candidate_id").eq("election_id", id),
@@ -204,13 +204,15 @@ export default async function ElectionDetailPage({
   };
   let profiles: ProfileCardRow[] = [];
   if (candList.length) {
+    const profileIds = new Set<string>();
+    for (const c of candList) {
+      profileIds.add(c.user_id as string);
+      if (c.running_mate_user_id) profileIds.add(c.running_mate_user_id as string);
+    }
     const { data: p } = await supabase
       .from("profiles")
       .select("id, character_name, face_claim_url, residence_state, home_district_code, bio")
-      .in(
-        "id",
-        candList.map((c) => c.user_id),
-      );
+      .in("id", [...profileIds]);
     profiles = p ?? [];
   }
   const nameBy = Object.fromEntries(profiles.map((p) => [p.id, p.character_name ?? ""]));
@@ -256,8 +258,15 @@ export default async function ElectionDetailPage({
   const RALLY_LIMIT = 10;
   let myRalliesInWindow = 0;
   let myNextRallyAt: string | null = null;
-  const myCand = candList.find((c) => c.user_id === user.id);
+  const myCand =
+    election.office === "president"
+      ? candList.find(
+          (c) => c.user_id === user.id || (c as { running_mate_user_id?: string | null }).running_mate_user_id === user.id,
+        )
+      : candList.find((c) => c.user_id === user.id);
   if (myCand) {
+    // Server-only rate-limit anchor; not render-purity sensitive.
+    // eslint-disable-next-line react-hooks/purity -- Date.now() for rolling rally window
     const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
     const { data: myRallyRows } = await supabase
       .from("campaign_rallies")
@@ -325,12 +334,18 @@ export default async function ElectionDetailPage({
       ) : null}
       <ElectionDetail
         election={election}
-        candidates={candList.map((c) => ({
-          ...c,
-          primary_winner: c.primary_winner ?? false,
-          campaign_points_total: c.campaign_points_total,
-          created_at: c.created_at ?? null,
-        }))}
+        candidates={candList.map((c) => {
+          const mateId = (c as { running_mate_user_id?: string | null }).running_mate_user_id;
+          const mateName = mateId ? nameBy[mateId]?.trim() || null : null;
+          return {
+            ...c,
+            primary_winner: c.primary_winner ?? false,
+            campaign_points_total: c.campaign_points_total,
+            created_at: c.created_at ?? null,
+            running_mate_user_id: mateId ?? null,
+            running_mate_name: mateName,
+          };
+        })}
         nameBy={nameBy}
         candidateCardByUserId={candidateCardByUserId}
         primaryTally={primaryTally}

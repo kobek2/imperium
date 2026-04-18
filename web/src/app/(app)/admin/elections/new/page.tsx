@@ -2,10 +2,27 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getIsAdmin } from "@/lib/is-admin";
 import { createElection } from "@/app/actions/elections";
+import { tryCreateClient } from "@/lib/supabase/server";
+import {
+  countTotalPlayers,
+  loadDistrictPopulations,
+  loadStatePopulations,
+} from "@/lib/seat-populations";
 import { CreateElectionForm } from "./create-election-form";
 
 export default async function NewElectionPage() {
   if (!(await getIsAdmin())) redirect("/");
+
+  const supabase = await tryCreateClient();
+  // Pull populations so the form can show "CA-01 — 2 players" and flag empty seats before
+  // admins create elections no one is going to file for.
+  const [districts, states, totalPlayers] = supabase
+    ? await Promise.all([
+        loadDistrictPopulations(supabase),
+        loadStatePopulations(supabase),
+        countTotalPlayers(supabase),
+      ])
+    : [[], [], 0];
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -22,7 +39,12 @@ export default async function NewElectionPage() {
           general 48h — edit the durations if you want a different cadence.
         </p>
       </div>
-      <CreateElectionForm action={createElection} />
+      <CreateElectionForm
+        action={createElection}
+        districts={districts}
+        states={states}
+        totalPlayers={totalPlayers}
+      />
     </div>
   );
 }

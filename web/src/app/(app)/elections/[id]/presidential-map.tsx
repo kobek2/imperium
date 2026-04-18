@@ -9,10 +9,10 @@
  * don't need to ship megabytes of topojson for it.
  *
  * Coloring:
- *   - If no scoring data for a state (no votes, no campaign activity), we color by the
- *     state's PVI so the user sees baseline lean.
- *   - Otherwise we color by the projected winner's party and shade darker as their lead
- *     over second place grows.
+ *   - If a state has no in-state votes and no raw speech/rally points there yet, we color
+ *     by the state's stored 2024 margin (so tiles match the pre-campaign baseline).
+ *   - After local activity exists, we color by the projected winner's party and shade by
+ *     their lead over second place in the blended score.
  *
  * Hovering a tile pops up a panel with per-candidate points / votes / projected share.
  */
@@ -93,7 +93,7 @@ const GRID_ROWS = 8;
 const GRID_COLS = 13;
 
 function pviTone(pvi: number) {
-  // Positive PVI = Dem lean, negative = GOP lean. Matches `seed_state_pvi_from_2024.sql`.
+  // Signed 2024 presidential margin (D+ / R+). Matches `states.pvi` seed data.
   if (pvi >= 15) return "bg-blue-700 text-white";
   if (pvi >= 6) return "bg-blue-500 text-white";
   if (pvi >= 2) return "bg-blue-300 text-blue-950";
@@ -204,7 +204,8 @@ export function PresidentialMap({ states, result, candidates }: Props) {
             const winnerId = stateRes?.winner_candidate_id ?? null;
             const winnerCand = winnerId ? candById.get(winnerId) : null;
             const hasActivity =
-              stateRes != null && (stateRes.total_points > 0 || stateRes.total_votes > 0);
+              stateRes != null &&
+              (stateRes.raw_points_total > 0 || stateRes.total_votes > 0);
 
             const tone = hasActivity && winnerCand
               ? partyShade(winnerCand.party, topTwoMargin(stateRes))
@@ -253,7 +254,9 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                 {hoverResult && hoverResult.winner_candidate_id ? (
                   <WinnerPill
                     cand={candById.get(hoverResult.winner_candidate_id) ?? null}
-                    projected={hoverResult.total_points > 0 || hoverResult.total_votes > 0}
+                    projected={
+                      hoverResult.raw_points_total > 0 || hoverResult.total_votes > 0
+                    }
                   />
                 ) : null}
               </div>

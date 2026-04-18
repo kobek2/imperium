@@ -10,6 +10,7 @@ import {
   LeadershipToggle,
   type LeadershipSessionRow,
 } from "./leadership-toggle";
+import { BulkEndElectionsForm } from "./bulk-end-elections-form";
 
 export default async function AdminElectionsPage() {
   if (!(await getIsAdmin())) redirect("/");
@@ -71,6 +72,7 @@ export default async function AdminElectionsPage() {
         senateSession={senateSession}
         schemaMissing={leadershipSchemaMissing}
       />
+      <BulkEndElectionsForm />
       <AdminElectionsList rows={dashboardRows} />
     </div>
   );

@@ -1,6 +1,6 @@
 import discordRoleIdToRoleKey from "./discord-role-map.json";
 
-/** Your guild’s Discord role snowflake → PolSim `role_key` (see `political-roles.ts`). */
+/** Your guild’s Discord role snowflake → Imperium `role_key` (see `political-roles.ts`). */
 export const DISCORD_ROLE_ID_TO_ROLE_KEY: Record<string, string> =
   discordRoleIdToRoleKey;
 

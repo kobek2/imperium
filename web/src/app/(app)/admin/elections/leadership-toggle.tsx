@@ -80,7 +80,8 @@ function ChamberCard({
       <p className="text-sm font-semibold text-[var(--psc-ink)]">{label} leadership</p>
       <p className="mt-1 text-xs text-[var(--psc-muted)]">
         Toggle on to open a 24-hour window. Members of the {label.toLowerCase()} can file for a
-        position AND vote during the same window. Tie-breaker is most senior member.
+        position AND vote during the same window. Per-role ties use most senior member; which
+        caucus is majority is set from seat counts when you start (see header note).
       </p>
       <SubmitButton
         pendingLabel="Starting…"
@@ -108,7 +109,8 @@ export function LeadershipToggle({
           Leadership elections
         </h2>
         <span className="text-xs text-[var(--psc-muted)]">
-          One open session per chamber.
+          One open session per chamber. Majority caucus = most seats; ties use delegation seniority
+          (earliest chamber grants), then the party of the seated President.
         </span>
       </div>
       {schemaMissing ? (

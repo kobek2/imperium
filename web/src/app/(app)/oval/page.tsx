@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { createAppointment, presidentialAction } from "@/app/actions/bills";
+import { presidentialAction } from "@/app/actions/bills";
+import { OvalAppointmentForm } from "./appointment-form";
 import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
@@ -75,49 +76,18 @@ export default async function OvalPage() {
       <header>
         <h1 className="text-3xl font-semibold">Executive desk</h1>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Signing or vetoing updates the statute line immediately. Cabinet and SCOTUS
-          picks generate Senate confirmation bills automatically.
+          Signing or vetoing updates the statute line immediately. Cabinet nominations use
+          the seat dropdown and create a Senate confirmation bill. When the vote window
+          closes, if at least half of seated senators (from role grants) vote yea and yeas
+          outnumber nays, the nominee is written to the directory and receives that
+          cabinet role in <code className="font-mono">government_role_grants</code>.
         </p>
       </header>
 
       {president ? (
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <h2 className="text-lg font-semibold">Appointment + confirmation</h2>
-          <form action={createAppointment} className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 text-sm font-semibold">
-              Office title
-              <input
-                name="title"
-                required
-                className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold">
-              Kind
-              <select
-                name="kind"
-                className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-              >
-                <option value="cabinet">Cabinet</option>
-                <option value="scotus">Supreme Court</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-              Nominee Discord user id (snowflake)
-              <input
-                name="nominee_discord"
-                required
-                className="border border-[var(--psc-border)] bg-white px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            <button
-              type="submit"
-              className="border border-[var(--psc-border)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2"
-            >
-              Transmit nomination
-            </button>
-          </form>
+          <OvalAppointmentForm />
         </section>
       ) : (
         <p className="text-sm text-[var(--psc-muted)]">

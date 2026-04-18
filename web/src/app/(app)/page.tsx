@@ -28,7 +28,7 @@ const TILES = [
 export default async function BriefingPage() {
   // Redirect first-time users to the character setup screen. We do this here (not in a layout)
   // so /character itself isn't caught in a loop, and so unauthenticated visitors to / still see
-  // the command center as a stub if Supabase isn't configured.
+  // the briefing stub if Supabase isn't configured.
   const supabase = await tryCreateClient();
   if (supabase) {
     const {
@@ -51,11 +51,9 @@ export default async function BriefingPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">
-          Command center
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Imperium</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--psc-muted)]">
-          Pick a module to get started.
+          Briefing — pick a module to get started.
         </p>
       </header>
 

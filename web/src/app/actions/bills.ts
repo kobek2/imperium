@@ -4,25 +4,50 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addHours } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { processBillDeadlines } from "@/lib/bill-pipeline";
+import { processBillDeadlines, resolveSenateAfterTiebreakVote } from "@/lib/bill-pipeline";
 import { canFileFederalLegislation, originatingChamberForRoles } from "@/lib/legislative-eligibility";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import {
+  isActivePresidentialRunningMate,
+  userCanBreakSenateTie,
+} from "@/lib/presidential-running-mate";
 import { canActAsPresident, canReviewLeadershipForChamber } from "@/lib/role-capabilities";
 import type { BillChamber } from "@/lib/bill-types";
+import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
+import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
 
 function isMissingBillTimerColumn(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
 }
 
+function isMissingAppointmentGrantColumn(message: string | undefined) {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("granted_role_key") || m.includes("schema cache");
+}
+
 async function assertFloorVoteOpen(supabase: SupabaseClient, bill_id: string, chamber: BillChamber) {
-  const { data: b } = await supabase.from("bills").select("status").eq("id", bill_id).maybeSingle();
+  const { data: b } = await supabase
+    .from("bills")
+    .select("status, vp_tie_break_pending, chamber_vote_deadline_at")
+    .eq("id", bill_id)
+    .maybeSingle();
   if (!b) throw new Error("Bill not found.");
   if (chamber === "house" && b.status !== "house_floor") {
     throw new Error("The House is not in a live floor vote on this bill.");
   }
   if (chamber === "senate" && b.status !== "senate_floor") {
     throw new Error("The Senate is not in a live floor vote on this bill.");
+  }
+  if (chamber === "house") {
+    if (!b.chamber_vote_deadline_at || new Date(b.chamber_vote_deadline_at) < new Date()) {
+      throw new Error("The House floor vote is closed.");
+    }
+  }
+  if (chamber === "senate" && !b.vp_tie_break_pending) {
+    if (!b.chamber_vote_deadline_at || new Date(b.chamber_vote_deadline_at) < new Date()) {
+      throw new Error("The Senate floor vote is closed.");
+    }
   }
 }
 
@@ -50,6 +75,11 @@ export async function submitBill(formData: FormData): Promise<void> {
   if (!canFileFederalLegislation(roleKeys)) {
     throw new Error(
       "Only Representatives, Senators, or the President (or admin) may file legislation.",
+    );
+  }
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error(
+      "Presidential running mates (during the primary) may not file legislation in Congress.",
     );
   }
 
@@ -108,6 +138,7 @@ export async function submitBill(formData: FormData): Promise<void> {
   await processBillDeadlines(supabase);
   revalidatePath("/congress");
   revalidatePath("/congress/leadership");
+  revalidatePath("/directory");
 }
 
 export async function leadershipReviewBill(formData: FormData): Promise<void> {
@@ -127,6 +158,10 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
     .maybeSingle();
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error("Presidential running mates may not move bills from leadership review.");
+  }
 
   const { data: bill } = await supabase
     .from("bills")
@@ -179,6 +214,7 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   revalidatePath("/congress");
   revalidatePath("/congress/leadership");
   revalidatePath("/oval");
+  revalidatePath("/directory");
 }
 
 export async function castBillVote(formData: FormData): Promise<void> {
@@ -192,7 +228,46 @@ export async function castBillVote(formData: FormData): Promise<void> {
   const chamber = String(formData.get("chamber")) as BillChamber;
   const vote = String(formData.get("vote"));
 
+  const { data: billGate } = await supabase
+    .from("bills")
+    .select("vp_tie_break_pending")
+    .eq("id", bill_id)
+    .maybeSingle();
+
   await assertFloorVoteOpen(supabase, bill_id, chamber);
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("office_role")
+    .eq("id", user.id)
+    .maybeSingle();
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+
+  if (chamber === "house") {
+    if (!roleKeys.includes("representative") && !roleKeys.includes("admin")) {
+      throw new Error("Only Representatives may cast this vote.");
+    }
+  } else if (chamber === "senate") {
+    if (billGate?.vp_tie_break_pending) {
+      if (vote === "abstain") {
+        throw new Error("Tie-breaking votes must be yea or nay.");
+      }
+      if (!(await userCanBreakSenateTie(supabase, user.id, roleKeys))) {
+        throw new Error(
+          "Only the Vice President or a presidential running mate (during the primary) may cast a tie-breaking Senate vote.",
+        );
+      }
+    } else {
+      if (!roleKeys.includes("senator") && !roleKeys.includes("admin")) {
+        throw new Error("Only Senators may cast this vote.");
+      }
+      if (await isActivePresidentialRunningMate(supabase, user.id)) {
+        throw new Error(
+          "Presidential running mates may not vote on Senate floor bills except to break a tie.",
+        );
+      }
+    }
+  }
 
   await supabase
     .from("bill_votes")
@@ -209,9 +284,15 @@ export async function castBillVote(formData: FormData): Promise<void> {
   });
 
   if (error) throw new Error(error.message);
+
+  if (chamber === "senate" && billGate?.vp_tie_break_pending) {
+    await resolveSenateAfterTiebreakVote(supabase, bill_id);
+  }
+
   await processBillDeadlines(supabase);
   revalidatePath("/congress");
   revalidatePath("/oval");
+  revalidatePath("/directory");
 }
 
 export async function createAppointment(formData: FormData): Promise<void> {
@@ -231,24 +312,73 @@ export async function createAppointment(formData: FormData): Promise<void> {
   if (!canActAsPresident(roleKeys)) {
     throw new Error("Presidential authority required.");
   }
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error("Presidential running mates may not create appointments.");
+  }
 
-  const title = String(formData.get("title") ?? "").trim();
-  const nominee_discord = String(formData.get("nominee_discord") ?? "").trim();
-  const kind = String(formData.get("kind") ?? "cabinet");
+  const rawDiscord = String(formData.get("nominee_discord") ?? "").trim();
+  const nominee_discord = rawDiscord.replace(/\D/g, "") || rawDiscord;
+  const kind = String(formData.get("kind") ?? "cabinet").trim();
 
-  if (!title || !nominee_discord) {
-    throw new Error("Title and nominee Discord ID are required.");
+  let title: string;
+  let granted_role_key: string | null = null;
+  if (kind === "cabinet") {
+    const cabinetRole = String(formData.get("cabinet_role") ?? "").trim();
+    if (!CABINET_APPOINTMENT_ROLE_KEY_SET.has(cabinetRole)) {
+      throw new Error("Pick a cabinet position from the list.");
+    }
+    granted_role_key = cabinetRole;
+    title = POLITICAL_ROLE_LABELS[cabinetRole] ?? cabinetRole;
+  } else {
+    title = String(formData.get("title") ?? "").trim();
+    if (!title) {
+      throw new Error("Office title is required for this appointment kind.");
+    }
+  }
+
+  if (!nominee_discord) {
+    throw new Error("Nominee Discord user id is required.");
   }
 
   const { data: nominee } = await supabase
     .from("profiles")
-    .select("id")
+    .select("id, character_name, discord_username, discord_user_id")
     .eq("discord_user_id", nominee_discord)
     .maybeSingle();
 
   if (!nominee) {
-    throw new Error("Nominee must already have logged into the Command Center.");
+    throw new Error(
+      "No profile matches that Discord id. Check the number, or ask the nominee to log in once so their account is linked.",
+    );
   }
+
+  const nomineeLabel =
+    nominee.character_name?.trim() ||
+    nominee.discord_username?.trim() ||
+    `User ${nominee.id.slice(0, 8)}…`;
+
+  const content_md = [
+    "## Presidential nomination (Senate confirmation)",
+    "",
+    `**Office:** ${title}`,
+    `**Category:** ${kind}`,
+    "",
+    "### Nominee",
+    "",
+    `- **Character:** ${nomineeLabel}`,
+    nominee.discord_username
+      ? `- **Discord:** @${nominee.discord_username} (user id \`${nominee.discord_user_id}\`)`
+      : `- **Discord user id:** \`${nominee.discord_user_id}\``,
+    `- **Imperium user id:** \`${nominee.id}\``,
+    "",
+    "### Next step",
+    "",
+    "Senate leadership should **Accept** to send this to the Senate floor for a confirmation vote, or **Reject** to decline. If the leadership window expires with no action, the nomination is dropped.",
+    "",
+    "---",
+    "",
+    "_Submitted by the President._",
+  ].join("\n");
 
   const now = new Date();
   const expires_at = addHours(now, 24 * 30).toISOString();
@@ -256,7 +386,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
     .from("bills")
     .insert({
       title: `Confirmation: ${title}`,
-      content_md: `Automatic confirmation message for **${title}**.\n\nNominee user id: \`${nominee.id}\``,
+      content_md,
       originating_chamber: "senate",
       author_id: user.id,
       status: "hopper",
@@ -271,18 +401,31 @@ export async function createAppointment(formData: FormData): Promise<void> {
     throw new Error(billError?.message ?? "Unable to create confirmation bill.");
   }
 
-  const { error: apptError } = await supabase.from("appointments").insert({
+  const baseAppt = {
     kind,
     title,
     nominee_user_id: nominee.id,
     president_user_id: user.id,
     confirmation_bill_id: bill.id,
-  });
+  };
 
-  if (apptError) throw new Error(apptError.message);
+  let apptInsert = await supabase.from("appointments").insert(
+    granted_role_key ? { ...baseAppt, granted_role_key } : baseAppt,
+  );
+
+  if (
+    apptInsert.error &&
+    granted_role_key &&
+    isMissingAppointmentGrantColumn(apptInsert.error.message)
+  ) {
+    apptInsert = await supabase.from("appointments").insert(baseAppt);
+  }
+
+  if (apptInsert.error) throw new Error(apptInsert.error.message);
   revalidatePath("/oval");
   revalidatePath("/congress");
   revalidatePath("/congress/leadership");
+  revalidatePath("/directory");
 }
 
 export async function presidentialAction(formData: FormData): Promise<void> {
@@ -302,6 +445,9 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   if (!canActAsPresident(roleKeys)) {
     throw new Error("Presidential authority required.");
   }
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error("Presidential running mates may not sign or veto legislation.");
+  }
 
   const bill_id = String(formData.get("bill_id"));
   const action = String(formData.get("action"));
@@ -320,4 +466,5 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   if (error) throw new Error(error.message);
   revalidatePath("/oval");
   revalidatePath("/congress");
+  revalidatePath("/directory");
 }

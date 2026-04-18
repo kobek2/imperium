@@ -48,7 +48,7 @@ export async function loadActiveCandidacySlots(
 }
 
 /**
- * Eligibility for filing (party, seat match, one congressional + optional president).
+ * Eligibility for filing (party, seat match, one active House or Senate race + optional president).
  * Does not check filing window or duplicate row in this election.
  */
 export function getFilingEligibilityMessage(
@@ -100,7 +100,7 @@ export function getFilingEligibilityMessage(
     }
   } else if (office === "house" || office === "senate") {
     if (active.hasCongress) {
-      return "You are already filed in an active House or Senate race. Wait until that race closes (or ask an admin) before filing for another congressional seat. You may still run for President alongside one congressional filing.";
+      return "You are already filed in an active House or Senate race. Withdraw that filing on the race page first if you want to run for a different seat. You may still run for President alongside one House or Senate race.";
     }
   }
 

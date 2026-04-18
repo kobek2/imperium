@@ -113,7 +113,7 @@ export function CharacterForm({
     formData.set("residence_state", state);
     try {
       await saveCharacter(formData);
-      setMessage("Saved. District claim updated if applicable.");
+      setMessage("Saved.");
       router.refresh();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Unable to save.");
@@ -127,8 +127,8 @@ export function CharacterForm({
       <div>
         <h2 className="text-lg font-semibold">Edit personnel record</h2>
         <p className="mt-2 text-sm text-[var(--psc-muted)]">
-          Submit to save. District list follows the state selector; choose a district to claim that seat
-          when open.
+          Submit to save. Pick the state and congressional district that match your character&apos;s
+          home — multiple players can share the same district for competitive House races.
         </p>
       </div>
 
@@ -185,15 +185,11 @@ export function CharacterForm({
             className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
           >
             <option value="">No district selected</option>
-            {districts.map((d) => {
-              const locked = Boolean(d.claimed_by && d.claimed_by !== userId);
-              return (
-                <option key={d.code} value={d.code} disabled={locked}>
-                  {d.code} — PVI {d.pvi} — {d.incumbent_party} —{" "}
-                  {locked ? "CLAIMED" : d.incumbent_npc_name}
-                </option>
-              );
-            })}
+            {districts.map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.code} — PVI {d.pvi} — {d.incumbent_party} — {d.incumbent_npc_name}
+              </option>
+            ))}
           </select>
         </div>
         <p className="text-xs font-normal text-[var(--psc-muted)]">{leanHint}</p>

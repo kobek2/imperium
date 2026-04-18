@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
+import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
 import { tryCreateClient } from "@/lib/supabase/server";
 import {
   HierarchyTabs,
@@ -39,23 +40,7 @@ const TABS: DirectoryTabConfig[] = [
       {
         kind: "grid",
         title: "Cabinet",
-        roleKeys: [
-          "chief_of_staff",
-          "secretary_of_state",
-          "secretary_of_treasury",
-          "attorney_general",
-          "secretary_of_defense",
-          "secretary_of_homeland_security",
-          "secretary_of_health_and_human_services",
-          "secretary_of_transportation",
-          "secretary_of_energy",
-          "secretary_of_interior",
-          "secretary_of_agriculture",
-          "secretary_of_commerce",
-          "secretary_of_education",
-          "secretary_of_veterans_affairs",
-          "secretary_of_housing_and_urban_development",
-        ],
+        roleKeys: [...CABINET_APPOINTMENT_ROLE_KEYS],
       },
       { kind: "enacted_laws", title: "Bills signed into law" },
     ],
