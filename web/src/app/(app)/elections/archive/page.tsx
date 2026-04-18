@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
+import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 
 type ClosedElection = {
   id: string;
@@ -10,14 +11,17 @@ type ClosedElection = {
   winner_user_id: string | null;
   filing_opens_at: string;
   filing_closes_at: string;
-  primary_closes_at: string;
+  primary_closes_at: string | null;
   general_closes_at: string;
+  leadership_role: string | null;
+  restricted_party: string | null;
 };
 
 const OFFICE_TITLE: Record<string, string> = {
   house: "House of Representatives",
   senate: "Senate",
   president: "President",
+  leadership: "Congressional leadership",
 };
 
 function partyLabel(p: string | null | undefined) {
@@ -60,7 +64,7 @@ export default async function ElectionsArchivePage() {
   const { data: elections } = await supabase
     .from("elections")
     .select(
-      "id, office, state, district_code, winner_user_id, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at",
+      "id, office, state, district_code, winner_user_id, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, leadership_role, restricted_party",
     )
     .eq("phase", "closed")
     .order("general_closes_at", { ascending: false });
@@ -120,9 +124,10 @@ export default async function ElectionsArchivePage() {
 
   const byOffice = new Map<string, ClosedElection[]>();
   for (const row of rows) {
-    const list = byOffice.get(row.office) ?? [];
+    const key = row.leadership_role ? "leadership" : row.office;
+    const list = byOffice.get(key) ?? [];
     list.push(row);
-    byOffice.set(row.office, list);
+    byOffice.set(key, list);
   }
 
   return (
@@ -151,7 +156,7 @@ export default async function ElectionsArchivePage() {
         </section>
       ) : (
         <div className="space-y-10">
-          {(["house", "senate", "president"] as const).map((officeKey) => {
+          {(["house", "senate", "president", "leadership"] as const).map((officeKey) => {
             const list = byOffice.get(officeKey) ?? [];
             if (!list.length) return null;
             return (
@@ -174,8 +179,11 @@ export default async function ElectionsArchivePage() {
                           (c) => c.user_id === e.winner_user_id,
                         )?.party ?? null
                       : null;
-                    const seatLabel =
-                      e.district_code ?? e.state ?? "Nationwide";
+                    const seatLabel = e.leadership_role
+                      ? `${leadershipRoleLabel(e.leadership_role as LeadershipRole)}${
+                          e.restricted_party ? ` · ${e.restricted_party} caucus` : ""
+                        }`
+                      : (e.district_code ?? e.state ?? "Nationwide");
                     const candidateCount =
                       (candidatesByElection.get(e.id) ?? []).length;
                     const primaryVotes = primaryVoteTotals.get(e.id) ?? 0;

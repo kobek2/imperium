@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { HierarchyTabs, type DirectoryTab, type DirectoryHolder } from "./hierarchy-tabs";
+import {
+  HierarchyTabs,
+  type DirectoryTab,
+  type DirectoryHolder,
+  type LawEntry,
+} from "./hierarchy-tabs";
 
 /**
  * Each tab is a branch/chamber of government. Sections inside a tab render either as a
@@ -20,7 +25,8 @@ type DirectoryTabConfig = {
 
 type DirectoryTabSection =
   | { kind: "featured"; roleKeys: string[] }
-  | { kind: "grid"; title: string; roleKeys: string[] };
+  | { kind: "grid"; title: string; roleKeys: string[] }
+  | { kind: "enacted_laws"; title: string };
 
 const TABS: DirectoryTabConfig[] = [
   {
@@ -51,6 +57,7 @@ const TABS: DirectoryTabConfig[] = [
           "secretary_of_housing_and_urban_development",
         ],
       },
+      { kind: "enacted_laws", title: "Bills signed into law" },
     ],
   },
   {
@@ -120,14 +127,61 @@ export default async function DirectoryPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: grants }, { data: profiles }] = await Promise.all([
+  const [{ data: grants }, { data: profiles }, { data: lawBills }] = await Promise.all([
     supabase.from("government_role_grants").select("user_id, role_key"),
     supabase
       .from("profiles")
       .select(
         "id, character_name, discord_username, office_role, party, bio, face_claim_url, residence_state, home_district_code",
       ),
+    supabase
+      .from("bills")
+      .select("id, title, originating_chamber, created_at, signed_at, author_id")
+      .eq("status", "law")
+      .order("signed_at", { ascending: false, nullsFirst: false }),
   ]);
+
+  const lawBillRows = (lawBills ?? []) as Array<{
+    id: string;
+    title: string;
+    originating_chamber: "house" | "senate";
+    created_at: string;
+    signed_at: string | null;
+    author_id: string;
+  }>;
+
+  // Only go fetch vote tallies if there are actually enacted laws to annotate.
+  const lawTallies = new Map<
+    string,
+    { house_yea: number; house_nay: number; senate_yea: number; senate_nay: number }
+  >();
+  if (lawBillRows.length) {
+    const { data: lawVotes } = await supabase
+      .from("bill_votes")
+      .select("bill_id, chamber, vote")
+      .in(
+        "bill_id",
+        lawBillRows.map((b) => b.id),
+      )
+      .in("vote", ["yea", "nay"]);
+    for (const v of (lawVotes ?? []) as Array<{
+      bill_id: string;
+      chamber: "house" | "senate";
+      vote: "yea" | "nay";
+    }>) {
+      const t = lawTallies.get(v.bill_id) ?? {
+        house_yea: 0,
+        house_nay: 0,
+        senate_yea: 0,
+        senate_nay: 0,
+      };
+      if (v.chamber === "house" && v.vote === "yea") t.house_yea++;
+      else if (v.chamber === "house" && v.vote === "nay") t.house_nay++;
+      else if (v.chamber === "senate" && v.vote === "yea") t.senate_yea++;
+      else if (v.chamber === "senate" && v.vote === "nay") t.senate_nay++;
+      lawTallies.set(v.bill_id, t);
+    }
+  }
 
   const profileById = new Map<string, DirectoryHolder>(
     (profiles ?? []).map((p) => [
@@ -173,6 +227,26 @@ export default async function DirectoryPage() {
       ),
     );
 
+  const laws: LawEntry[] = lawBillRows.map((b) => {
+    const tally = lawTallies.get(b.id);
+    const author = profileById.get(b.author_id);
+    return {
+      id: b.id,
+      title: b.title,
+      originating_chamber: b.originating_chamber,
+      signed_at: b.signed_at,
+      created_at: b.created_at,
+      author_id: b.author_id,
+      author_name:
+        author?.character_name?.trim() || author?.discord_username?.trim() || null,
+      author_party: author?.party ?? null,
+      house_yea: tally?.house_yea ?? 0,
+      house_nay: tally?.house_nay ?? 0,
+      senate_yea: tally?.senate_yea ?? 0,
+      senate_nay: tally?.senate_nay ?? 0,
+    };
+  });
+
   const tabs: DirectoryTab[] = TABS.map((tab) => ({
     id: tab.id,
     label: tab.label,
@@ -187,6 +261,13 @@ export default async function DirectoryPage() {
             role_label: POLITICAL_ROLE_LABELS[k] ?? k,
             holders: getHolders(k),
           })),
+        };
+      }
+      if (section.kind === "enacted_laws") {
+        return {
+          kind: "enacted_laws" as const,
+          title: section.title,
+          laws,
         };
       }
       return {

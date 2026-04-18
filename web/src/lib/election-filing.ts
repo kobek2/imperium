@@ -31,8 +31,16 @@ export async function loadActiveCandidacySlots(
   const eids = [...new Set((myCands ?? []).map((c) => c.election_id))];
   if (!eids.length) return { hasCongress: false, hasPresident: false };
 
-  const { data: elecs } = await supabase.from("elections").select("office, phase").in("id", eids);
-  const active = (elecs ?? []).filter((e) => e.phase !== "closed");
+  // Leadership races don't consume a "congressional seat" filing slot — filing for Speaker
+  // shouldn't prevent you from filing for a House seat the same cycle. Select
+  // leadership_role so we can exclude those rows from the slot count.
+  const { data: elecs } = await supabase
+    .from("elections")
+    .select("office, phase, leadership_role")
+    .in("id", eids);
+  const active = (elecs ?? []).filter(
+    (e) => e.phase !== "closed" && !e.leadership_role,
+  );
   return {
     hasCongress: active.some((e) => e.office === "house" || e.office === "senate"),
     hasPresident: active.some((e) => e.office === "president"),

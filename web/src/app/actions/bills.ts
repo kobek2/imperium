@@ -144,14 +144,18 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   }
 
   if (decision === "reject") {
-    const { error } = await supabase
+    let { error } = await supabase
       .from("bills")
       .update({ status: "dead", leadership_deadline_at: null, chamber_vote_deadline_at: null })
       .eq("id", bill_id);
+    if (error && isMissingBillTimerColumn(error.message)) {
+      const retry = await supabase.from("bills").update({ status: "dead" }).eq("id", bill_id);
+      error = retry.error;
+    }
     if (error) throw new Error(error.message);
   } else if (decision === "accept") {
     const floorStatus = chamber === "house" ? "house_floor" : "senate_floor";
-    const { error } = await supabase
+    let { error } = await supabase
       .from("bills")
       .update({
         status: floorStatus,
@@ -159,6 +163,13 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
         chamber_vote_deadline_at: addHours(new Date(), 24).toISOString(),
       })
       .eq("id", bill_id);
+    if (error && isMissingBillTimerColumn(error.message)) {
+      const retry = await supabase
+        .from("bills")
+        .update({ status: floorStatus })
+        .eq("id", bill_id);
+      error = retry.error;
+    }
     if (error) throw new Error(error.message);
   } else {
     throw new Error("Invalid decision.");

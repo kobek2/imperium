@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 export type ProfileCardData = {
+  /** When set, callers can rely on `profilePath(profile)` to build a stable link. */
+  id?: string | null;
   character_name: string | null;
   face_claim_url: string | null;
   party?: string | null;
@@ -8,6 +10,12 @@ export type ProfileCardData = {
   residence_state?: string | null;
   home_district_code?: string | null;
 };
+
+/** Stable URL for a user's public profile page. */
+export function profilePath(id: string | null | undefined): string | null {
+  const v = (id ?? "").trim();
+  return v ? `/profile/${v}` : null;
+}
 
 export type PartyKey = "democrat" | "republican" | "independent";
 
@@ -119,7 +127,10 @@ export function ProfileCard({
         : baseBorder
   }`;
 
-  const content = (
+  // We deliberately keep the footer OUTSIDE the link wrapper. Nesting a <form>/<button>
+  // inside an <a> is invalid HTML — and for election cards it meant clicking the vote
+  // button would navigate to the profile instead of submitting the vote.
+  const headerInner = (
     <>
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-[var(--psc-canvas)]">
         {photo ? (
@@ -160,20 +171,27 @@ export function ProfileCard({
             {bio}
           </p>
         ) : null}
-        {footer ? <div className="mt-auto pt-2">{footer}</div> : null}
       </div>
     </>
   );
 
-  if (href) {
-    return (
-      <Link href={href} className={outerClass}>
-        {content}
-      </Link>
-    );
-  }
+  const header = href ? (
+    <Link
+      href={href}
+      className="flex flex-1 flex-col outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
+    >
+      {headerInner}
+    </Link>
+  ) : (
+    <div className="flex flex-1 flex-col">{headerInner}</div>
+  );
 
-  return <article className={outerClass}>{content}</article>;
+  return (
+    <article className={outerClass}>
+      {header}
+      {footer ? <div className="px-4 pb-4">{footer}</div> : null}
+    </article>
+  );
 }
 
 export function ProfileCardBadge({

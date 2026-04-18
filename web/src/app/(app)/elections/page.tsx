@@ -28,7 +28,7 @@ export default async function ElectionsPage() {
     supabase
       .from("elections")
       .select(
-        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, state, senate_class",
+        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, state, senate_class, leadership_role, restricted_party",
       )
       .order("filing_opens_at", { ascending: false }),
     supabase

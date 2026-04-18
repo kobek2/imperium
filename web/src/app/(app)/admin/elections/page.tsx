@@ -6,6 +6,10 @@ import {
   AdminElectionsList,
   type AdminElectionRow,
 } from "./admin-elections-list";
+import {
+  LeadershipToggle,
+  type LeadershipSessionRow,
+} from "./leadership-toggle";
 
 export default async function AdminElectionsPage() {
   if (!(await getIsAdmin())) redirect("/");
@@ -15,12 +19,24 @@ export default async function AdminElectionsPage() {
 
   await runElectionPhaseSchedule(supabase);
 
-  const { data: rows } = await supabase
-    .from("elections")
-    .select(
-      "id, office, state, district_code, senate_class, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at",
-    )
-    .order("filing_opens_at", { ascending: false });
+  const [{ data: rows }, sessionsRes] = await Promise.all([
+    supabase
+      .from("elections")
+      .select(
+        "id, office, state, district_code, senate_class, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, leadership_role, restricted_party",
+      )
+      .order("filing_opens_at", { ascending: false }),
+    supabase
+      .from("leadership_sessions")
+      .select("id, chamber, phase, majority_party, opens_at, closes_at, closed_at")
+      .eq("phase", "open"),
+  ]);
+
+  const { data: sessions, error: sessionsErr } = sessionsRes;
+  const leadershipSchemaMissing =
+    !!sessionsErr &&
+    (sessionsErr.message.toLowerCase().includes("leadership_sessions") ||
+      sessionsErr.code === "PGRST205");
 
   const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
 
@@ -44,5 +60,18 @@ export default async function AdminElectionsPage() {
     candidate_count: countsById[r.id] ?? 0,
   }));
 
-  return <AdminElectionsList rows={dashboardRows} />;
+  const sessionRows = (sessions ?? []) as LeadershipSessionRow[];
+  const houseSession = sessionRows.find((s) => s.chamber === "house") ?? null;
+  const senateSession = sessionRows.find((s) => s.chamber === "senate") ?? null;
+
+  return (
+    <div className="space-y-6">
+      <LeadershipToggle
+        houseSession={houseSession}
+        senateSession={senateSession}
+        schemaMissing={leadershipSchemaMissing}
+      />
+      <AdminElectionsList rows={dashboardRows} />
+    </div>
+  );
 }

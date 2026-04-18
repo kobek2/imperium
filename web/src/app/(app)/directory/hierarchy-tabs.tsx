@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ProfileCard } from "@/components/profile-card";
+import { ProfileCard, profilePath } from "@/components/profile-card";
 
 export type DirectoryHolder = {
   id: string;
@@ -20,6 +21,21 @@ type RoleRow = {
   holders: DirectoryHolder[];
 };
 
+export type LawEntry = {
+  id: string;
+  title: string;
+  originating_chamber: "house" | "senate";
+  signed_at: string | null;
+  created_at: string;
+  author_id: string;
+  author_name: string | null;
+  author_party: string | null;
+  house_yea: number;
+  house_nay: number;
+  senate_yea: number;
+  senate_nay: number;
+};
+
 export type DirectoryTab = {
   id: string;
   label: string;
@@ -28,6 +44,7 @@ export type DirectoryTab = {
   sections: Array<
     | { kind: "featured"; roles: RoleRow[] }
     | { kind: "grid"; title: string; roles: RoleRow[] }
+    | { kind: "enacted_laws"; title: string; laws: LawEntry[] }
   >;
 };
 
@@ -105,28 +122,54 @@ function FeaturedHolder({
         ? "border-red-400"
         : "border-[var(--psc-border)]";
 
+  const href = profilePath(holder.id);
+
   return (
     <article
       className={`grid grid-cols-1 gap-6 rounded-lg border-2 bg-[var(--psc-panel)] p-6 shadow-sm md:grid-cols-[minmax(200px,280px)_1fr] md:gap-8 md:p-8 ${accent}`}
     >
-      <div className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)]">
-        {photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]">
-            {initials(name)}
-          </div>
-        )}
-      </div>
+      {href ? (
+        <Link
+          href={href}
+          className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)] outline-none transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
+        >
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]">
+              {initials(name)}
+            </div>
+          )}
+        </Link>
+      ) : (
+        <div className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)]">
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]">
+              {initials(name)}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
           {roleLabel}
         </p>
-        <h3 className="text-3xl font-bold tracking-tight text-[var(--psc-accent)] md:text-4xl">
-          {name}
-        </h3>
+        {href ? (
+          <Link href={href} className="group inline-flex w-fit">
+            <h3 className="text-3xl font-bold tracking-tight text-[var(--psc-accent)] transition group-hover:underline md:text-4xl">
+              {name}
+            </h3>
+          </Link>
+        ) : (
+          <h3 className="text-3xl font-bold tracking-tight text-[var(--psc-accent)] md:text-4xl">
+            {name}
+          </h3>
+        )}
         <div className="flex flex-wrap gap-2 text-sm text-[var(--psc-muted)]">
           {party ? <span className={`font-semibold ${party.color}`}>{party.text}</span> : null}
           {party && seat ? <span>·</span> : null}
@@ -202,6 +245,15 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
 
       <div className="space-y-10">
         {current.sections.map((section, idx) => {
+          if (section.kind === "enacted_laws") {
+            return (
+              <EnactedLawsSection
+                key={`${current.id}-laws-${idx}`}
+                title={section.title}
+                laws={section.laws}
+              />
+            );
+          }
           if (section.kind === "featured") {
             return (
               <section key={`${current.id}-featured-${idx}`} className="space-y-4">
@@ -250,6 +302,7 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
                     {holder ? (
                       <ProfileCard
                         profile={{
+                          id: holder.id,
                           character_name:
                             holder.character_name ?? holder.discord_username ?? "Unnamed",
                           face_claim_url: holder.face_claim_url,
@@ -259,6 +312,7 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
                           home_district_code: holder.home_district_code,
                         }}
                         subtitle={role.role_label}
+                        href={profilePath(holder.id) ?? undefined}
                       />
                     ) : (
                       <VacantTile roleLabel={role.role_label} />
@@ -271,6 +325,76 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
         })}
       </div>
     </div>
+  );
+}
+
+function EnactedLawsSection({ title, laws }: { title: string; laws: LawEntry[] }) {
+  if (!laws.length) {
+    return (
+      <section className="space-y-3">
+        <h3 className="border-b border-[var(--psc-border)] pb-2 text-lg font-semibold text-[var(--psc-ink)]">
+          {title}
+        </h3>
+        <p className="rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)]/60 p-6 text-sm italic text-[var(--psc-muted)]">
+          No bills have been signed into law yet.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="space-y-3">
+      <h3 className="border-b border-[var(--psc-border)] pb-2 text-lg font-semibold text-[var(--psc-ink)]">
+        {title}{" "}
+        <span className="ml-1 text-xs font-normal text-[var(--psc-muted)]">
+          ({laws.length})
+        </span>
+      </h3>
+      <ul className="divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]">
+        {laws.map((law) => {
+          const party = partyLabel(law.author_party);
+          const authorHref = profilePath(law.author_id);
+          const originatingLabel =
+            law.originating_chamber === "house" ? "House" : "Senate";
+          return (
+            <li key={law.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--psc-ink)]">{law.title}</p>
+                <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                  Authored by{" "}
+                  {authorHref ? (
+                    <Link
+                      href={authorHref}
+                      className={`font-semibold hover:underline ${party ? party.color : "text-[var(--psc-ink)]"}`}
+                    >
+                      {law.author_name ?? "Unknown"}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold text-[var(--psc-ink)]">
+                      {law.author_name ?? "Unknown"}
+                    </span>
+                  )}
+                  {" · "}
+                  Originated in the {originatingLabel}
+                </p>
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[var(--psc-muted)]">
+                  House {law.house_yea}–{law.house_nay} · Senate {law.senate_yea}–{law.senate_nay}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-900">
+                  Signed
+                </p>
+                {law.signed_at ? (
+                  <p className="mt-1 text-[10px] text-[var(--psc-muted)]">
+                    {new Date(law.signed_at).toLocaleDateString()}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

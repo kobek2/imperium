@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BillChamber } from "@/lib/bill-types";
 
+function isMissingBillTimerColumn(message: string | null | undefined): boolean {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
+}
+
 async function tallyChamberPass(
   supabase: SupabaseClient,
   billId: string,
@@ -25,12 +30,23 @@ async function tallyChamberPass(
 export async function processBillDeadlines(supabase: SupabaseClient): Promise<void> {
   const nowIso = new Date().toISOString();
 
-  const { data: hopperStale } = await supabase
+  const hopperStaleRes = await supabase
     .from("bills")
     .select("id")
     .eq("status", "hopper")
     .not("leadership_deadline_at", "is", null)
     .lt("leadership_deadline_at", nowIso);
+
+  if (hopperStaleRes.error) {
+    if (isMissingBillTimerColumn(hopperStaleRes.error.message)) {
+      // Older databases without the timer columns can't process deadlines here; the
+      // bills table's pre-timer migration handled this differently. Skip silently.
+      return;
+    }
+    console.warn("[processBillDeadlines] hopperStale:", hopperStaleRes.error.message);
+    return;
+  }
+  const hopperStale = hopperStaleRes.data;
 
   for (const row of hopperStale ?? []) {
     await supabase.from("bills").update({ status: "dead" }).eq("id", row.id);

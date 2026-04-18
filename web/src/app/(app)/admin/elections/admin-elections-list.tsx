@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 
 export type AdminElectionRow = {
   id: string;
@@ -12,13 +13,15 @@ export type AdminElectionRow = {
   senate_class: number | null;
   filing_opens_at: string;
   filing_closes_at: string;
-  primary_closes_at: string;
+  primary_closes_at: string | null;
   general_closes_at: string;
+  leadership_role: string | null;
+  restricted_party: string | null;
   candidate_count: number;
 };
 
 const PHASES = ["filing", "primary", "general", "closed"] as const;
-const OFFICES = ["house", "senate", "president"] as const;
+const OFFICES = ["house", "senate", "president", "leadership"] as const;
 
 type Phase = (typeof PHASES)[number];
 type Office = (typeof OFFICES)[number];
@@ -27,7 +30,14 @@ const OFFICE_LABEL: Record<Office, string> = {
   house: "House",
   senate: "Senate",
   president: "President",
+  leadership: "Leadership",
 };
+
+function bucketFor(r: AdminElectionRow): Office | null {
+  if (r.leadership_role) return "leadership";
+  if ((OFFICES as readonly string[]).includes(r.office)) return r.office as Office;
+  return null;
+}
 
 const PHASE_LABEL: Record<Phase, string> = {
   filing: "Filing",
@@ -78,6 +88,10 @@ function countdown(r: AdminElectionRow) {
 }
 
 function seatLabel(r: AdminElectionRow): string {
+  if (r.leadership_role) {
+    const label = leadershipRoleLabel(r.leadership_role as LeadershipRole);
+    return r.restricted_party ? `${label} · ${r.restricted_party}` : label;
+  }
   if (r.office === "president") return "Nationwide";
   if (r.office === "senate") {
     const cls = r.senate_class ? ` · C${r.senate_class}` : "";
@@ -87,6 +101,7 @@ function seatLabel(r: AdminElectionRow): string {
 }
 
 function stateFor(r: AdminElectionRow): string | null {
+  if (r.leadership_role) return null;
   if (r.office === "president") return null;
   if (r.state) return r.state;
   if (r.district_code) return r.district_code.slice(0, 2);
@@ -100,6 +115,11 @@ function searchBlob(r: AdminElectionRow): string {
     r.district_code ?? "",
     r.state ?? "",
     r.senate_class ? `class ${r.senate_class}` : "",
+    r.leadership_role ?? "",
+    r.restricted_party ?? "",
+    r.leadership_role
+      ? leadershipRoleLabel(r.leadership_role as LeadershipRole)
+      : "",
     OFFICE_LABEL[r.office as Office] ?? r.office,
   ]
     .join(" ")
@@ -176,14 +196,18 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
     general: 0,
     closed: 0,
   };
-  const officeCounts: Record<Office, number> = { house: 0, senate: 0, president: 0 };
+  const officeCounts: Record<Office, number> = {
+    house: 0,
+    senate: 0,
+    president: 0,
+    leadership: 0,
+  };
   for (const r of rows) {
     if ((PHASES as readonly string[]).includes(r.phase)) {
       phaseCounts[r.phase as Phase]++;
     }
-    if ((OFFICES as readonly string[]).includes(r.office)) {
-      officeCounts[r.office as Office]++;
-    }
+    const bucket = bucketFor(r);
+    if (bucket) officeCounts[bucket]++;
   }
 
   const filtered = useMemo(() => {
@@ -191,7 +215,7 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
     return rows.filter((r) => {
       if (!showClosed && r.phase === "closed") return false;
       if (phaseFilter !== "all" && r.phase !== phaseFilter) return false;
-      if (officeFilter !== "all" && r.office !== officeFilter) return false;
+      if (officeFilter !== "all" && bucketFor(r) !== officeFilter) return false;
       if (q && !searchBlob(r).includes(q)) return false;
       return true;
     });
@@ -200,8 +224,8 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
   const grouped = useMemo(() => {
     const byOffice = new Map<Office, AdminElectionRow[]>();
     for (const r of filtered) {
-      const key = r.office as Office;
-      if (!OFFICES.includes(key)) continue;
+      const key = bucketFor(r);
+      if (!key) continue;
       const list = byOffice.get(key) ?? [];
       list.push(r);
       byOffice.set(key, list);
@@ -293,7 +317,12 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
               <FilterChip
                 active={officeFilter === "all"}
                 onClick={() => setOfficeFilter("all")}
-                count={officeCounts.house + officeCounts.senate + officeCounts.president}
+                count={
+                  officeCounts.house +
+                  officeCounts.senate +
+                  officeCounts.president +
+                  officeCounts.leadership
+                }
               >
                 All
               </FilterChip>
@@ -320,7 +349,7 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
                 const list = grouped.get(office);
                 if (!list?.length) return null;
 
-                if (office === "president") {
+                if (office === "president" || office === "leadership") {
                   return (
                     <details
                       key={office}

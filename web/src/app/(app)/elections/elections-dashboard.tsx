@@ -9,11 +9,13 @@ export type DashboardElection = {
   phase: "filing" | "primary" | "general" | "closed" | string;
   filing_opens_at: string;
   filing_closes_at: string;
-  primary_closes_at: string;
+  primary_closes_at: string | null;
   general_closes_at: string;
   district_code: string | null;
   state: string | null;
   senate_class: number | null;
+  leadership_role: string | null;
+  restricted_party: string | null;
   candidate_count: number;
 };
 
@@ -24,8 +26,10 @@ type Props = {
   archiveCount: number;
 };
 
+import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
+
 const PHASES = ["filing", "primary", "general"] as const;
-const OFFICES = ["house", "senate", "president"] as const;
+const OFFICES = ["house", "senate", "president", "leadership"] as const;
 
 type Phase = (typeof PHASES)[number];
 type Office = (typeof OFFICES)[number];
@@ -34,7 +38,17 @@ const OFFICE_LABEL: Record<Office, string> = {
   house: "House",
   senate: "Senate",
   president: "President",
+  leadership: "Leadership",
 };
+
+/**
+ * Logical bucket for a race: leadership races get their own "leadership" category regardless
+ * of whether they're House- or Senate-scoped, so admins and voters can find them together.
+ */
+function officeBucket(e: DashboardElection): Office {
+  if (e.leadership_role) return "leadership";
+  return e.office as Office;
+}
 
 const PHASE_LABEL: Record<Phase, string> = {
   filing: "Filing",
@@ -122,6 +136,9 @@ function countdown(e: DashboardElection): { text: string; urgent: boolean } | nu
 }
 
 function seatHeadline(e: DashboardElection): string {
+  if (e.leadership_role) {
+    return leadershipRoleLabel(e.leadership_role as LeadershipRole);
+  }
   if (e.office === "president") return "President of the United States";
   if (e.office === "senate") {
     const cls = e.senate_class ? ` · Class ${e.senate_class}` : "";
@@ -131,6 +148,12 @@ function seatHeadline(e: DashboardElection): string {
 }
 
 function seatSubhead(e: DashboardElection): string {
+  if (e.leadership_role) {
+    const chamber = e.office === "house" ? "House" : "Senate";
+    return e.restricted_party
+      ? `${chamber} · ${e.restricted_party} caucus`
+      : `${chamber} chamber-wide`;
+  }
   if (e.office === "president") return "Nationwide race";
   if (e.office === "senate") return "Statewide race";
   return "House district";
@@ -143,7 +166,10 @@ function searchBlob(e: DashboardElection): string {
     e.district_code ?? "",
     e.state ?? "",
     e.senate_class ? `class ${e.senate_class}` : "",
-    OFFICE_LABEL[e.office as Office] ?? e.office,
+    e.leadership_role ?? "",
+    e.leadership_role ? leadershipRoleLabel(e.leadership_role as LeadershipRole) : "",
+    e.restricted_party ?? "",
+    OFFICE_LABEL[officeBucket(e)] ?? e.office,
   ]
     .join(" ")
     .toLowerCase();
@@ -154,6 +180,9 @@ function isMyRace(
   userDistrict: string | null,
   userState: string | null,
 ): boolean {
+  // Leadership races: everyone in the matching chamber-ish area sees them in "your ballot".
+  // We don't have role info here, so fall back to matching the chamber's geographic area.
+  if (e.leadership_role) return true;
   if (e.office === "president") return true;
   if (e.office === "house" && userDistrict) {
     return e.district_code?.toUpperCase() === userDistrict.toUpperCase();
@@ -199,7 +228,7 @@ function RaceCard({
             {tone.badgeLabel}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            {OFFICE_LABEL[e.office as Office] ?? e.office}
+            {OFFICE_LABEL[officeBucket(e)] ?? e.office}
           </span>
           {hero ? (
             <span className="ml-auto rounded bg-[var(--psc-ink)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
@@ -282,6 +311,12 @@ function ChamberSection({
   if (!races.length) return null;
 
   const sorted = [...races].sort((a, b) => {
+    if (office === "leadership") {
+      const ak = a.leadership_role ?? "";
+      const bk = b.leadership_role ?? "";
+      if (ak !== bk) return ak.localeCompare(bk);
+      return (a.restricted_party ?? "").localeCompare(b.restricted_party ?? "");
+    }
     const ac = a.district_code ?? a.state ?? "";
     const bc = b.district_code ?? b.state ?? "";
     return ac.localeCompare(bc);
@@ -322,13 +357,19 @@ export function ElectionsDashboard({
   );
 
   const phaseCounts: Record<Phase, number> = { filing: 0, primary: 0, general: 0 };
-  const officeCounts: Record<Office, number> = { house: 0, senate: 0, president: 0 };
+  const officeCounts: Record<Office, number> = {
+    house: 0,
+    senate: 0,
+    president: 0,
+    leadership: 0,
+  };
   for (const e of elections) {
     if ((PHASES as readonly string[]).includes(e.phase)) {
       phaseCounts[e.phase as Phase]++;
     }
-    if ((OFFICES as readonly string[]).includes(e.office)) {
-      officeCounts[e.office as Office]++;
+    const bucket = officeBucket(e);
+    if ((OFFICES as readonly string[]).includes(bucket)) {
+      officeCounts[bucket]++;
     }
   }
 
@@ -336,7 +377,7 @@ export function ElectionsDashboard({
     const q = query.trim().toLowerCase();
     return elections.filter((e) => {
       if (phaseFilter !== "all" && e.phase !== phaseFilter) return false;
-      if (officeFilter !== "all" && e.office !== officeFilter) return false;
+      if (officeFilter !== "all" && officeBucket(e) !== officeFilter) return false;
       if (q && !searchBlob(e).includes(q)) return false;
       return true;
     });
@@ -345,7 +386,7 @@ export function ElectionsDashboard({
   const grouped = useMemo(() => {
     const byOffice = new Map<Office, DashboardElection[]>();
     for (const e of filtered) {
-      const key = e.office as Office;
+      const key = officeBucket(e);
       if (!OFFICES.includes(key)) continue;
       const list = byOffice.get(key) ?? [];
       list.push(e);
@@ -459,7 +500,12 @@ export function ElectionsDashboard({
             <FilterChip
               active={officeFilter === "all"}
               onClick={() => setOfficeFilter("all")}
-              count={officeCounts.house + officeCounts.senate + officeCounts.president}
+              count={
+                officeCounts.house +
+                officeCounts.senate +
+                officeCounts.president +
+                officeCounts.leadership
+              }
             >
               All
             </FilterChip>

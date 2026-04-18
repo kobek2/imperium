@@ -12,6 +12,11 @@ import {
   setElectionPhase,
   updateElectionPrimaryBallot,
 } from "@/app/actions/elections";
+import {
+  isLeadershipRole,
+  leadershipRoleLabel,
+  type LeadershipRole,
+} from "@/lib/leadership";
 
 type CandidateRow = {
   id: string;
@@ -198,7 +203,11 @@ export default async function AdminElectionDetailPage({
     ? profileById.get(election.winner_user_id as string)
     : undefined;
 
-  const seatLabel = election.district_code ?? election.state ?? "Nationwide";
+  const seatLabel = election.leadership_role
+    ? `${leadershipRoleLabel(election.leadership_role as LeadershipRole)}${
+        election.restricted_party ? ` · ${election.restricted_party} caucus` : ""
+      }`
+    : (election.district_code ?? election.state ?? "Nationwide");
 
   const sortedCandidates = [...candList].sort((a, b) => {
     // primary winners first, then general vote count desc, then filing order (id asc)
@@ -261,7 +270,11 @@ export default async function AdminElectionDetailPage({
           />
           <TimelineStat
             label="Primary closes"
-            value={formatDateTime(election.primary_closes_at)}
+            value={
+              isLeadershipRole(election.leadership_role)
+                ? "—"
+                : formatDateTime(election.primary_closes_at)
+            }
           />
           <TimelineStat
             label="General closes"
@@ -270,7 +283,21 @@ export default async function AdminElectionDetailPage({
         </div>
       </header>
 
-      <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+      {isLeadershipRole(election.leadership_role) ? (
+        <section className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 text-sm">
+          <h3 className="font-semibold">Leadership race</h3>
+          <p className="text-xs text-[var(--psc-muted)]">
+            This race skips the primary and is decided by plain plurality of the eligible chamber.
+            Campaign points and partisan lean do not apply.
+          </p>
+        </section>
+      ) : null}
+
+      <section
+        className={`space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 ${
+          isLeadershipRole(election.leadership_role) ? "hidden" : ""
+        }`}
+      >
         <h3 className="font-semibold">Primary ballot reach</h3>
         <p className="max-w-2xl text-xs text-[var(--psc-muted)]">
           Party-wide lets any same-party player vote. Jurisdiction-only limits voting to players whose
@@ -478,23 +505,31 @@ export default async function AdminElectionDetailPage({
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    {avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={avatarUrl}
-                        alt=""
-                        className="h-14 w-14 shrink-0 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-[var(--psc-canvas)] text-sm font-semibold text-[var(--psc-ink)]">
-                        {initials(profile?.character_name ?? null, c.user_id)}
-                      </div>
-                    )}
+                    <Link
+                      href={`/profile/${c.user_id}`}
+                      className="shrink-0 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
+                    >
+                      {avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={avatarUrl}
+                          alt=""
+                          className="h-14 w-14 rounded object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 items-center justify-center rounded bg-[var(--psc-canvas)] text-sm font-semibold text-[var(--psc-ink)]">
+                          {initials(profile?.character_name ?? null, c.user_id)}
+                        </div>
+                      )}
+                    </Link>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-base font-semibold text-[var(--psc-ink)]">
+                        <Link
+                          href={`/profile/${c.user_id}`}
+                          className="truncate text-base font-semibold text-[var(--psc-ink)] hover:underline"
+                        >
                           {name}
-                        </p>
+                        </Link>
                         <span
                           className={`text-xs font-semibold uppercase ${partyClass(c.party)}`}
                         >

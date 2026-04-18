@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canReviewLeadershipForChamber } from "@/lib/role-capabilities";
+import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 
 function fmt(ts: string | null) {
   if (!ts) return "—";
@@ -30,19 +31,67 @@ export default async function LeadershipInboxPage() {
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   const houseOk = canReviewLeadershipForChamber(roleKeys, "house");
   const senateOk = canReviewLeadershipForChamber(roleKeys, "senate");
-  if (!houseOk && !senateOk) {
+  const isRep = roleKeys.includes("representative");
+  const isSen = roleKeys.includes("senator");
+  if (!houseOk && !senateOk && !isRep && !isSen) {
     redirect("/congress");
   }
 
   await processBillDeadlines(supabase);
+  await runElectionPhaseSchedule(supabase);
 
-  const { data: queue } = await supabase
-    .from("bills")
-    .select(
-      "id, title, content_md, originating_chamber, created_at, leadership_deadline_at, author_id",
-    )
-    .eq("status", "hopper")
-    .order("created_at", { ascending: true });
+  const { data: leadershipSessions } = await supabase
+    .from("leadership_sessions")
+    .select("id, chamber, closes_at, opens_at")
+    .eq("phase", "open");
+
+  const userChambers: ("house" | "senate")[] = [];
+  if (isRep) userChambers.push("house");
+  if (isSen) userChambers.push("senate");
+  const visibleSessions = (leadershipSessions ?? []).filter(
+    (s) => userChambers.length === 0 || userChambers.includes(s.chamber),
+  );
+
+  // Primary query includes the deadline column. Older databases that were seeded from an
+  // outdated version of FULL_SETUP_PASTE_IN_DASHBOARD.sql won't have it yet, so we retry
+  // without that column instead of rendering a silent empty inbox.
+  type HopperRow = {
+    id: string;
+    title: string;
+    content_md: string;
+    originating_chamber: "house" | "senate";
+    created_at: string;
+    leadership_deadline_at: string | null;
+    author_id: string;
+  };
+  let queue: HopperRow[] | null = null;
+  let schemaWarning: string | null = null;
+  {
+    const primary = await supabase
+      .from("bills")
+      .select(
+        "id, title, content_md, originating_chamber, created_at, leadership_deadline_at, author_id",
+      )
+      .eq("status", "hopper")
+      .order("created_at", { ascending: true });
+    if (primary.error) {
+      const msg = (primary.error.message ?? "").toLowerCase();
+      if (msg.includes("leadership_deadline_at") || msg.includes("chamber_vote_deadline_at")) {
+        schemaWarning =
+          "bills.leadership_deadline_at is missing. Run: alter table public.bills add column if not exists leadership_deadline_at timestamptz, add column if not exists chamber_vote_deadline_at timestamptz;";
+        const retry = await supabase
+          .from("bills")
+          .select("id, title, content_md, originating_chamber, created_at, author_id")
+          .eq("status", "hopper")
+          .order("created_at", { ascending: true });
+        queue = (retry.data ?? []).map((r) => ({ ...r, leadership_deadline_at: null })) as HopperRow[];
+      } else {
+        throw new Error(primary.error.message);
+      }
+    } else {
+      queue = (primary.data ?? []) as HopperRow[];
+    }
+  }
 
   const visible =
     queue?.filter((b) => {
@@ -64,9 +113,46 @@ export default async function LeadershipInboxPage() {
         </p>
       </header>
 
-      {!visible.length ? (
+      {schemaWarning ? (
+        <div className="border border-amber-700 bg-amber-50 p-4 text-xs text-amber-900">
+          <strong>Schema out of date:</strong> {schemaWarning}
+        </div>
+      ) : null}
+
+      {visibleSessions.length ? (
+        <section className="space-y-3 border border-amber-700 bg-amber-50 p-5">
+          <h2 className="text-base font-semibold text-amber-900">
+            Leadership election{visibleSessions.length === 1 ? "" : "s"} in session
+          </h2>
+          <ul className="space-y-2">
+            {visibleSessions.map((s) => (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-3 border border-amber-200 bg-white px-3 py-2"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-[var(--psc-ink)]">
+                    {s.chamber === "house" ? "House" : "Senate"} leadership
+                  </p>
+                  <p className="text-xs text-[var(--psc-muted)]">
+                    Closes {new Date(s.closes_at).toLocaleString()}
+                  </p>
+                </div>
+                <Link
+                  href={`/congress/leadership/session/${s.id}`}
+                  className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white hover:brightness-110"
+                >
+                  Open ballot →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {!visible.length && !visibleSessions.length ? (
         <p className="text-sm text-[var(--psc-muted)]">No bills awaiting your chamber.</p>
-      ) : (
+      ) : !visible.length ? null : (
         <ul className="space-y-6">
           {visible.map((bill) => (
             <li

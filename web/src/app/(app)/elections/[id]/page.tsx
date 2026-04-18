@@ -1,7 +1,18 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { loadActiveCandidacySlots } from "@/lib/election-filing";
+import {
+  getFilingEligibilityMessage,
+  loadActiveCandidacySlots,
+} from "@/lib/election-filing";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import {
+  isLeadershipRole,
+  isPartisanLeadershipRole,
+  leadershipRoleLabel,
+  requiredChamberRoleKey,
+  type LeadershipRole,
+} from "@/lib/leadership";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { ElectionConsole } from "./election-console";
@@ -92,7 +103,7 @@ export default async function ElectionDetailPage({
       .maybeSingle(),
     supabase
       .from("profiles")
-      .select("party, residence_state, home_district_code")
+      .select("party, residence_state, home_district_code, office_role")
       .eq("id", user.id)
       .maybeSingle(),
     loadActiveCandidacySlots(supabase, user.id),
@@ -131,6 +142,51 @@ export default async function ElectionDetailPage({
   ]);
 
   const candList = candidates ?? [];
+
+  // Pre-compute filing eligibility server-side so the detail component can show the right
+  // hint or File button without knowing the rules. Leadership races branch to a different
+  // eligibility check (chamber role + caucus party); seat races use the existing helper.
+  let filingBlockReason: string | null = null;
+  if (isLeadershipRole(election.leadership_role)) {
+    const role = election.leadership_role as LeadershipRole;
+    const needed = requiredChamberRoleKey(role);
+    const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
+    if (!roleKeys.includes(needed)) {
+      const label = needed === "representative" ? "representatives" : "senators";
+      filingBlockReason = `Only sitting ${label} can file for this leadership race.`;
+    } else if (
+      isPartisanLeadershipRole(role) &&
+      election.restricted_party &&
+      (myProfile?.party ?? "").toLowerCase() !== election.restricted_party
+    ) {
+      filingBlockReason = `This caucus race is restricted to the ${election.restricted_party} caucus.`;
+    }
+  } else {
+    filingBlockReason = getFilingEligibilityMessage(
+      election.office,
+      { state: election.state, district_code: election.district_code },
+      myProfile
+        ? {
+            party: myProfile.party,
+            residence_state: myProfile.residence_state,
+            home_district_code: myProfile.home_district_code,
+          }
+        : null,
+      activeSlots,
+    );
+  }
+
+  const leadershipMeta = isLeadershipRole(election.leadership_role)
+    ? {
+        role: election.leadership_role as LeadershipRole,
+        label: leadershipRoleLabel(election.leadership_role as LeadershipRole),
+        restricted_party: (election.restricted_party ?? null) as
+          | "democrat"
+          | "republican"
+          | "independent"
+          | null,
+      }
+    : null;
 
   type ProfileCardRow = {
     id: string;
@@ -232,16 +288,7 @@ export default async function ElectionDetailPage({
         myPrimaryCandidateId={myPrimaryVote?.candidate_id ?? null}
         myGeneralCandidateId={myGeneralVote?.candidate_id ?? null}
         profileParty={myProfile?.party ?? null}
-        profileForFiling={
-          myProfile
-            ? {
-                party: myProfile.party,
-                residence_state: myProfile.residence_state,
-                home_district_code: myProfile.home_district_code,
-              }
-            : null
-        }
-        activeSlots={activeSlots}
+        filingBlockReason={filingBlockReason}
         userId={user.id}
         isAdmin={isAdmin}
         winnerName={winnerName}
@@ -251,6 +298,7 @@ export default async function ElectionDetailPage({
         myRalliesInWindow={myRalliesInWindow}
         myNextRallyAt={myNextRallyAt}
         states={states}
+        leadershipMeta={leadershipMeta}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

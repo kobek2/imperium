@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ProfileCard, ProfileCardBadge } from "@/components/profile-card";
+import { ProfileCard, ProfileCardBadge, profilePath } from "@/components/profile-card";
 import { SubmitButton } from "@/components/submit-button";
 import {
   castGeneralVote,
@@ -7,11 +7,7 @@ import {
   fileCandidacy,
 } from "@/app/actions/elections";
 import { districtLeanBonus } from "@/lib/fec";
-import {
-  getFilingEligibilityMessage,
-  type ActiveCandidacySlots,
-  type ProfileSeatFields,
-} from "@/lib/election-filing";
+import type { LeadershipRole } from "@/lib/leadership";
 import { RallyForm } from "./rally-form";
 import { SpeechForm } from "./speech-form";
 
@@ -23,10 +19,18 @@ type ElectionRow = {
   phase: string;
   filing_opens_at: string;
   filing_closes_at: string;
-  primary_closes_at: string;
+  primary_closes_at: string | null;
   general_closes_at: string;
   winner_user_id: string | null;
   primary_party_wide?: boolean | null;
+  leadership_role?: string | null;
+  restricted_party?: string | null;
+};
+
+type LeadershipMeta = {
+  role: LeadershipRole;
+  label: string;
+  restricted_party: "democrat" | "republican" | "independent" | null;
 };
 
 type CandRow = {
@@ -171,6 +175,7 @@ function CandidateCard({
   return (
     <ProfileCard
       profile={{
+        id: cand.user_id,
         character_name: name,
         face_claim_url: card?.face_claim_url ?? null,
         party: cand.party,
@@ -183,6 +188,7 @@ function CandidateCard({
       winner={isWinner}
       badges={badges}
       footer={footer}
+      href={profilePath(cand.user_id) ?? undefined}
     />
   );
 }
@@ -233,6 +239,31 @@ function computeScores(
 
   const sum = scored.reduce((s, i) => s + i.share, 0) || 1;
   return scored.map((s) => ({ ...s, share: s.share / sum }));
+}
+
+/**
+ * Leadership races are decided by plain plurality of general votes — no PVI lean, no
+ * campaign points. We still return a CandidateScore so SpreadBar and the per-card
+ * percentage share the same shape as seat races.
+ */
+function computeLeadershipScores(
+  cands: CandRow[],
+  generalTally: Record<string, number>,
+): CandidateScore[] {
+  const n = Math.max(1, cands.length);
+  const voteTotal = cands.reduce((s, c) => s + (generalTally[c.id] ?? 0), 0);
+  return cands.map((c) => {
+    const votes = generalTally[c.id] ?? 0;
+    const share = voteTotal > 0 ? votes / voteTotal : 1 / n;
+    return {
+      id: c.id,
+      user_id: c.user_id,
+      party: c.party,
+      campaign_points_with_lean: 0,
+      votes,
+      share,
+    };
+  });
 }
 
 function SpreadBar({
@@ -462,10 +493,6 @@ function PartyGroupedCandidates({
     if (!orderedKeys.includes(k as PartyKey)) orderedKeys.push(k as PartyKey);
   }
 
-  // Denominator for the primary-share percentage. We use the grand total of primary votes
-  // across all parties so the number is comparable between cards.
-  const primaryVoteTotal = candidates.reduce((s, c) => s + (primaryTally[c.id] ?? 0), 0);
-
   return (
     <div className="space-y-6">
       {orderedKeys.map((party) => {
@@ -477,6 +504,29 @@ function PartyGroupedCandidates({
           (primaryOpenForPartyOnly === null || primaryOpenForPartyOnly === party);
         const mayVoteHere =
           mode === "general" ? !voteDisabled : canVoteInThisParty;
+
+        // Each party runs its own primary. The percentage denominator is the sum of votes cast
+        // within this party only — the Dem and Rep primaries are separate races, so a Dem with
+        // 1 vote in a one-candidate field should show 100%, not 50%.
+        const partyPrimaryTotal = list.reduce(
+          (s, c) => s + (primaryTally[c.id] ?? 0),
+          0,
+        );
+
+        // "Leading" inside the primary means plurality within this party.
+        let primaryLeaderId: string | null = null;
+        if (shareMode === "primary") {
+          let bestCount = 0;
+          for (const c of list) {
+            const n = primaryTally[c.id] ?? 0;
+            if (n > bestCount) {
+              bestCount = n;
+              primaryLeaderId = c.id;
+            } else if (n === bestCount && bestCount > 0) {
+              primaryLeaderId = null;
+            }
+          }
+        }
 
         return (
           <div key={party} className="space-y-3">
@@ -490,6 +540,11 @@ function PartyGroupedCandidates({
                 <span className="text-xs text-[var(--psc-muted)]">
                   {list.length} candidate{list.length === 1 ? "" : "s"}
                 </span>
+                {shareMode === "primary" ? (
+                  <span className="text-xs text-[var(--psc-muted)]">
+                    · {partyPrimaryTotal} vote{partyPrimaryTotal === 1 ? "" : "s"} cast
+                  </span>
+                ) : null}
               </h3>
               {mode === "primary" &&
               primaryPartyRestriction &&
@@ -513,12 +568,17 @@ function PartyGroupedCandidates({
                 let shareLabel: string | null = null;
                 if (shareMode === "primary") {
                   const n = primaryTally[c.id] ?? 0;
-                  share = primaryVoteTotal > 0 ? n / primaryVoteTotal : 0;
+                  share = partyPrimaryTotal > 0 ? n / partyPrimaryTotal : 0;
                   shareLabel = `${n} vote${n === 1 ? "" : "s"}`;
                 } else if (shareMode === "general") {
                   share = generalShareById[c.id] ?? 0;
                   shareLabel = "projected";
                 }
+
+                // Use the primary leader for this specific party, not the parent's leader
+                // (which is only meaningful for the general).
+                const effectiveLeaderId =
+                  shareMode === "primary" ? primaryLeaderId : leaderCandidateId;
 
                 return (
                   <li key={c.id}>
@@ -528,7 +588,7 @@ function PartyGroupedCandidates({
                       name={displayName(card[c.user_id], c.user_id, nameBy)}
                       isYou={c.user_id === userId}
                       isWinner={winnerUserId === c.user_id}
-                      isLeader={leaderCandidateId === c.id}
+                      isLeader={effectiveLeaderId === c.id}
                       share={share}
                       shareLabel={shareLabel}
                       selected={selected}
@@ -558,8 +618,6 @@ export function ElectionDetail({
   myPrimaryCandidateId,
   myGeneralCandidateId,
   profileParty,
-  profileForFiling,
-  activeSlots,
   userId,
   isAdmin,
   winnerName,
@@ -569,6 +627,8 @@ export function ElectionDetail({
   myRalliesInWindow,
   myNextRallyAt,
   states,
+  filingBlockReason,
+  leadershipMeta,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -579,8 +639,7 @@ export function ElectionDetail({
   myPrimaryCandidateId: string | null;
   myGeneralCandidateId: string | null;
   profileParty: string | null;
-  profileForFiling: ProfileSeatFields | null;
-  activeSlots: ActiveCandidacySlots;
+  filingBlockReason: string | null;
   userId: string;
   isAdmin: boolean;
   winnerName: string | null;
@@ -590,6 +649,7 @@ export function ElectionDetail({
   myRalliesInWindow: number;
   myNextRallyAt: string | null;
   states: Array<{ code: string; name: string }>;
+  leadershipMeta: LeadershipMeta | null;
 }) {
   const now = new Date();
   const filingOpen =
@@ -597,18 +657,15 @@ export function ElectionDetail({
     now >= new Date(election.filing_opens_at) &&
     now <= new Date(election.filing_closes_at);
   const primaryOpen =
-    election.phase === "primary" && now <= new Date(election.primary_closes_at);
+    election.phase === "primary" &&
+    !!election.primary_closes_at &&
+    now <= new Date(election.primary_closes_at);
   const generalOpen =
     election.phase === "general" && now <= new Date(election.general_closes_at);
 
   const myRow = candidates.find((c) => c.user_id === userId);
-  const filingEligibilityMessage = getFilingEligibilityMessage(
-    election.office,
-    { state: election.state, district_code: election.district_code },
-    profileForFiling,
-    activeSlots,
-  );
-  const canFileCandidacy = filingEligibilityMessage === null;
+  const isLeadership = !!leadershipMeta;
+  const canFileCandidacy = filingBlockReason === null;
   const hasPrimaryWinners = candidates.some((c) => c.primary_winner);
   const generalCandidates = hasPrimaryWinners
     ? candidates.filter((c) => c.primary_winner)
@@ -633,14 +690,18 @@ export function ElectionDetail({
     }
   }
 
-  // 60/40 blended score per candidate (campaign points + lean, vs community votes). Computed once
-  // so both the SpreadBar and each candidate card show the same projected percentage.
-  const generalScores = computeScores(generalCandidates, partisanLean, generalTally);
+  // Leadership races: plain plurality share (no PVI, no campaign points). Seat races: 60/40
+  // blended FEC score. Both paths populate generalShareById so the SpreadBar + each card show
+  // the same projected percentage.
+  const generalScores = isLeadership
+    ? computeLeadershipScores(generalCandidates, generalTally)
+    : computeScores(generalCandidates, partisanLean, generalTally);
   const generalShareById: Record<string, number> = {};
   for (const s of generalScores) generalShareById[s.id] = s.share;
 
-  const seatLabel =
-    election.district_code ?? election.state ?? "United States";
+  const seatLabel = isLeadership
+    ? leadershipMeta!.label
+    : (election.district_code ?? election.state ?? "United States");
 
   const meta = partyMeta(profileParty ?? "");
 
@@ -661,16 +722,32 @@ export function ElectionDetail({
             {election.phase}
           </span>
           <span className="text-xs text-[var(--psc-muted)]">
-            {election.office.toUpperCase()}
+            {isLeadership
+              ? `${election.office.toUpperCase()} · LEADERSHIP`
+              : election.office.toUpperCase()}
           </span>
+          {isLeadership && leadershipMeta?.restricted_party ? (
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${partyMeta(leadershipMeta.restricted_party).pill}`}>
+              {partyMeta(leadershipMeta.restricted_party).label} caucus
+            </span>
+          ) : null}
         </div>
         <h1 className="text-2xl font-semibold">{seatLabel}</h1>
+        {isLeadership ? (
+          <p className="text-sm text-[var(--psc-muted)]">
+            Leadership race — decided by a plain plurality of chamber votes. Winners gain the
+            leadership role alongside their existing{" "}
+            {election.office === "house" ? "representative" : "senator"} role.
+          </p>
+        ) : null}
         <dl className="grid gap-2 text-xs text-[var(--psc-muted)] sm:grid-cols-2">
           <div>
             Filing: {new Date(election.filing_opens_at).toLocaleString()} —{" "}
             {new Date(election.filing_closes_at).toLocaleString()}
           </div>
-          <div>Primary closes: {new Date(election.primary_closes_at).toLocaleString()}</div>
+          {!isLeadership && election.primary_closes_at ? (
+            <div>Primary closes: {new Date(election.primary_closes_at).toLocaleString()}</div>
+          ) : null}
           <div>General closes: {new Date(election.general_closes_at).toLocaleString()}</div>
         </dl>
       </header>
@@ -694,11 +771,17 @@ export function ElectionDetail({
               <h2 className="text-lg font-semibold">Filing window</h2>
               <p className="mt-1 text-sm text-[var(--psc-muted)]">
                 Candidates file as their current party automatically.{" "}
-                {election.office === "house"
-                  ? "Only players whose home district matches this seat can file."
-                  : election.office === "senate"
-                    ? "Only players whose residence state matches this seat can file."
-                    : "Any eligible player can file for president."}
+                {isLeadership
+                  ? `Only sitting ${election.office === "house" ? "representatives" : "senators"}${
+                      leadershipMeta?.restricted_party
+                        ? ` in the ${leadershipMeta.restricted_party} caucus`
+                        : ""
+                    } can file.`
+                  : election.office === "house"
+                    ? "Only players whose home district matches this seat can file."
+                    : election.office === "senate"
+                      ? "Only players whose residence state matches this seat can file."
+                      : "Any eligible player can file for president."}
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-2">
@@ -726,7 +809,7 @@ export function ElectionDetail({
                 </form>
               ) : (
                 <p className="max-w-xs rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  {filingEligibilityMessage}
+                  {filingBlockReason}
                 </p>
               )}
             </div>
@@ -812,7 +895,7 @@ export function ElectionDetail({
             nameBy={nameBy}
             candidateCardByUserId={candidateCardByUserId}
           />
-          {myRow && myRow.primary_winner ? (
+          {!isLeadership && myRow && myRow.primary_winner ? (
             <CampaignPanel
               election={election}
               myCandidate={myRow}
@@ -827,11 +910,19 @@ export function ElectionDetail({
             />
           ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-            <h2 className="text-lg font-semibold">General election</h2>
+            <h2 className="text-lg font-semibold">
+              {isLeadership ? "Chamber vote" : "General election"}
+            </h2>
             <p className="mt-1 text-sm text-[var(--psc-muted)]">
-              Vote once per race — you can vote for yourself. The live vote leader is visible to everyone,
-              but individual ballots stay private. For House and Senate, the final score blends community
-              votes with campaign points (60/40), starting from the partisan lean shown above.
+              {isLeadership
+                ? `Vote once per race — you can vote for yourself. Only ${
+                    election.office === "house" ? "representatives" : "senators"
+                  }${
+                    leadershipMeta?.restricted_party
+                      ? ` in the ${leadershipMeta.restricted_party} caucus`
+                      : ""
+                  } can cast a ballot. The winner is the candidate with the most votes; ties go to the earliest filer.`
+                : "Vote once per race — you can vote for yourself. The live vote leader is visible to everyone, but individual ballots stay private. For House and Senate, the final score blends community votes with campaign points (60/40), starting from the partisan lean shown above."}
             </p>
           </div>
           <PartyGroupedCandidates

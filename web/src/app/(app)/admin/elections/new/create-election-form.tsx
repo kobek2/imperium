@@ -100,6 +100,10 @@ export function CreateElectionForm({
               <option value="senate">Senate</option>
               <option value="president">President</option>
             </select>
+            <span className="text-xs font-normal text-[var(--psc-muted)]">
+              For Speaker / Leader / Whip / PPT, use the{" "}
+              <strong>Leadership elections</strong> toggle on the elections dashboard instead.
+            </span>
           </label>
 
           {needsState ? (
@@ -167,8 +171,8 @@ export function CreateElectionForm({
           </button>
         </div>
         <p className="text-xs text-[var(--psc-muted)] leading-relaxed">
-          Defaults: filing 24h, primary 24h, general 48h. Edit the filing start and the durations below — the
-          other deadlines update automatically. Times are stored in UTC.
+          Defaults: filing 24h, primary 24h, general 48h. Edit the filing start and the durations
+          below — the other deadlines update automatically. Times are stored in UTC.
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">

@@ -5,6 +5,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canActAsPresident } from "@/lib/role-capabilities";
+import { BillCard, type BillVote, type VoterProfile } from "../congress/bill-card";
 
 export default async function OvalPage() {
   const supabase = await tryCreateClient();
@@ -34,9 +35,40 @@ export default async function OvalPage() {
 
   const { data: desk } = await supabase
     .from("bills")
-    .select("id, title, status, created_at")
+    .select(
+      "id, title, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
+    )
     .eq("status", "oval")
     .order("created_at", { ascending: false });
+
+  const deskList = desk ?? [];
+  const deskIds = deskList.map((b) => b.id);
+
+  let deskVotes: BillVote[] = [];
+  if (deskIds.length) {
+    const { data: rawVotes } = await supabase
+      .from("bill_votes")
+      .select("bill_id, voter_id, chamber, vote")
+      .in("bill_id", deskIds);
+    deskVotes = (rawVotes ?? []) as BillVote[];
+  }
+
+  const voterIds = Array.from(new Set(deskVotes.map((v) => v.voter_id)));
+  const voterById = new Map<string, VoterProfile>();
+  if (voterIds.length) {
+    const { data: voterProfiles } = await supabase
+      .from("profiles")
+      .select("id, character_name, party")
+      .in("id", voterIds);
+    for (const p of (voterProfiles ?? []) as VoterProfile[]) voterById.set(p.id, p);
+  }
+
+  const votesByBill = new Map<string, BillVote[]>();
+  for (const v of deskVotes) {
+    const list = votesByBill.get(v.bill_id) ?? [];
+    list.push(v);
+    votesByBill.set(v.bill_id, list);
+  }
 
   return (
     <div className="space-y-10">
@@ -98,21 +130,21 @@ export default async function OvalPage() {
 
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">Awaiting signature</h2>
-        {!desk?.length ? (
+        {!deskList.length ? (
           <p className="text-sm text-[var(--psc-muted)]">No bills on the desk.</p>
         ) : (
-          <div className="space-y-4">
-            {desk.map((bill) => (
-              <article
-                key={bill.id}
-                className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5"
-              >
-                <h3 className="text-lg font-semibold">{bill.title}</h3>
-                <p className="text-xs text-[var(--psc-muted)]">
-                  Status {bill.status} · {new Date(bill.created_at).toLocaleString()}
-                </p>
+          <div className="space-y-6">
+            {deskList.map((bill) => (
+              <div key={bill.id} className="space-y-3">
+                <BillCard
+                  bill={bill}
+                  votes={votesByBill.get(bill.id) ?? []}
+                  voterById={voterById}
+                  userId={user.id}
+                  userChambers={[]}
+                />
                 {president ? (
-                  <form action={presidentialAction} className="mt-4 flex gap-3">
+                  <form action={presidentialAction} className="flex gap-3">
                     <input type="hidden" name="bill_id" value={bill.id} />
                     <SubmitButton
                       name="action"
@@ -132,7 +164,7 @@ export default async function OvalPage() {
                     </SubmitButton>
                   </form>
                 ) : null}
-              </article>
+              </div>
             ))}
           </div>
         )}
