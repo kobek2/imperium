@@ -20,16 +20,17 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     ? (await supabase.auth.getUser()).data.user
     : null;
 
-  const isAdmin = supabase && user ? await getIsAdmin() : false;
-
+  // Admin check and the role-lookup chain that gates the Leadership link are both per-request
+  // and don't depend on each other, so we fan them out in parallel on every (app) page.
+  let isAdmin = false;
   let showLeadership = false;
   if (supabase && user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("office_role")
-      .eq("id", user.id)
-      .maybeSingle();
-    const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+    const [adminResult, profileResult] = await Promise.all([
+      getIsAdmin(),
+      supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle(),
+    ]);
+    isAdmin = adminResult;
+    const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profileResult.data);
     showLeadership = canReviewAnyChamberLeadership(roleKeys);
   }
 

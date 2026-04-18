@@ -60,7 +60,18 @@ export default async function CharacterPage() {
     discord_username: profile.discord_username,
   };
 
+  // Setup mode = user has never saved their character form (party is still null). Once they save
+  // even once, party will be set (default "independent"), and we stop showing the welcome banner.
+  // We intentionally don't require residence_state or home_district_code — a Senator/President
+  // doesn't need a House district, and some players may not want to claim a state seat.
+  const setupMode = !profile.party;
+
   return (
-    <PersonnelEditShell primaryTitle={primaryTitle} profile={personnelProfile} userId={user.id} />
+    <PersonnelEditShell
+      primaryTitle={primaryTitle}
+      profile={personnelProfile}
+      userId={user.id}
+      setupMode={setupMode}
+    />
   );
 }

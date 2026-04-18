@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { tryCreateClient } from "@/lib/supabase/server";
 
 const TILES = [
   {
@@ -23,7 +25,29 @@ const TILES = [
   },
 ];
 
-export default function BriefingPage() {
+export default async function BriefingPage() {
+  // Redirect first-time users to the character setup screen. We do this here (not in a layout)
+  // so /character itself isn't caught in a loop, and so unauthenticated visitors to / still see
+  // the command center as a stub if Supabase isn't configured.
+  const supabase = await tryCreateClient();
+  if (supabase) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("party")
+        .eq("id", user.id)
+        .maybeSingle();
+      // Party is null on freshly-created profiles and becomes non-null the moment the user saves
+      // the character form (the form defaults to "independent"). Senators / presidents don't need
+      // a home district, so we don't gate on that.
+      if (!profile?.party) {
+        redirect("/character");
+      }
+    }
+  }
   return (
     <div className="space-y-8">
       <header>

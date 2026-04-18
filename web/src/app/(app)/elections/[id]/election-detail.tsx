@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ProfileCard, ProfileCardBadge } from "@/components/profile-card";
+import { SubmitButton } from "@/components/submit-button";
 import {
   castGeneralVote,
   castPrimaryVote,
@@ -41,6 +43,7 @@ type CandidateCardFields = {
   face_claim_url: string | null;
   residence_state: string | null;
   home_district_code: string | null;
+  bio: string | null;
 };
 
 type PartyKey = "democrat" | "republican" | "independent";
@@ -88,37 +91,13 @@ function displayName(card: CandidateCardFields | undefined, userId: string, name
   return n || userId.slice(0, 8);
 }
 
-function seatLine(card: CandidateCardFields | undefined) {
-  const st = (card?.residence_state ?? "").trim().toUpperCase();
-  const dist = (card?.home_district_code ?? "").trim();
-  if (dist) return dist;
-  if (st) return st;
-  return "—";
-}
-
-function faceUrlOk(url: string | null | undefined) {
-  const u = (url ?? "").trim();
-  return u.startsWith("http://") || u.startsWith("https://");
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return null;
-  try {
-    return new Date(value).toLocaleDateString();
-  } catch {
-    return null;
-  }
-}
-
 type VoteMode = "none" | "primary" | "general";
 
+/**
+ * A single candidate tile. We show a single percentage — either their primary vote share or
+ * their blended general score — instead of the old "Primary: 8 · General: 10 · Speeches: 3…"
+ * list. Campaign-activity rollups live in the candidate's own <CampaignPanel/> section.
+ */
 function CandidateCard({
   cand,
   card,
@@ -126,13 +105,8 @@ function CandidateCard({
   isYou,
   isWinner,
   isLeader,
-  primaryCount,
-  generalCount,
-  showPrimaryCount,
-  showGeneralCount,
-  showCampaignActivity,
-  speechCount,
-  rallyCount,
+  share,
+  shareLabel,
   selected,
   mode,
   electionId,
@@ -145,146 +119,71 @@ function CandidateCard({
   isYou: boolean;
   isWinner: boolean;
   isLeader: boolean;
-  primaryCount: number | null;
-  generalCount: number | null;
-  showPrimaryCount: boolean;
-  showGeneralCount: boolean;
-  showCampaignActivity: boolean;
-  speechCount: number;
-  rallyCount: number;
+  /** Vote/score share from 0 to 1, or null if there's nothing to show. */
+  share: number | null;
+  /** Shown under the percentage (e.g. "8 votes" or "projected score"). */
+  shareLabel: string | null;
   selected: boolean;
   mode: VoteMode;
   electionId: string;
   disabled: boolean;
   emphasizeParty: boolean;
 }) {
-  const meta = partyMeta(cand.party);
-  const faceUrl = faceUrlOk(card?.face_claim_url) ? card!.face_claim_url! : null;
-  const filedOn = formatDate(cand.created_at);
+  const badges = (
+    <>
+      {isYou ? <ProfileCardBadge tone="you">You</ProfileCardBadge> : null}
+      {cand.primary_winner ? <ProfileCardBadge tone="nominee">Nominee</ProfileCardBadge> : null}
+      {isLeader && !isWinner ? <ProfileCardBadge tone="leading">Leading</ProfileCardBadge> : null}
+      {isWinner ? <ProfileCardBadge tone="winner">Winner</ProfileCardBadge> : null}
+    </>
+  );
 
-  const baseBg = emphasizeParty ? meta.cardBg : "bg-[var(--psc-panel)]";
-  const baseBorder = emphasizeParty
-    ? meta.cardBorder
-    : `border-[var(--psc-border)] ${meta.accent}`;
-
-  return (
-    <article
-      className={`flex h-full flex-col gap-3 rounded-lg border p-4 shadow-sm transition ${baseBg} ${
-        isWinner
-          ? "border-emerald-700 ring-2 ring-emerald-200"
-          : selected
-            ? "border-[var(--psc-accent)] ring-2 ring-[var(--psc-accent)]/30"
-            : baseBorder
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        {faceUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={faceUrl}
-            alt=""
-            className="h-14 w-14 shrink-0 rounded object-cover"
-          />
-        ) : (
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-white/70 text-sm font-semibold text-[var(--psc-ink)]">
-            {initials(name)}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-base font-semibold text-[var(--psc-ink)]">
-              {name}
-            </p>
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${meta.pill}`}
-            >
-              {meta.label}
+  const footer = (
+    <div className="space-y-2">
+      {share !== null ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-mono text-2xl font-semibold text-[var(--psc-ink)]">
+            {(share * 100).toFixed(1)}%
+          </span>
+          {shareLabel ? (
+            <span className="text-[11px] uppercase tracking-wide text-[var(--psc-muted)]">
+              {shareLabel}
             </span>
-            {isYou ? (
-              <span className="rounded bg-[var(--psc-ink)] px-2 py-0.5 text-[10px] font-semibold uppercase text-white">
-                You
-              </span>
-            ) : null}
-            {cand.primary_winner ? (
-              <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
-                Nominee
-              </span>
-            ) : null}
-            {isLeader && !isWinner ? (
-              <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-900">
-                Leading
-              </span>
-            ) : null}
-            {isWinner ? (
-              <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-900">
-                Winner
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            {seatLine(card)}
-            {filedOn ? ` · Filed ${filedOn}` : ""}
-          </p>
-          {(showPrimaryCount && primaryCount !== null) ||
-          (showGeneralCount && generalCount !== null) ||
-          showCampaignActivity ? (
-            <div className="mt-2 flex flex-wrap gap-3 font-mono text-xs">
-              {showPrimaryCount && primaryCount !== null ? (
-                <span className="text-[var(--psc-muted)]">
-                  Primary:{" "}
-                  <span className="text-[var(--psc-ink)]">{primaryCount}</span>
-                </span>
-              ) : null}
-              {showGeneralCount && generalCount !== null ? (
-                <span className="text-[var(--psc-muted)]">
-                  General:{" "}
-                  <span className="text-[var(--psc-ink)]">{generalCount}</span>
-                </span>
-              ) : null}
-              {showCampaignActivity ? (
-                <>
-                  <span className="text-[var(--psc-muted)]">
-                    Speeches:{" "}
-                    <span className="text-[var(--psc-ink)]">{speechCount}</span>
-                  </span>
-                  <span className="text-[var(--psc-muted)]">
-                    Rallies:{" "}
-                    <span className="text-[var(--psc-ink)]">{rallyCount}</span>
-                  </span>
-                  <span className="text-[var(--psc-muted)]">
-                    Pts:{" "}
-                    <span className="text-[var(--psc-ink)]">
-                      {Number(cand.campaign_points_total ?? 0).toFixed(1)}
-                    </span>
-                  </span>
-                </>
-              ) : null}
-            </div>
           ) : null}
         </div>
-      </div>
-
+      ) : null}
       {mode !== "none" ? (
-        <form
-          action={mode === "primary" ? castPrimaryVote : castGeneralVote}
-          className="mt-auto"
-        >
+        <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
           <input type="hidden" name="election_id" value={electionId} />
           <input type="hidden" name="candidate_id" value={cand.id} />
-          <button
-            type="submit"
+          <SubmitButton
             disabled={disabled}
-            className={`w-full rounded border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-              selected
-                ? "border-[var(--psc-accent)] bg-[var(--psc-accent)] text-white hover:brightness-110"
-                : "border-[var(--psc-ink)] bg-white text-[var(--psc-ink)] hover:bg-[var(--psc-canvas)]"
-            } ${disabled ? "cursor-not-allowed opacity-50 hover:brightness-100" : ""}`}
+            variant={selected ? "selected" : "ghost"}
+            pendingLabel={selected ? "Unvoting…" : "Voting…"}
           >
             {selected ? "Unvote" : "Vote"}
-          </button>
+          </SubmitButton>
         </form>
       ) : null}
-    </article>
+    </div>
+  );
+
+  return (
+    <ProfileCard
+      profile={{
+        character_name: name,
+        face_claim_url: card?.face_claim_url ?? null,
+        party: cand.party,
+        bio: card?.bio ?? null,
+        residence_state: card?.residence_state ?? null,
+        home_district_code: card?.home_district_code ?? null,
+      }}
+      emphasizeParty={emphasizeParty}
+      selected={selected}
+      winner={isWinner}
+      badges={badges}
+      footer={footer}
+    />
   );
 }
 
@@ -495,6 +394,14 @@ function CampaignPanel({
   );
 }
 
+/**
+ * How to display a candidate's "score" on their card:
+ * - "primary": percentage of primary votes cast so far (denominator = all primary votes)
+ * - "general": blended 60/40 campaign-points + community-votes share (same math as SpreadBar)
+ * - "none":    no percentage shown (filing phase)
+ */
+type ShareMode = "none" | "primary" | "general";
+
 function PartyGroupedCandidates({
   candidates,
   card,
@@ -502,12 +409,8 @@ function PartyGroupedCandidates({
   winnerUserId,
   userId,
   primaryTally,
-  generalTally,
-  speechCountBy,
-  rallyCountBy,
-  showPrimaryCount,
-  showGeneralCount,
-  showCampaignActivity,
+  generalShareById,
+  shareMode,
   leaderCandidateId,
   primaryOpenForPartyOnly,
   primaryPartyRestriction,
@@ -525,12 +428,8 @@ function PartyGroupedCandidates({
   winnerUserId: string | null;
   userId: string;
   primaryTally: Record<string, number>;
-  generalTally: Record<string, number>;
-  speechCountBy: Record<string, number>;
-  rallyCountBy: Record<string, number>;
-  showPrimaryCount: boolean;
-  showGeneralCount: boolean;
-  showCampaignActivity: boolean;
+  generalShareById: Record<string, number>;
+  shareMode: ShareMode;
   leaderCandidateId: string | null;
   primaryOpenForPartyOnly: string | null;
   primaryPartyRestriction: boolean;
@@ -562,6 +461,10 @@ function PartyGroupedCandidates({
   for (const k of groups.keys()) {
     if (!orderedKeys.includes(k as PartyKey)) orderedKeys.push(k as PartyKey);
   }
+
+  // Denominator for the primary-share percentage. We use the grand total of primary votes
+  // across all parties so the number is comparable between cards.
+  const primaryVoteTotal = candidates.reduce((s, c) => s + (primaryTally[c.id] ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -597,16 +500,26 @@ function PartyGroupedCandidates({
                 </span>
               ) : null}
             </div>
-            <ul className="grid gap-3 md:grid-cols-2">
+            <ul className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
               {list.map((c) => {
-                const primaryCount = primaryTally[c.id] ?? 0;
-                const generalCount = generalTally[c.id] ?? 0;
                 const selected =
                   mode === "primary"
                     ? myPrimaryCandidateId === c.id
                     : mode === "general"
                       ? myGeneralCandidateId === c.id
                       : false;
+
+                let share: number | null = null;
+                let shareLabel: string | null = null;
+                if (shareMode === "primary") {
+                  const n = primaryTally[c.id] ?? 0;
+                  share = primaryVoteTotal > 0 ? n / primaryVoteTotal : 0;
+                  shareLabel = `${n} vote${n === 1 ? "" : "s"}`;
+                } else if (shareMode === "general") {
+                  share = generalShareById[c.id] ?? 0;
+                  shareLabel = "projected";
+                }
+
                 return (
                   <li key={c.id}>
                     <CandidateCard
@@ -616,13 +529,8 @@ function PartyGroupedCandidates({
                       isYou={c.user_id === userId}
                       isWinner={winnerUserId === c.user_id}
                       isLeader={leaderCandidateId === c.id}
-                      primaryCount={primaryCount}
-                      generalCount={generalCount}
-                      showPrimaryCount={showPrimaryCount}
-                      showGeneralCount={showGeneralCount}
-                      showCampaignActivity={showCampaignActivity}
-                      speechCount={speechCountBy[c.id] ?? 0}
-                      rallyCount={rallyCountBy[c.id] ?? 0}
+                      share={share}
+                      shareLabel={shareLabel}
                       selected={selected}
                       mode={mayVoteHere ? mode : "none"}
                       electionId={electionId}
@@ -725,6 +633,12 @@ export function ElectionDetail({
     }
   }
 
+  // 60/40 blended score per candidate (campaign points + lean, vs community votes). Computed once
+  // so both the SpreadBar and each candidate card show the same projected percentage.
+  const generalScores = computeScores(generalCandidates, partisanLean, generalTally);
+  const generalShareById: Record<string, number> = {};
+  for (const s of generalScores) generalShareById[s.id] = s.share;
+
   const seatLabel =
     election.district_code ?? election.state ?? "United States";
 
@@ -800,15 +714,12 @@ export function ElectionDetail({
               ) : canFileCandidacy ? (
                 <form action={fileCandidacy}>
                   <input type="hidden" name="election_id" value={election.id} />
-                  <button
-                    type="submit"
-                    className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
-                  >
+                  <SubmitButton pendingLabel="Filing…">
                     File as{" "}
                     <span className={`ml-1 rounded-sm px-1 ${meta.pill}`}>
                       {meta.label}
                     </span>
-                  </button>
+                  </SubmitButton>
                   <p className="mt-2 text-center text-[10px] text-[var(--psc-muted)]">
                     Party auto-pulled from your Character page.
                   </p>
@@ -837,12 +748,8 @@ export function ElectionDetail({
               winnerUserId={election.winner_user_id}
               userId={userId}
               primaryTally={primaryTally}
-              generalTally={generalTally}
-              speechCountBy={speechCountBy}
-              rallyCountBy={rallyCountBy}
-              showPrimaryCount={false}
-              showGeneralCount={false}
-              showCampaignActivity={false}
+              generalShareById={generalShareById}
+              shareMode="none"
               leaderCandidateId={null}
               primaryOpenForPartyOnly={null}
               primaryPartyRestriction={false}
@@ -881,12 +788,8 @@ export function ElectionDetail({
             winnerUserId={election.winner_user_id}
             userId={userId}
             primaryTally={primaryTally}
-            generalTally={generalTally}
-            speechCountBy={speechCountBy}
-            rallyCountBy={rallyCountBy}
-            showPrimaryCount
-            showGeneralCount={false}
-            showCampaignActivity={false}
+            generalShareById={generalShareById}
+            shareMode="primary"
             leaderCandidateId={null}
             primaryOpenForPartyOnly={primaryOpenForPartyOnly}
             primaryPartyRestriction={primaryPartyRestricted}
@@ -905,7 +808,7 @@ export function ElectionDetail({
       {election.phase === "general" ? (
         <section className="space-y-4">
           <SpreadBar
-            scores={computeScores(generalCandidates, partisanLean, generalTally)}
+            scores={generalScores}
             nameBy={nameBy}
             candidateCardByUserId={candidateCardByUserId}
           />
@@ -938,12 +841,8 @@ export function ElectionDetail({
             winnerUserId={election.winner_user_id}
             userId={userId}
             primaryTally={primaryTally}
-            generalTally={generalTally}
-            speechCountBy={speechCountBy}
-            rallyCountBy={rallyCountBy}
-            showPrimaryCount={false}
-            showGeneralCount
-            showCampaignActivity
+            generalShareById={generalShareById}
+            shareMode="general"
             leaderCandidateId={generalLeaderId}
             primaryOpenForPartyOnly={null}
             primaryPartyRestriction={false}
@@ -962,7 +861,7 @@ export function ElectionDetail({
       {election.phase === "closed" ? (
         <section className="space-y-3">
           <SpreadBar
-            scores={computeScores(generalCandidates, partisanLean, generalTally)}
+            scores={generalScores}
             nameBy={nameBy}
             candidateCardByUserId={candidateCardByUserId}
           />
@@ -976,12 +875,8 @@ export function ElectionDetail({
             winnerUserId={election.winner_user_id}
             userId={userId}
             primaryTally={primaryTally}
-            generalTally={generalTally}
-            speechCountBy={speechCountBy}
-            rallyCountBy={rallyCountBy}
-            showPrimaryCount={false}
-            showGeneralCount
-            showCampaignActivity
+            generalShareById={generalShareById}
+            shareMode="general"
             leaderCandidateId={null}
             primaryOpenForPartyOnly={null}
             primaryPartyRestriction={false}

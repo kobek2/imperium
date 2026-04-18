@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { leadershipReviewBill } from "@/app/actions/bills";
+import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canReviewLeadershipForChamber } from "@/lib/role-capabilities";
@@ -83,22 +84,22 @@ export default async function LeadershipInboxPage() {
                 <form action={leadershipReviewBill}>
                   <input type="hidden" name="bill_id" value={bill.id} />
                   <input type="hidden" name="decision" value="accept" />
-                  <button
-                    type="submit"
-                    className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white"
+                  <SubmitButton
+                    pendingLabel="Accepting…"
+                    className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
                   >
                     Accept → floor (24h)
-                  </button>
+                  </SubmitButton>
                 </form>
                 <form action={leadershipReviewBill}>
                   <input type="hidden" name="bill_id" value={bill.id} />
                   <input type="hidden" name="decision" value="reject" />
-                  <button
-                    type="submit"
-                    className="border border-red-800 bg-red-950 px-4 py-2 text-xs font-semibold uppercase text-white"
+                  <SubmitButton
+                    pendingLabel="Rejecting…"
+                    className="border border-red-800 bg-red-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
                   >
                     Reject
-                  </button>
+                  </SubmitButton>
                 </form>
               </div>
             </li>

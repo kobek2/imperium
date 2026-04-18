@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { createAppointment, presidentialAction } from "@/app/actions/bills";
+import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canActAsPresident } from "@/lib/role-capabilities";
@@ -113,20 +114,22 @@ export default async function OvalPage() {
                 {president ? (
                   <form action={presidentialAction} className="mt-4 flex gap-3">
                     <input type="hidden" name="bill_id" value={bill.id} />
-                    <button
+                    <SubmitButton
                       name="action"
                       value="sign"
-                      className="border border-green-800 bg-green-900 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
+                      pendingLabel="Signing…"
+                      className="border border-green-800 bg-green-900 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
                     >
                       Sign
-                    </button>
-                    <button
+                    </SubmitButton>
+                    <SubmitButton
                       name="action"
                       value="veto"
-                      className="border border-red-800 bg-red-900 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white"
+                      pendingLabel="Vetoing…"
+                      className="border border-red-800 bg-red-900 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
                     >
                       Veto
-                    </button>
+                    </SubmitButton>
                   </form>
                 ) : null}
               </article>

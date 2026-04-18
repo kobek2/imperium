@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { castBillVote, submitBill } from "@/app/actions/bills";
+import { SubmitButton } from "@/components/submit-button";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { canFileFederalLegislation, originatingChamberForRoles } from "@/lib/legislative-eligibility";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
@@ -152,15 +153,15 @@ export default async function CongressPage() {
                     <input type="hidden" name="chamber" value="house" />
                     <div className="mt-2 flex gap-2">
                       {(["yea", "nay", "abstain"] as const).map((vote) => (
-                        <button
+                        <SubmitButton
                           key={vote}
-                          type="submit"
                           name="vote"
                           value={vote}
-                          className="flex-1 border border-[var(--psc-border)] px-2 py-1 text-xs font-semibold uppercase"
+                          pendingLabel="…"
+                          className="flex-1 border border-[var(--psc-border)] px-2 py-1 text-xs font-semibold uppercase transition hover:bg-[var(--psc-canvas)]"
                         >
                           {vote}
-                        </button>
+                        </SubmitButton>
                       ))}
                     </div>
                   </form>
@@ -173,15 +174,15 @@ export default async function CongressPage() {
                     <input type="hidden" name="chamber" value="senate" />
                     <div className="mt-2 flex gap-2">
                       {(["yea", "nay", "abstain"] as const).map((vote) => (
-                        <button
+                        <SubmitButton
                           key={vote}
-                          type="submit"
                           name="vote"
                           value={vote}
-                          className="flex-1 border border-[var(--psc-border)] px-2 py-1 text-xs font-semibold uppercase"
+                          pendingLabel="…"
+                          className="flex-1 border border-[var(--psc-border)] px-2 py-1 text-xs font-semibold uppercase transition hover:bg-[var(--psc-canvas)]"
                         >
                           {vote}
-                        </button>
+                        </SubmitButton>
                       ))}
                     </div>
                   </form>

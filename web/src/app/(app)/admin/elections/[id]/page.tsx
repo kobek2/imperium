@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
+import { SubmitButton } from "@/components/submit-button";
 import {
   deleteElection,
   endPrimarySelectWinners,
@@ -397,12 +398,12 @@ export default async function AdminElectionDetailPage({
                   );
                 })}
               </select>
-              <button
-                type="submit"
-                className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white"
+              <SubmitButton
+                pendingLabel="Certifying…"
+                className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
               >
                 Certify this candidate
-              </button>
+              </SubmitButton>
             </form>
           </div>
         ) : null}
@@ -414,12 +415,12 @@ export default async function AdminElectionDetailPage({
             </p>
             <form action={endPrimarySelectWinners} className="mt-2">
               <input type="hidden" name="election_id" value={id} />
-              <button
-                type="submit"
-                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white"
+              <SubmitButton
+                pendingLabel="Ending primary…"
+                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
               >
                 End primary → general + winners
-              </button>
+              </SubmitButton>
             </form>
           </div>
         ) : null}
@@ -566,9 +567,12 @@ export default async function AdminElectionDetailPage({
       <section>
         <form action={deleteElection}>
           <input type="hidden" name="election_id" value={id} />
-          <button type="submit" className="text-xs font-semibold uppercase text-red-700 underline">
+          <SubmitButton
+            pendingLabel="Deleting…"
+            className="text-xs font-semibold uppercase text-red-700 underline transition hover:text-red-900"
+          >
             Delete election
-          </button>
+          </SubmitButton>
         </form>
       </section>
     </div>

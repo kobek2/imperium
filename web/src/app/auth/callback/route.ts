@@ -19,15 +19,28 @@ export async function GET(request: Request) {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      let destination = next;
       if (user) {
         const meta = user.user_metadata as Record<string, unknown> | undefined;
         const idData = user.identities?.[0]?.identity_data as Record<string, unknown> | undefined;
         const username = pickDiscordUsername(meta) ?? pickDiscordUsername(idData);
-        if (username) {
-          await supabase.from("profiles").update({ discord_username: username }).eq("id", user.id);
+        const [{ data: profile }] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("party")
+            .eq("id", user.id)
+            .maybeSingle(),
+          username
+            ? supabase.from("profiles").update({ discord_username: username }).eq("id", user.id)
+            : Promise.resolve({ data: null, error: null }),
+        ]);
+        // Only first-time users (party still null) get routed to /character. Anyone who has saved
+        // the character form at least once has a non-null party and keeps their intended destination.
+        if (!profile?.party && next === "/") {
+          destination = "/character";
         }
       }
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${origin}${destination}`);
     }
   }
 
