@@ -36,44 +36,61 @@ const OFFICE_LABEL: Record<Office, string> = {
   president: "President",
 };
 
-const OFFICE_DESCRIPTION: Record<Office, string> = {
-  house: "District races",
-  senate: "State races by class",
-  president: "Nationwide race",
-};
-
 const PHASE_LABEL: Record<Phase, string> = {
   filing: "Filing",
   primary: "Primary",
   general: "General",
 };
 
-function phaseTone(phase: string) {
+type PhaseStyle = {
+  pill: string;
+  dot: string;
+  bar: string;
+  cardAccent: string;
+  badgeLabel: string;
+};
+
+function phaseStyle(phase: string): PhaseStyle {
   switch (phase) {
     case "filing":
       return {
         pill: "bg-amber-100 text-amber-900 border-amber-300",
         dot: "bg-amber-500",
+        bar: "bg-amber-400",
+        cardAccent: "hover:border-amber-400",
+        badgeLabel: "Filing",
       };
     case "primary":
       return {
         pill: "bg-blue-100 text-blue-900 border-blue-300",
         dot: "bg-blue-600",
+        bar: "bg-blue-500",
+        cardAccent: "hover:border-blue-400",
+        badgeLabel: "Primary",
       };
     case "general":
       return {
         pill: "bg-violet-100 text-violet-900 border-violet-300",
         dot: "bg-violet-600",
+        bar: "bg-violet-500",
+        cardAccent: "hover:border-violet-400",
+        badgeLabel: "General",
       };
     case "closed":
       return {
         pill: "bg-emerald-100 text-emerald-900 border-emerald-300",
         dot: "bg-emerald-600",
+        bar: "bg-emerald-500",
+        cardAccent: "hover:border-emerald-400",
+        badgeLabel: "Closed",
       };
     default:
       return {
         pill: "bg-slate-100 text-slate-900 border-slate-300",
         dot: "bg-slate-500",
+        bar: "bg-slate-400",
+        cardAccent: "hover:border-slate-400",
+        badgeLabel: phase,
       };
   }
 }
@@ -91,26 +108,32 @@ function phaseDeadline(e: DashboardElection): string | null {
   }
 }
 
-function countdown(e: DashboardElection): string | null {
+function countdown(e: DashboardElection): { text: string; urgent: boolean } | null {
   const target = phaseDeadline(e);
   if (!target) return null;
   const diff = new Date(target).getTime() - Date.now();
-  if (diff <= 0) return "finalizing…";
-  const hours = Math.floor(diff / (60 * 60 * 1000));
+  if (diff <= 0) return { text: "finalizing…", urgent: true };
+  const minutes = Math.floor(diff / (60 * 1000));
+  const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  if (days >= 2) return `${days}d`;
-  if (hours >= 2) return `${hours}h`;
-  const minutes = Math.max(1, Math.floor(diff / (60 * 1000)));
-  return `${minutes}m`;
+  if (days >= 2) return { text: `${days}d left`, urgent: false };
+  if (hours >= 2) return { text: `${hours}h left`, urgent: hours < 6 };
+  return { text: `${Math.max(1, minutes)}m left`, urgent: true };
 }
 
-function seatLabel(e: DashboardElection): string {
-  if (e.office === "president") return "Nationwide";
+function seatHeadline(e: DashboardElection): string {
+  if (e.office === "president") return "President of the United States";
   if (e.office === "senate") {
     const cls = e.senate_class ? ` · Class ${e.senate_class}` : "";
-    return `${e.state ?? "—"}${cls}`;
+    return `${e.state ?? "—"} Senate${cls}`;
   }
-  return e.district_code ?? e.state ?? "—";
+  return `${e.district_code ?? e.state ?? "—"}`;
+}
+
+function seatSubhead(e: DashboardElection): string {
+  if (e.office === "president") return "Nationwide race";
+  if (e.office === "senate") return "Statewide race";
+  return "House district";
 }
 
 function searchBlob(e: DashboardElection): string {
@@ -124,13 +147,6 @@ function searchBlob(e: DashboardElection): string {
   ]
     .join(" ")
     .toLowerCase();
-}
-
-function stateFor(e: DashboardElection): string | null {
-  if (e.office === "president") return null;
-  if (e.state) return e.state;
-  if (e.district_code) return e.district_code.slice(0, 2);
-  return null;
 }
 
 function isMyRace(
@@ -148,87 +164,74 @@ function isMyRace(
   return false;
 }
 
-/** Compact inline tile used inside the state row — whole surface is a link. */
-function RaceChip({ e }: { e: DashboardElection }) {
-  const tone = phaseTone(e.phase);
-  const label = seatLabel(e);
+/**
+ * Main race card. Uniform size, whole surface is a link.
+ * Variant "hero" adds accent border for the "Your ballot" row.
+ */
+function RaceCard({
+  e,
+  hero = false,
+}: {
+  e: DashboardElection;
+  hero?: boolean;
+}) {
+  const tone = phaseStyle(e.phase);
   const cd = countdown(e);
-  return (
-    <Link
-      href={`/elections/${e.id}`}
-      className="group flex min-w-0 items-center gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-2.5 py-1.5 text-xs shadow-sm transition hover:border-[var(--psc-accent)] hover:shadow"
-    >
-      <span className={`h-2 w-2 shrink-0 rounded-full ${tone.dot}`} />
-      <span className="truncate font-mono text-[11px] font-semibold text-[var(--psc-ink)]">
-        {label}
-      </span>
-      <span className="shrink-0 font-mono text-[10px] text-[var(--psc-muted)]">
-        {e.candidate_count}
-      </span>
-      {cd ? (
-        <span className="shrink-0 font-mono text-[10px] text-[var(--psc-muted)]">
-          · {cd}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
 
-/** Large hero tile used under "Your races" — more visual real estate. */
-function YourRaceCard({ e }: { e: DashboardElection }) {
-  const tone = phaseTone(e.phase);
+  const borderBase = hero
+    ? "border-2 border-[var(--psc-accent)]/50"
+    : "border border-[var(--psc-border)]";
+
   return (
     <Link
       href={`/elections/${e.id}`}
-      className="flex h-full min-w-0 flex-col justify-between gap-3 rounded-lg border-2 border-[var(--psc-accent)]/40 bg-[var(--psc-panel)] p-4 shadow-sm transition hover:border-[var(--psc-accent)] hover:shadow-md"
+      className={`group relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg bg-[var(--psc-panel)] shadow-sm transition hover:shadow-md ${borderBase} ${tone.cardAccent}`}
     >
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
+      {/* colored phase spine */}
+      <span className={`absolute inset-y-0 left-0 w-1 ${tone.bar}`} />
+
+      <div className="flex flex-col gap-3 p-4 pl-5">
+        <div className="flex flex-wrap items-center gap-2">
           <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone.pill}`}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone.pill}`}
           >
-            {e.phase}
+            <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+            {tone.badgeLabel}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
             {OFFICE_LABEL[e.office as Office] ?? e.office}
           </span>
+          {hero ? (
+            <span className="ml-auto rounded bg-[var(--psc-ink)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
+              Yours
+            </span>
+          ) : null}
         </div>
-        <p className="truncate text-lg font-semibold text-[var(--psc-ink)]">
-          {seatLabel(e)}
-        </p>
-      </div>
-      <div className="flex items-center justify-between text-xs text-[var(--psc-muted)]">
-        <span>
-          {e.candidate_count} {e.candidate_count === 1 ? "candidate" : "candidates"}
-        </span>
-        <span className="font-mono">
-          {countdown(e) ? `closes in ${countdown(e)}` : ""}
-        </span>
+
+        <div className="space-y-0.5">
+          <p className="truncate text-lg font-semibold leading-tight text-[var(--psc-ink)]">
+            {seatHeadline(e)}
+          </p>
+          <p className="text-xs text-[var(--psc-muted)]">{seatSubhead(e)}</p>
+        </div>
+
+        <div className="mt-auto flex items-end justify-between gap-2 pt-2 text-xs">
+          <div className="flex items-center gap-1.5 text-[var(--psc-muted)]">
+            <span className="font-semibold text-[var(--psc-ink)]">
+              {e.candidate_count}
+            </span>
+            {e.candidate_count === 1 ? "candidate" : "candidates"}
+          </div>
+          {cd ? (
+            <div
+              className={`font-mono text-[11px] ${cd.urgent ? "font-semibold text-red-700" : "text-[var(--psc-muted)]"}`}
+            >
+              {cd.text}
+            </div>
+          ) : null}
+        </div>
       </div>
     </Link>
-  );
-}
-
-function StateRow({ state, races }: { state: string; races: DashboardElection[] }) {
-  const byPhase = new Map<string, number>();
-  for (const r of races) byPhase.set(r.phase, (byPhase.get(r.phase) ?? 0) + 1);
-
-  return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-t border-[var(--psc-border)]/60 py-2 first:border-t-0">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded bg-[var(--psc-canvas)] px-2 font-mono text-xs font-bold uppercase tracking-wide text-[var(--psc-ink)]">
-          {state}
-        </span>
-        <span className="font-mono text-[10px] text-[var(--psc-muted)]">
-          {races.length}
-        </span>
-      </div>
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        {races.map((r) => (
-          <RaceChip key={r.id} e={r} />
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -257,13 +260,49 @@ function FilterChip({
       {typeof count === "number" ? (
         <span
           className={`rounded-full px-1.5 font-mono text-[10px] ${
-            active ? "bg-white/20 text-white" : "bg-[var(--psc-canvas)] text-[var(--psc-muted)]"
+            active
+              ? "bg-white/20 text-white"
+              : "bg-[var(--psc-canvas)] text-[var(--psc-muted)]"
           }`}
         >
           {count}
         </span>
       ) : null}
     </button>
+  );
+}
+
+function ChamberSection({
+  office,
+  races,
+}: {
+  office: Office;
+  races: DashboardElection[];
+}) {
+  if (!races.length) return null;
+
+  const sorted = [...races].sort((a, b) => {
+    const ac = a.district_code ?? a.state ?? "";
+    const bc = b.district_code ?? b.state ?? "";
+    return ac.localeCompare(bc);
+  });
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--psc-border)] pb-2">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+          {OFFICE_LABEL[office]}
+        </h2>
+        <span className="font-mono text-xs text-[var(--psc-muted)]">
+          {races.length} {races.length === 1 ? "race" : "races"}
+        </span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {sorted.map((r) => (
+          <RaceCard key={r.id} e={r} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -306,7 +345,7 @@ export function ElectionsDashboard({
   const grouped = useMemo(() => {
     const byOffice = new Map<Office, DashboardElection[]>();
     for (const e of filtered) {
-      const key = (e.office as Office) ?? "house";
+      const key = e.office as Office;
       if (!OFFICES.includes(key)) continue;
       const list = byOffice.get(key) ?? [];
       list.push(e);
@@ -322,194 +361,136 @@ export function ElectionsDashboard({
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
             {elections.length} active race{elections.length === 1 ? "" : "s"} across House,
-            Senate, and President. Search, filter, or jump straight to your own ballot.
+            Senate, and President.
           </p>
         </div>
         <Link
           href="/elections/archive"
-          className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)] hover:border-[var(--psc-accent)]"
+          className="inline-flex items-center gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)] hover:border-[var(--psc-accent)]"
         >
-          Archive ({archiveCount})
+          Archive
+          <span className="rounded-full bg-[var(--psc-canvas)] px-1.5 font-mono text-[10px] text-[var(--psc-muted)]">
+            {archiveCount}
+          </span>
         </Link>
       </header>
 
+      {/* Your ballot: hero cards */}
       {myRaces.length ? (
         <section className="space-y-3">
           <div className="flex items-baseline justify-between gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
               Your ballot
             </h2>
             <span className="text-[10px] text-[var(--psc-muted)]">
-              Matched to your district {userDistrict ? `(${userDistrict})` : ""} and state{" "}
-              {userState ? `(${userState})` : ""}
+              {userDistrict ? `District ${userDistrict}` : ""}
+              {userDistrict && userState ? " · " : ""}
+              {userState ? `State ${userState}` : ""}
             </span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {myRaces.map((e) => (
-              <YourRaceCard key={e.id} e={e} />
+              <RaceCard key={e.id} e={e} hero />
             ))}
           </div>
         </section>
       ) : (
-        <section className="rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-xs text-[var(--psc-muted)]">
-          Set your <Link href="/character" className="font-semibold text-[var(--psc-accent)] underline">Character</Link>{" "}
+        <section className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-xs text-[var(--psc-muted)]">
+          Set your{" "}
+          <Link
+            href="/character"
+            className="font-semibold text-[var(--psc-accent)] underline"
+          >
+            Character
+          </Link>{" "}
           home district and residence state to pin your own races at the top.
         </section>
       )}
 
-      <section className="space-y-3">
+      {/* Filters */}
+      <section className="space-y-3 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
-            placeholder="Search state, district (e.g. CA-12)…"
+            placeholder="Search state or district (e.g. CA-12)…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="min-w-0 flex-1 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-sm outline-none focus:border-[var(--psc-accent)] sm:min-w-[18rem] sm:flex-initial"
+            className="min-w-0 flex-1 rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--psc-accent)] sm:min-w-[20rem] sm:flex-initial"
           />
           {query ? (
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-2 py-1 text-xs text-[var(--psc-muted)] hover:border-[var(--psc-accent)]"
+              className="rounded border border-[var(--psc-border)] bg-white px-2 py-1 text-xs text-[var(--psc-muted)] hover:border-[var(--psc-accent)]"
             >
               Clear
             </button>
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-            Phase
-          </span>
-          <FilterChip
-            active={phaseFilter === "all"}
-            onClick={() => setPhaseFilter("all")}
-            count={phaseCounts.filing + phaseCounts.primary + phaseCounts.general}
-          >
-            All
-          </FilterChip>
-          {PHASES.map((p) => (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+              Phase
+            </span>
             <FilterChip
-              key={p}
-              active={phaseFilter === p}
-              onClick={() => setPhaseFilter(p)}
-              count={phaseCounts[p]}
+              active={phaseFilter === "all"}
+              onClick={() => setPhaseFilter("all")}
+              count={phaseCounts.filing + phaseCounts.primary + phaseCounts.general}
             >
-              {PHASE_LABEL[p]}
+              All
             </FilterChip>
-          ))}
-        </div>
+            {PHASES.map((p) => (
+              <FilterChip
+                key={p}
+                active={phaseFilter === p}
+                onClick={() => setPhaseFilter(p)}
+                count={phaseCounts[p]}
+              >
+                {PHASE_LABEL[p]}
+              </FilterChip>
+            ))}
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-            Chamber
-          </span>
-          <FilterChip
-            active={officeFilter === "all"}
-            onClick={() => setOfficeFilter("all")}
-            count={officeCounts.house + officeCounts.senate + officeCounts.president}
-          >
-            All
-          </FilterChip>
-          {OFFICES.map((o) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+              Chamber
+            </span>
             <FilterChip
-              key={o}
-              active={officeFilter === o}
-              onClick={() => setOfficeFilter(o)}
-              count={officeCounts[o]}
+              active={officeFilter === "all"}
+              onClick={() => setOfficeFilter("all")}
+              count={officeCounts.house + officeCounts.senate + officeCounts.president}
             >
-              {OFFICE_LABEL[o]}
+              All
             </FilterChip>
-          ))}
+            {OFFICES.map((o) => (
+              <FilterChip
+                key={o}
+                active={officeFilter === o}
+                onClick={() => setOfficeFilter(o)}
+                count={officeCounts[o]}
+              >
+                {OFFICE_LABEL[o]}
+              </FilterChip>
+            ))}
+          </div>
         </div>
       </section>
 
+      {/* Race grid, grouped by chamber */}
       {!filtered.length ? (
-        <section className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-6 text-center text-sm text-[var(--psc-muted)]">
+        <section className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-10 text-center text-sm text-[var(--psc-muted)]">
           No races match your filters.
         </section>
       ) : (
-        <div className="space-y-6">
-          {OFFICES.map((office) => {
-            const rows = grouped.get(office);
-            if (!rows?.length) return null;
-
-            const description = OFFICE_DESCRIPTION[office];
-
-            if (office === "president") {
-              return (
-                <details
-                  key={office}
-                  open
-                  className="group rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]"
-                >
-                  <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-base font-semibold text-[var(--psc-ink)]">
-                        {OFFICE_LABEL[office]}
-                      </span>
-                      <span className="text-xs text-[var(--psc-muted)]">
-                        {description}
-                      </span>
-                    </div>
-                    <span className="font-mono text-xs text-[var(--psc-muted)]">
-                      {rows.length}
-                    </span>
-                  </summary>
-                  <div className="flex flex-wrap gap-1.5 border-t border-[var(--psc-border)] p-4">
-                    {rows.map((r) => (
-                      <RaceChip key={r.id} e={r} />
-                    ))}
-                  </div>
-                </details>
-              );
-            }
-
-            const byState = new Map<string, DashboardElection[]>();
-            for (const r of rows) {
-              const st = stateFor(r) ?? "??";
-              const list = byState.get(st) ?? [];
-              list.push(r);
-              byState.set(st, list);
-            }
-            const sortedStates = [...byState.entries()].sort((a, b) =>
-              a[0].localeCompare(b[0]),
-            );
-
-            return (
-              <details
-                key={office}
-                open
-                className="group rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]"
-              >
-                <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-base font-semibold text-[var(--psc-ink)]">
-                      {OFFICE_LABEL[office]}
-                    </span>
-                    <span className="text-xs text-[var(--psc-muted)]">{description}</span>
-                  </div>
-                  <span className="font-mono text-xs text-[var(--psc-muted)]">
-                    {rows.length} · {sortedStates.length} state
-                    {sortedStates.length === 1 ? "" : "s"}
-                  </span>
-                </summary>
-                <div className="border-t border-[var(--psc-border)] p-4">
-                  {sortedStates.map(([st, races]) => (
-                    <StateRow
-                      key={st}
-                      state={st}
-                      races={[...races].sort((a, b) => {
-                        const ac = a.district_code ?? a.state ?? "";
-                        const bc = b.district_code ?? b.state ?? "";
-                        return ac.localeCompare(bc);
-                      })}
-                    />
-                  ))}
-                </div>
-              </details>
-            );
-          })}
+        <div className="space-y-8">
+          {OFFICES.map((office) => (
+            <ChamberSection
+              key={office}
+              office={office}
+              races={grouped.get(office) ?? []}
+            />
+          ))}
         </div>
       )}
     </div>
