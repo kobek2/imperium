@@ -1,27 +1,21 @@
-import { type NextRequest, NextResponse } from "next/server";
-// Relative import — the `@/*` path alias doesn't resolve inside Vercel's Edge runtime bundle.
-import { updateSession } from "./src/lib/supabase/middleware";
+import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
-  try {
-    return await updateSession(request);
-  } catch (err) {
-    // Final safety net: never let middleware 500 the whole site. Worst case, a user sees the page
-    // logged out and can re-auth via /login.
-    console.error("[middleware] unexpected failure, passing through:", err);
-    return NextResponse.next({ request });
-  }
+/**
+ * No-op middleware.
+ *
+ * We previously refreshed the Supabase access-token cookie here, but the @supabase/ssr import
+ * was failing in the Vercel Edge runtime and taking down every route with MIDDLEWARE_INVOCATION_FAILED.
+ *
+ * Token refresh still happens — just lazily inside server components / server actions that create
+ * the Supabase client via `@/lib/supabase/server`. That's enough to keep logged-in users logged in;
+ * the middleware refresh was an optimization, not a correctness requirement.
+ */
+export function middleware(_request: NextRequest) {
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /**
-     * Skip:
-     *   - _next/static (build artifacts)
-     *   - _next/image (image optimizer)
-     *   - favicon and common static files
-     *   - /auth/callback (Supabase OAuth finish — must run untouched so cookies land correctly)
-     */
     "/((?!_next/static|_next/image|favicon.ico|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
