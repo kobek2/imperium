@@ -824,13 +824,13 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
   }
 
   if (election.office === "president") {
-    const { data: asMate } = await supabase
+    const { data: asMate, error: mateLookupErr } = await supabase
       .from("election_candidates")
       .select("id")
       .eq("election_id", election_id)
       .eq("running_mate_user_id", user.id)
       .maybeSingle();
-    if (asMate) {
+    if (!mateLookupErr && asMate) {
       throw new Error(
         "You are already another ticket’s running mate in this presidential race. Ask that candidate to remove you first.",
       );

@@ -19,6 +19,7 @@ import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
 import { PresidentialMap } from "./presidential-map";
 import { ElectoralTote } from "./electoral-tote";
+import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
 import {
   loadPresidentialBundle,
   scorePresidentialBundle,
@@ -71,10 +72,10 @@ export default async function ElectionDetailPage({
   const { data: election } = await supabase.from("elections").select("*").eq("id", id).maybeSingle();
   if (!election) notFound();
 
-  // All of the per-election queries below are independent, so we fan them out in parallel
-  // instead of awaiting each sequentially (previously this page had ~10 serial round-trips).
+  const candList = await fetchElectionCandidatesForListing(supabase, id);
+
+  // Remaining per-election queries are independent, so we fan them out in parallel.
   const [
-    { data: candidates },
     { data: primaryVoteRows },
     { data: generalVoteRows },
     { data: myPrimaryVote },
@@ -88,11 +89,6 @@ export default async function ElectionDetailPage({
     partisanLean,
     winnerName,
   ] = await Promise.all([
-    supabase
-      .from("election_candidates")
-      .select("id, party, campaign_points_total, user_id, primary_winner, created_at, running_mate_user_id")
-      .eq("election_id", id)
-      .order("id", { ascending: true }),
     supabase.from("primary_votes").select("candidate_id").eq("election_id", id),
     supabase.from("general_votes").select("candidate_id").eq("election_id", id),
     supabase
@@ -146,8 +142,6 @@ export default async function ElectionDetailPage({
       return data?.character_name ?? null;
     })(),
   ]);
-
-  const candList = candidates ?? [];
 
   // Pre-compute filing eligibility server-side so the detail component can show the right
   // hint or File button without knowing the rules. Leadership races branch to a different
