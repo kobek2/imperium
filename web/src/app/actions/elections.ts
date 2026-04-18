@@ -52,6 +52,9 @@ export async function createElection(formData: FormData): Promise<void> {
   const filing_opens_at = parseLocalDateTime(String(formData.get("filing_opens_at")));
   const filing_closes_at = parseLocalDateTime(String(formData.get("filing_closes_at")));
   const general_closes_at = parseLocalDateTime(String(formData.get("general_closes_at")));
+  const dormantFiling =
+    String(formData.get("dormant_filing_window") ?? "").trim().toLowerCase() === "on" ||
+    String(formData.get("dormant_filing_window") ?? "").trim() === "1";
 
   if (filing_closes_at < filing_opens_at) throw new Error("Filing must end after it opens.");
 
@@ -92,6 +95,7 @@ export async function createElection(formData: FormData): Promise<void> {
       primary_party_wide: true,
       leadership_role,
       restricted_party,
+      filing_window_started_at: new Date().toISOString(),
     };
     const { error } = await supabase.from("elections").insert(row);
     if (error) throw new Error(error.message);
@@ -130,10 +134,13 @@ export async function createElection(formData: FormData): Promise<void> {
   // the old "leadership race" concept and we've moved to public.leadership_sessions instead.
   // Omitting them also keeps createElection forward-compatible with databases that were set
   // up before the 20260427 migration and don't have the columns at all.
+  const districtNormalized =
+    office === "house" && district_code ? String(district_code).trim().toUpperCase() : null;
+
   const row = {
     office,
     state: office === "president" ? null : state,
-    district_code: office === "house" ? district_code : null,
+    district_code: districtNormalized,
     senate_class: office === "senate" ? senate_class : null,
     phase: "filing" as ElectionPhase,
     filing_opens_at,
@@ -141,6 +148,7 @@ export async function createElection(formData: FormData): Promise<void> {
     primary_closes_at,
     general_closes_at,
     primary_party_wide,
+    filing_window_started_at: dormantFiling ? null : new Date().toISOString(),
   };
 
   const { error } = await supabase.from("elections").insert(row);
@@ -760,12 +768,15 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
   const { data: election } = await supabase
     .from("elections")
     .select(
-      "phase, filing_opens_at, filing_closes_at, office, state, district_code, leadership_role, restricted_party",
+      "phase, filing_opens_at, filing_closes_at, filing_window_started_at, office, state, district_code, leadership_role, restricted_party",
     )
     .eq("id", election_id)
     .single();
 
   if (!election || election.phase !== "filing") throw new Error("Filing is not open.");
+  if (!election.filing_window_started_at) {
+    throw new Error("Filings for this race have not been opened by admins yet.");
+  }
   // Match the UI: once the phase is `filing`, allow filing until filing_closes_at. We no
   // longer gate on filing_opens_at — the phase scheduler already controls both ends.
   const now = new Date();

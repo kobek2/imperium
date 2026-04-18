@@ -3,6 +3,12 @@ import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canReviewAnyChamberLeadership } from "@/lib/role-capabilities";
+import {
+  computeSimulationRpInstant,
+  formatRpCalendarShort,
+  type SimulationSettingsRow,
+} from "@/lib/simulation-calendar";
+import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { SignOut } from "@/components/sign-out";
 
 const links = [
@@ -24,14 +30,24 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
   // and don't depend on each other, so we fan them out in parallel on every (app) page.
   let isAdmin = false;
   let showLeadership = false;
+  let rpCalendarCorner: string | null = null;
   if (supabase && user) {
-    const [adminResult, profileResult] = await Promise.all([
+    const [adminResult, profileResult, simRes] = await Promise.all([
       getIsAdmin(),
       supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle(),
+      supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
     isAdmin = adminResult;
     const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profileResult.data);
     showLeadership = canReviewAnyChamberLeadership(roleKeys);
+    if (!simRes.error && simRes.data) {
+      const effective = await resolveSimulationSettingsForWidget(
+        supabase,
+        simRes.data as SimulationSettingsRow,
+        isAdmin,
+      );
+      rpCalendarCorner = formatRpCalendarShort(computeSimulationRpInstant(effective, new Date()));
+    }
   }
 
   return (
@@ -91,6 +107,16 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
+      {rpCalendarCorner ? (
+        <div
+          className="fixed bottom-4 right-4 z-[100] rounded-md border border-[var(--psc-border)] bg-[var(--psc-panel)]/95 px-3 py-2 text-right shadow-md backdrop-blur-sm"
+          title="Simulation calendar date (admins: align anchors under Admin → Elections if this looks wrong)"
+        >
+          <p className="font-mono text-sm font-semibold tabular-nums tracking-tight text-[var(--psc-ink)]">
+            {rpCalendarCorner}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -179,7 +179,7 @@ export function CreateElectionForm({
               </select>
               <span className="text-xs font-normal text-[var(--psc-muted)]">
                 Counts come from <code className="font-mono">profiles.residence_state</code>.
-                Empty states are still selectable — you'll get a warning below.
+                Empty states are still selectable — you will get a warning below.
               </span>
             </label>
           ) : null}
@@ -346,6 +346,16 @@ export function CreateElectionForm({
           </label>
         )}
       </div>
+
+      <label className="flex cursor-pointer items-start gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-3 text-xs text-[var(--psc-ink)]">
+        <input type="checkbox" name="dormant_filing_window" className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          <span className="font-semibold">Dormant template</span> — create the race in the database
+          but keep filings closed until you open this seat (individually or via &quot;Open occupied seat
+          filings&quot; on the admin elections page). Schedule fields below are stored as placeholders
+          only until the window opens.
+        </span>
+      </label>
 
       <FormSubmitButton
         idleLabel="Create election"

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getIsAdmin } from "@/lib/is-admin";
+import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
+import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
+import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import {
   ElectionsDashboard,
   type DashboardElection,
@@ -22,13 +26,15 @@ export default async function ElectionsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const isAdmin = await getIsAdmin();
+
   await runElectionPhaseSchedule(supabase);
 
-  const [{ data: elections }, { data: profile }] = await Promise.all([
+  const [{ data: elections }, { data: profile }, simSettingsRes] = await Promise.all([
     supabase
       .from("elections")
       .select(
-        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, state, senate_class, leadership_role, restricted_party",
+        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, state, senate_class, leadership_role, restricted_party, filing_window_started_at",
       )
       .order("filing_opens_at", { ascending: false }),
     supabase
@@ -36,14 +42,31 @@ export default async function ElectionsPage() {
       .select("home_district_code, residence_state")
       .eq("id", user.id)
       .maybeSingle(),
+    supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
   ]);
+
+  const simSettingsRaw =
+    simSettingsRes.error || !simSettingsRes.data
+      ? null
+      : (simSettingsRes.data as SimulationSettingsRow);
+  const simSettingsForDisplay = simSettingsRaw
+    ? await resolveSimulationSettingsForWidget(supabase, simSettingsRaw, isAdmin)
+    : null;
 
   const all = (elections ?? []) as Array<
     Omit<DashboardElection, "candidate_count">
   >;
-  const active = all.filter((e) => e.phase !== "closed");
-  const closedCount = all.length - active.length;
-
+  const active = all.filter((e) => {
+    if (e.phase === "closed") return false;
+    if (
+      e.phase === "filing" &&
+      !e.leadership_role &&
+      !(e as { filing_window_started_at?: string | null }).filing_window_started_at
+    ) {
+      return false;
+    }
+    return true;
+  });
   // Fetch candidate counts for active races in one query.
   const activeIds = active.map((e) => e.id);
   const countsById: Record<string, number> = {};
@@ -63,9 +86,18 @@ export default async function ElectionsPage() {
     candidate_count: countsById[e.id] ?? 0,
   }));
 
+  const rpNow = simSettingsForDisplay
+    ? computeSimulationRpInstant(simSettingsForDisplay, new Date())
+    : null;
+  const rpBanner =
+    rpNow && simSettingsForDisplay ? (
+      <SimulationRpBanner settings={simSettingsForDisplay} rp={rpNow} />
+    ) : null;
+
   if (!all.length) {
     return (
       <div className="space-y-8">
+        {rpBanner}
         <header>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
         </header>
@@ -88,6 +120,7 @@ export default async function ElectionsPage() {
   if (!active.length) {
     return (
       <div className="space-y-8">
+        {rpBanner}
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
@@ -95,23 +128,23 @@ export default async function ElectionsPage() {
               No active races right now.
             </p>
           </div>
-          <Link
-            href="/elections/archive"
-            className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)] hover:border-[var(--psc-accent)]"
-          >
-            Archive ({closedCount})
-          </Link>
         </header>
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <p className="text-sm text-[var(--psc-muted)]">
-            Check the{" "}
-            <Link
-              href="/elections/archive"
-              className="font-semibold text-[var(--psc-accent)] underline"
-            >
-              archive
-            </Link>{" "}
-            for results from recent elections.
+            {isAdmin ? (
+              <>
+                Past results are under{" "}
+                <Link
+                  href="/admin/elections?tab=archive"
+                  className="font-semibold text-[var(--psc-accent)] underline"
+                >
+                  Admin → Elections → Archive
+                </Link>
+                .
+              </>
+            ) : (
+              <>Check back when the next filing window opens.</>
+            )}
           </p>
         </section>
       </div>
@@ -119,11 +152,13 @@ export default async function ElectionsPage() {
   }
 
   return (
-    <ElectionsDashboard
-      elections={dashboardRows}
-      userDistrict={profile?.home_district_code ?? null}
-      userState={profile?.residence_state ?? null}
-      archiveCount={closedCount}
-    />
+    <div className="space-y-6">
+      {rpBanner}
+      <ElectionsDashboard
+        elections={dashboardRows}
+        userDistrict={profile?.home_district_code ?? null}
+        userState={profile?.residence_state ?? null}
+      />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { pickDiscordUsername } from "@/lib/discord-username";
+import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { PersonnelEditShell } from "./personnel-edit-shell";
@@ -60,17 +61,12 @@ export default async function CharacterPage() {
     discord_username: profile.discord_username,
   };
 
-  // Setup mode = user has never saved their character form (party is still null). Once they save
-  // even once, party will be set (default "independent"), and we stop showing the welcome banner.
-  // We intentionally don't require residence_state or home_district_code — a Senator/President
-  // doesn't need a House district, and some players may leave district unset until they run.
-  const setupMode = !profile.party;
+  const setupMode = !isProfileOnboardingComplete(profile);
 
   return (
     <PersonnelEditShell
       primaryTitle={primaryTitle}
       profile={personnelProfile}
-      userId={user.id}
       setupMode={setupMode}
     />
   );

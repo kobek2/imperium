@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isProfileOnboardingComplete, US_STATE_CODES } from "@/lib/character-onboarding";
+
+const STATE_SET = new Set<string>(US_STATE_CODES);
+const PARTIES = new Set(["democrat", "republican", "independent"]);
 
 export async function saveCharacter(formData: FormData): Promise<void> {
   const supabase = await createClient();
@@ -25,6 +29,22 @@ export async function saveCharacter(formData: FormData): Promise<void> {
 
   if (!character_name) {
     throw new Error("Character name is required.");
+  }
+  if (!date_of_birth) {
+    throw new Error("Date of birth is required.");
+  }
+  const dobMs = new Date(`${date_of_birth}T12:00:00Z`).getTime();
+  if (!Number.isFinite(dobMs)) {
+    throw new Error("Date of birth is not a valid date.");
+  }
+  if (!STATE_SET.has(residence_state)) {
+    throw new Error("Choose a valid U.S. state (two-letter code).");
+  }
+  if (!home_district_code) {
+    throw new Error("Home congressional district is required.");
+  }
+  if (!PARTIES.has(party)) {
+    throw new Error("Choose a valid party.");
   }
 
   const { error: profileError } = await supabase
@@ -50,20 +70,32 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   // and run competitively for the same House seat.
   await supabase.from("districts").update({ claimed_by: null }).eq("claimed_by", user.id);
 
-  if (home_district_code) {
-    const { data: open, error: districtReadError } = await supabase
-      .from("districts")
-      .select("code")
-      .eq("code", home_district_code)
-      .maybeSingle();
+  const { data: open, error: districtReadError } = await supabase
+    .from("districts")
+    .select("code")
+    .eq("code", home_district_code)
+    .maybeSingle();
 
-    if (districtReadError) {
-      throw new Error(districtReadError.message);
-    }
-    if (!open) {
-      throw new Error("District not found.");
-    }
+  if (districtReadError) {
+    throw new Error(districtReadError.message);
+  }
+  if (!open) {
+    throw new Error("District not found.");
+  }
+
+  if (
+    !isProfileOnboardingComplete({
+      character_name,
+      date_of_birth,
+      residence_state,
+      home_district_code,
+      party,
+    })
+  ) {
+    throw new Error("Character record is incomplete.");
   }
 
   revalidatePath("/character");
+  revalidatePath("/onboarding");
+  revalidatePath("/");
 }

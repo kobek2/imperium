@@ -36,11 +36,13 @@ export async function loadActiveCandidacySlots(
   // leadership_role so we can exclude those rows from the slot count.
   const { data: elecs } = await supabase
     .from("elections")
-    .select("office, phase, leadership_role")
+    .select("office, phase, leadership_role, filing_window_started_at")
     .in("id", eids);
-  const active = (elecs ?? []).filter(
-    (e) => e.phase !== "closed" && !e.leadership_role,
-  );
+  const active = (elecs ?? []).filter((e) => {
+    if (e.phase === "closed" || e.leadership_role) return false;
+    if (e.phase === "filing" && !e.filing_window_started_at) return false;
+    return true;
+  });
   return {
     hasCongress: active.some((e) => e.office === "house" || e.office === "senate"),
     hasPresident: active.some((e) => e.office === "president"),

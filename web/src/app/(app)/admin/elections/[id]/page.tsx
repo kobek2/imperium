@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
+import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
 import { SubmitButton } from "@/components/submit-button";
 import {
   deleteElection,
@@ -282,6 +283,20 @@ export default async function AdminElectionDetailPage({
           />
         </div>
       </header>
+
+      {election.phase === "filing" &&
+      !isLeadershipRole(election.leadership_role) &&
+      !election.filing_window_started_at ? (
+        <section className="space-y-3 border border-amber-400 bg-amber-50 p-6 text-sm text-amber-950">
+          <h3 className="font-semibold">Dormant filing template</h3>
+          <p className="max-w-2xl text-xs">
+            Players cannot see this race on the public elections page until you open the filing
+            window. Opening assigns a fresh 24h filing, 24h primary, and 24h general schedule from now
+            and vacates incumbents for this seat where applicable.
+          </p>
+          <OpenSeatFilingForm electionId={id} />
+        </section>
+      ) : null}
 
       {isLeadershipRole(election.leadership_role) ? (
         <section className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 text-sm">

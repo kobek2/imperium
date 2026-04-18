@@ -16,6 +16,8 @@ export type DashboardElection = {
   senate_class: number | null;
   leadership_role: string | null;
   restricted_party: string | null;
+  /** Null while a seat race is an admin-only dormant template (filings not opened). */
+  filing_window_started_at?: string | null;
   candidate_count: number;
 };
 
@@ -23,7 +25,6 @@ type Props = {
   elections: DashboardElection[];
   userDistrict: string | null;
   userState: string | null;
-  archiveCount: number;
 };
 
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
@@ -345,7 +346,6 @@ export function ElectionsDashboard({
   elections,
   userDistrict,
   userState,
-  archiveCount,
 }: Props) {
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
@@ -405,15 +405,6 @@ export function ElectionsDashboard({
             Senate, and President.
           </p>
         </div>
-        <Link
-          href="/elections/archive"
-          className="inline-flex items-center gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)] hover:border-[var(--psc-accent)]"
-        >
-          Archive
-          <span className="rounded-full bg-[var(--psc-canvas)] px-1.5 font-mono text-[10px] text-[var(--psc-muted)]">
-            {archiveCount}
-          </span>
-        </Link>
       </header>
 
       {/* Your ballot: hero cards */}

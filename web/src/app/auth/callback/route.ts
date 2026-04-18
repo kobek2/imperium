@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { pickDiscordUsername } from "@/lib/discord-username";
+import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib/character-onboarding";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -27,17 +28,19 @@ export async function GET(request: Request) {
         const [{ data: profile }] = await Promise.all([
           supabase
             .from("profiles")
-            .select("party")
+            .select("character_name, date_of_birth, residence_state, home_district_code, party")
             .eq("id", user.id)
             .maybeSingle(),
           username
             ? supabase.from("profiles").update({ discord_username: username }).eq("id", user.id)
             : Promise.resolve({ data: null, error: null }),
         ]);
-        // Only first-time users (party still null) get routed to /character. Anyone who has saved
-        // the character form at least once has a non-null party and keeps their intended destination.
-        if (!profile?.party && next === "/") {
-          destination = "/character";
+        if (
+          profile &&
+          !isProfileOnboardingComplete(profile as ProfileOnboardingFields) &&
+          !next.startsWith("/onboarding")
+        ) {
+          destination = "/onboarding";
         }
       }
       return NextResponse.redirect(`${origin}${destination}`);

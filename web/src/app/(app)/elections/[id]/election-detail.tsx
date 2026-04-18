@@ -7,6 +7,7 @@ import {
   fileCandidacy,
   setPresidentialRunningMate,
 } from "@/app/actions/elections";
+import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
 import { districtLeanBonus } from "@/lib/fec";
 import type { LeadershipRole } from "@/lib/leadership";
 import { RallyForm } from "./rally-form";
@@ -27,6 +28,7 @@ type ElectionRow = {
   primary_party_wide?: boolean | null;
   leadership_role?: string | null;
   restricted_party?: string | null;
+  filing_window_started_at?: string | null;
 };
 
 type LeadershipMeta = {
@@ -666,12 +668,16 @@ export function ElectionDetail({
   leadershipMeta: LeadershipMeta | null;
 }) {
   const now = new Date();
-  // Filing is open whenever the election is in the filing phase. We intentionally don't
-  // gate on `filing_opens_at` — the phase scheduler already sets `phase = 'filing'` at
-  // creation, and it bumps to `primary`/`general` when `filing_closes_at` passes, so an
-  // extra client-side start check just creates a dead-zone at second-granular race conditions.
+  const isLeadership = !!leadershipMeta;
+  const filingWindowLive =
+    isLeadership ||
+    election.phase !== "filing" ||
+    (election.filing_window_started_at != null && election.filing_window_started_at !== "");
+  // Seat races can be dormant templates until admins set filing_window_started_at.
   const filingOpen =
-    election.phase === "filing" && now <= new Date(election.filing_closes_at);
+    filingWindowLive &&
+    election.phase === "filing" &&
+    now <= new Date(election.filing_closes_at);
   const primaryOpen =
     election.phase === "primary" &&
     !!election.primary_closes_at &&
@@ -684,7 +690,6 @@ export function ElectionDetail({
     (c) => c.user_id === userId || c.running_mate_user_id === userId,
   );
   const campaignRow = election.office === "president" ? myTicketRow : myRow;
-  const isLeadership = !!leadershipMeta;
   const canFileCandidacy = filingBlockReason === null;
   const hasPrimaryWinners = candidates.some((c) => c.primary_winner);
   const generalCandidates = hasPrimaryWinners
@@ -783,8 +788,26 @@ export function ElectionDetail({
         </section>
       ) : null}
 
+      {/* FILING PHASE (dormant template: admins have not opened the window yet) */}
+      {election.phase === "filing" && !filingWindowLive ? (
+        <section className="space-y-4 border border-amber-300 bg-amber-50 p-6 text-amber-950">
+          <h2 className="text-lg font-semibold">Filings not open yet</h2>
+          <p className="mt-1 max-w-2xl text-sm">
+            This seat exists as a template in the database. Players cannot file until an admin opens
+            the filing window (scheduled times are applied then).
+          </p>
+          {isAdmin ? (
+            <div className="mt-4">
+              <OpenSeatFilingForm electionId={election.id} />
+            </div>
+          ) : (
+            <p className="mt-2 text-xs">Ask a staff admin to open this race when you are ready.</p>
+          )}
+        </section>
+      ) : null}
+
       {/* FILING PHASE */}
-      {election.phase === "filing" ? (
+      {election.phase === "filing" && filingWindowLive ? (
         <section className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <div className="min-w-0 max-w-2xl">

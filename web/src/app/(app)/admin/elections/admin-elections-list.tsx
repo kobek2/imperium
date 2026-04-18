@@ -17,6 +17,7 @@ export type AdminElectionRow = {
   general_closes_at: string;
   leadership_role: string | null;
   restricted_party: string | null;
+  filing_window_started_at?: string | null;
   candidate_count: number;
 };
 
@@ -75,6 +76,9 @@ function phaseDeadline(r: AdminElectionRow) {
 }
 
 function countdown(r: AdminElectionRow) {
+  if (r.phase === "filing" && !r.leadership_role && !r.filing_window_started_at) {
+    return null;
+  }
   const target = phaseDeadline(r);
   if (!target) return null;
   const diff = new Date(target).getTime() - Date.now();
@@ -140,7 +144,11 @@ function OperateChip({ r }: { r: AdminElectionRow }) {
       <span className="shrink-0 font-mono text-[10px] text-[var(--psc-muted)]">
         {r.candidate_count}c
       </span>
-      {cd ? (
+      {r.phase === "filing" && !r.leadership_role && !r.filing_window_started_at ? (
+        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-amber-950">
+          dormant
+        </span>
+      ) : cd ? (
         <span className="shrink-0 font-mono text-[10px] text-[var(--psc-muted)]">
           · {cd}
         </span>
@@ -184,11 +192,20 @@ function FilterChip({
   );
 }
 
-export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
+export function AdminElectionsList({
+  rows,
+  view = "active",
+}: {
+  rows: AdminElectionRow[];
+  view?: "active" | "archive";
+}) {
+  const archiveOnly = view === "archive";
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
   const [officeFilter, setOfficeFilter] = useState<Office | "all">("all");
   const [showClosed, setShowClosed] = useState(false);
+
+  const countRows = archiveOnly ? rows.filter((r) => r.phase === "closed") : rows;
 
   const phaseCounts: Record<Phase, number> = {
     filing: 0,
@@ -202,7 +219,7 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
     president: 0,
     leadership: 0,
   };
-  for (const r of rows) {
+  for (const r of countRows) {
     if ((PHASES as readonly string[]).includes(r.phase)) {
       phaseCounts[r.phase as Phase]++;
     }
@@ -213,13 +230,17 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (!showClosed && r.phase === "closed") return false;
+      if (archiveOnly) {
+        if (r.phase !== "closed") return false;
+      } else if (!showClosed && r.phase === "closed") {
+        return false;
+      }
       if (phaseFilter !== "all" && r.phase !== phaseFilter) return false;
       if (officeFilter !== "all" && bucketFor(r) !== officeFilter) return false;
       if (q && !searchBlob(r).includes(q)) return false;
       return true;
     });
-  }, [rows, query, phaseFilter, officeFilter, showClosed]);
+  }, [rows, query, phaseFilter, officeFilter, showClosed, archiveOnly]);
 
   const grouped = useMemo(() => {
     const byOffice = new Map<Office, AdminElectionRow[]>();
@@ -233,20 +254,26 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
     return byOffice;
   }, [filtered]);
 
+  const hasAnyClosed = useMemo(() => rows.some((r) => r.phase === "closed"), [rows]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Elections</h2>
+        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">
+          {archiveOnly ? "Archived elections" : "Elections"}
+        </h2>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-[var(--psc-muted)]">
-            <input
-              type="checkbox"
-              checked={showClosed}
-              onChange={(e) => setShowClosed(e.target.checked)}
-              className="h-3.5 w-3.5"
-            />
-            Show closed ({phaseCounts.closed})
-          </label>
+          {!archiveOnly ? (
+            <label className="flex items-center gap-2 text-xs text-[var(--psc-muted)]">
+              <input
+                type="checkbox"
+                checked={showClosed}
+                onChange={(e) => setShowClosed(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Show closed ({phaseCounts.closed})
+            </label>
+          ) : null}
           <Link
             href="/admin/elections/new"
             className="admin-cardlink border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white hover:brightness-110 active:brightness-90"
@@ -282,33 +309,40 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-                Phase
-              </span>
-              <FilterChip
-                active={phaseFilter === "all"}
-                onClick={() => setPhaseFilter("all")}
-                count={
-                  phaseCounts.filing +
-                  phaseCounts.primary +
-                  phaseCounts.general +
-                  (showClosed ? phaseCounts.closed : 0)
-                }
-              >
-                All
-              </FilterChip>
-              {PHASES.filter((p) => p !== "closed" || showClosed).map((p) => (
+            {!archiveOnly ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+                  Phase
+                </span>
                 <FilterChip
-                  key={p}
-                  active={phaseFilter === p}
-                  onClick={() => setPhaseFilter(p)}
-                  count={phaseCounts[p]}
+                  active={phaseFilter === "all"}
+                  onClick={() => setPhaseFilter("all")}
+                  count={
+                    phaseCounts.filing +
+                    phaseCounts.primary +
+                    phaseCounts.general +
+                    (showClosed ? phaseCounts.closed : 0)
+                  }
                 >
-                  {PHASE_LABEL[p]}
+                  All
                 </FilterChip>
-              ))}
-            </div>
+                {PHASES.filter((p) => p !== "closed" || showClosed).map((p) => (
+                  <FilterChip
+                    key={p}
+                    active={phaseFilter === p}
+                    onClick={() => setPhaseFilter(p)}
+                    count={phaseCounts[p]}
+                  >
+                    {PHASE_LABEL[p]}
+                  </FilterChip>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)]">
+                Closed races only. Open a row for full results; the public Elections page lists active
+                races.
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
@@ -341,7 +375,11 @@ export function AdminElectionsList({ rows }: { rows: AdminElectionRow[] }) {
 
           {!filtered.length ? (
             <p className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-6 text-center text-sm text-[var(--psc-muted)]">
-              No races match your filters.
+              {archiveOnly && !hasAnyClosed
+                ? "No closed elections yet. Finished races appear here once their phase is closed."
+                : archiveOnly
+                  ? "No archived races match your filters."
+                  : "No races match your filters."}
             </p>
           ) : (
             <div className="space-y-4">

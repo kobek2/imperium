@@ -17,12 +17,21 @@ export default function AdminHomePage() {
           <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">List races, create seats, run phases.</span>
         </Link>
         <Link
+          href="/admin/members"
+          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
+        >
+          Member database
+          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
+            Full list of player profiles, Discord IDs, seats, and role grants.
+          </span>
+        </Link>
+        <Link
           href="/directory"
           className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
         >
           Government directory
           <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Who holds which role (opens the main directory).
+            Public org chart by office (opens the main directory).
           </span>
         </Link>
       </div>

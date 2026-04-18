@@ -6,12 +6,10 @@ import { PersonnelRecord, type PersonnelProfile } from "./personnel-record";
 
 export function PersonnelEditShell({
   profile,
-  userId,
   primaryTitle,
   setupMode = false,
 }: {
   profile: PersonnelProfile;
-  userId: string;
   primaryTitle: string;
   setupMode?: boolean;
 }) {
@@ -39,8 +37,9 @@ export function PersonnelEditShell({
             Create your character
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-[var(--psc-muted)]">
-            Pick a name, party, home state, and district so you can file for office,
-            vote, and appear in the federal directory. You can edit these later.
+            Finish name, date of birth, party, home state, and congressional district so you can file,
+            vote, and appear in the directory. Biography fields are optional — you can edit everything
+            later.
           </p>
         </section>
       ) : null}
@@ -56,7 +55,7 @@ export function PersonnelEditShell({
         ) : null}
         <PersonnelRecord primaryTitle={primaryTitle} profile={profile} />
       </div>
-      {editing ? <CharacterForm profile={profile} userId={userId} /> : null}
+        {editing ? <CharacterForm profile={profile} /> : null}
     </div>
   );
 }
