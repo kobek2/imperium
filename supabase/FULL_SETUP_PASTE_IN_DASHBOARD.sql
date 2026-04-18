@@ -16,7 +16,9 @@ create table public.states (
   code char(2) primary key,
   name text not null,
   region public.us_region not null,
-  senate_class smallint check (senate_class between 1 and 3)
+  senate_class smallint check (senate_class between 1 and 3),
+  pvi numeric not null default 0,
+  electoral_votes smallint not null default 0 check (electoral_votes >= 0)
 );
 
 -- ---------- Districts (House) ----------
@@ -528,6 +530,23 @@ from (values
   ('TN', -23), ('TX', -14), ('UT', -22), ('VT',  32), ('VA',   6), ('WA',  20),
   ('WV', -42), ('WI',  -1), ('WY', -46)
 ) as v(code, pvi)
+where s.code = v.code;
+
+-- ---------- Seed states.electoral_votes from 2024 apportionment (538 total) ----------
+-- Required for the presidential map + winner-take-all EC scoring.
+update public.states as s
+set electoral_votes = v.ev
+from (values
+  ('AL',  9), ('AK',  3), ('AZ', 11), ('AR',  6), ('CA', 54), ('CO', 10),
+  ('CT',  7), ('DE',  3), ('DC',  3), ('FL', 30), ('GA', 16), ('HI',  4),
+  ('ID',  4), ('IL', 19), ('IN', 11), ('IA',  6), ('KS',  6), ('KY',  8),
+  ('LA',  8), ('ME',  4), ('MD', 10), ('MA', 11), ('MI', 15), ('MN', 10),
+  ('MS',  6), ('MO', 10), ('MT',  4), ('NE',  5), ('NV',  6), ('NH',  4),
+  ('NJ', 14), ('NM',  5), ('NY', 28), ('NC', 16), ('ND',  3), ('OH', 17),
+  ('OK',  7), ('OR',  8), ('PA', 19), ('RI',  4), ('SC',  9), ('SD',  3),
+  ('TN', 11), ('TX', 40), ('UT',  6), ('VT',  3), ('VA', 13), ('WA', 12),
+  ('WV',  4), ('WI', 10), ('WY',  3)
+) as v(code, ev)
 where s.code = v.code;
 
 -- ============================================================================

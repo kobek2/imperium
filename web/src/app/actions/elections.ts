@@ -20,6 +20,7 @@ import {
   requiredChamberRoleKey,
 } from "@/lib/leadership";
 import { countWords } from "@/lib/word-count";
+import { loadPresidentialBundle, scorePresidentialBundle } from "@/lib/presidential-data";
 
 type ElectionPhase = "filing" | "primary" | "general" | "closed";
 
@@ -123,6 +124,10 @@ export async function createElection(formData: FormData): Promise<void> {
     primary_party_wide = true;
   }
 
+  // We intentionally do NOT set leadership_role / restricted_party. Those columns were from
+  // the old "leadership race" concept and we've moved to public.leadership_sessions instead.
+  // Omitting them also keeps createElection forward-compatible with databases that were set
+  // up before the 20260427 migration and don't have the columns at all.
   const row = {
     office,
     state: office === "president" ? null : state,
@@ -134,8 +139,6 @@ export async function createElection(formData: FormData): Promise<void> {
     primary_closes_at,
     general_closes_at,
     primary_party_wide,
-    leadership_role: null,
-    restricted_party: null,
   };
 
   const { error } = await supabase.from("elections").insert(row);
@@ -516,7 +519,10 @@ export async function finalizeHouseSenateGeneral(formData: FormData): Promise<vo
 export async function finalizePresident(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
   const election_id = String(formData.get("election_id"));
-  const winner_candidate_id = String(formData.get("winner_candidate_id"));
+  // Optional override. When present, the admin is manually certifying a different
+  // candidate than the electoral-college math would pick. Left blank (the default),
+  // we certify whoever won the most electoral votes.
+  const overrideCandidateId = String(formData.get("winner_candidate_id") ?? "").trim();
 
   const { data: election } = await supabase
     .from("elections")
@@ -531,22 +537,38 @@ export async function finalizePresident(formData: FormData): Promise<void> {
     );
   }
 
-  const { data: cand } = await supabase
-    .from("election_candidates")
-    .select("user_id")
-    .eq("id", winner_candidate_id)
-    .eq("election_id", election_id)
-    .maybeSingle();
+  let winnerUserId: string | null = null;
 
-  if (!cand) throw new Error("Winner candidate not in this election.");
+  if (overrideCandidateId) {
+    const { data: cand } = await supabase
+      .from("election_candidates")
+      .select("user_id")
+      .eq("id", overrideCandidateId)
+      .eq("election_id", election_id)
+      .maybeSingle();
+    if (!cand) throw new Error("Winner candidate not in this election.");
+    winnerUserId = cand.user_id;
+  } else {
+    const bundle = await loadPresidentialBundle(supabase, election_id);
+    const result = scorePresidentialBundle(bundle);
+    if (!result.winnerCandidateId) {
+      throw new Error(
+        "No electoral votes have been awarded yet. Wait for state-level activity or override the winner manually.",
+      );
+    }
+    const winner = bundle.candidates.find((c) => c.id === result.winnerCandidateId);
+    if (!winner) throw new Error("Internal: winning candidate not found in bundle.");
+    winnerUserId = winner.user_id;
+  }
 
   const { error } = await supabase
     .from("elections")
-    .update({ phase: "closed", winner_user_id: cand.user_id })
+    .update({ phase: "closed", winner_user_id: winnerUserId })
     .eq("id", election_id);
 
   if (error) throw new Error(error.message);
 
+  // If the SQL helper isn't available on this database, fall back to not transitioning roles.
   const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
     e_election: election_id,
   });
@@ -616,9 +638,11 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
     .single();
 
   if (!election || election.phase !== "filing") throw new Error("Filing is not open.");
+  // Match the UI: once the phase is `filing`, allow filing until filing_closes_at. We no
+  // longer gate on filing_opens_at — the phase scheduler already controls both ends.
   const now = new Date();
-  if (now < new Date(election.filing_opens_at) || now > new Date(election.filing_closes_at)) {
-    throw new Error("Outside filing window.");
+  if (now > new Date(election.filing_closes_at)) {
+    throw new Error("Filing window has already closed.");
   }
 
   const { data: existing } = await supabase
@@ -715,6 +739,28 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
   const now = new Date();
   if (now > new Date(election.primary_closes_at)) throw new Error("Primary voting has closed.");
 
+  // Unvote path: if the caller is clicking the same candidate they already voted for,
+  // always allow the delete regardless of eligibility. Otherwise a user who changed party
+  // or district after voting would be permanently stuck with their old vote.
+  const { data: existing } = await supabase
+    .from("primary_votes")
+    .select("candidate_id")
+    .eq("election_id", election_id)
+    .eq("voter_id", user.id)
+    .maybeSingle();
+
+  if (existing?.candidate_id === candidate_id) {
+    const { error: delErr } = await supabase
+      .from("primary_votes")
+      .delete()
+      .eq("election_id", election_id)
+      .eq("voter_id", user.id);
+    if (delErr) throw new Error(delErr.message);
+    await runElectionPhaseSchedule(supabase);
+    revalidatePath(`/elections/${election_id}`);
+    return;
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("party, residence_state, home_district_code")
@@ -758,25 +804,6 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
         );
       }
     }
-  }
-
-  const { data: existing } = await supabase
-    .from("primary_votes")
-    .select("candidate_id")
-    .eq("election_id", election_id)
-    .eq("voter_id", user.id)
-    .maybeSingle();
-
-  if (existing?.candidate_id === candidate_id) {
-    const { error: delErr } = await supabase
-      .from("primary_votes")
-      .delete()
-      .eq("election_id", election_id)
-      .eq("voter_id", user.id);
-    if (delErr) throw new Error(delErr.message);
-    await runElectionPhaseSchedule(supabase);
-    revalidatePath(`/elections/${election_id}`);
-    return;
   }
 
   const { error } = await supabase.from("primary_votes").upsert(

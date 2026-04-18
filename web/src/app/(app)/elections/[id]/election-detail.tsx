@@ -652,10 +652,12 @@ export function ElectionDetail({
   leadershipMeta: LeadershipMeta | null;
 }) {
   const now = new Date();
+  // Filing is open whenever the election is in the filing phase. We intentionally don't
+  // gate on `filing_opens_at` — the phase scheduler already sets `phase = 'filing'` at
+  // creation, and it bumps to `primary`/`general` when `filing_closes_at` passes, so an
+  // extra client-side start check just creates a dead-zone at second-granular race conditions.
   const filingOpen =
-    election.phase === "filing" &&
-    now >= new Date(election.filing_opens_at) &&
-    now <= new Date(election.filing_closes_at);
+    election.phase === "filing" && now <= new Date(election.filing_closes_at);
   const primaryOpen =
     election.phase === "primary" &&
     !!election.primary_closes_at &&
@@ -797,12 +799,7 @@ export function ElectionDetail({
               ) : canFileCandidacy ? (
                 <form action={fileCandidacy}>
                   <input type="hidden" name="election_id" value={election.id} />
-                  <SubmitButton pendingLabel="Filing…">
-                    File as{" "}
-                    <span className={`ml-1 rounded-sm px-1 ${meta.pill}`}>
-                      {meta.label}
-                    </span>
-                  </SubmitButton>
+                  <SubmitButton pendingLabel="Filing…">File as {meta.label}</SubmitButton>
                   <p className="mt-2 text-center text-[10px] text-[var(--psc-muted)]">
                     Party auto-pulled from your Character page.
                   </p>

@@ -17,6 +17,12 @@ import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
+import { PresidentialMap } from "./presidential-map";
+import { ElectoralTote } from "./electoral-tote";
+import {
+  loadPresidentialBundle,
+  scorePresidentialBundle,
+} from "@/lib/presidential-data";
 
 // Module-level promise cache for the (static) US states list. The rows never change during
 // the life of a Vercel build/lambda, so we reuse the first successful fetch for subsequent
@@ -268,11 +274,55 @@ export default async function ElectionDetailPage({
     }
   }
 
+  // Presidential races run on state-by-state 60/40 scoring + winner-take-all electoral college.
+  // The bundle + result are the same shape the admin `finalizePresident` action uses, so what
+  // you see on the page is what gets certified on close.
+  let presMapData: {
+    states: Array<{ code: string; name: string; pvi: number; electoral_votes: number }>;
+    result: ReturnType<typeof scorePresidentialBundle>;
+    candidatesBrief: Array<{ id: string; user_id: string; party: string; name: string }>;
+  } | null = null;
+  if (election.office === "president") {
+    try {
+      const bundle = await loadPresidentialBundle(supabase, id);
+      const result = scorePresidentialBundle(bundle);
+      presMapData = {
+        states: bundle.states,
+        result,
+        candidatesBrief: bundle.candidates.map((c) => ({
+          id: c.id,
+          user_id: c.user_id,
+          party: c.party,
+          name:
+            nameBy[c.user_id]?.trim() ||
+            candidateCardByUserId[c.user_id]?.character_name?.trim() ||
+            c.user_id.slice(0, 8),
+        })),
+      };
+    } catch (err) {
+      console.warn("[elections/[id]] presidential map data failed:", err);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Link href="/elections" className="text-sm font-semibold text-[var(--psc-accent)]">
         ← All elections
       </Link>
+      {presMapData ? (
+        <div className="space-y-3">
+          <ElectoralTote
+            candidates={presMapData.candidatesBrief}
+            evByCandidate={presMapData.result.electoralVotesByCandidate}
+            totalEV={presMapData.result.totalElectoralVotes}
+          />
+          <PresidentialMap
+            states={presMapData.states}
+            result={presMapData.result}
+            candidates={presMapData.candidatesBrief}
+          />
+        </div>
+      ) : null}
       <ElectionDetail
         election={election}
         candidates={candList.map((c) => ({
