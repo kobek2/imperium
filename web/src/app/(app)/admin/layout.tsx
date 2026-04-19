@@ -17,7 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           href="/"
           className="admin-textlink mt-6 inline-block text-sm font-semibold text-[var(--psc-accent)] underline underline-offset-2"
         >
-          Return to briefing
+          Return to home
         </Link>
       </div>
     );

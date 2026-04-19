@@ -12,7 +12,7 @@ import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data
 import { SignOut } from "@/components/sign-out";
 
 const links = [
-  { href: "/", label: "Briefing" },
+  { href: "/", label: "Home" },
   { href: "/character", label: "Character" },
   { href: "/economy", label: "Economy" },
   { href: "/parties", label: "Parties" },

@@ -57,7 +57,7 @@ export default async function LoginPage({
           href="/"
           className="mt-8 inline-block text-sm font-medium text-[var(--psc-accent)] underline-offset-4 hover:underline"
         >
-          Return to briefing
+          Return to home
         </Link>
       </div>
     </div>
