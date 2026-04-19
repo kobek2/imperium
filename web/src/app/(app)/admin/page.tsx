@@ -34,6 +34,15 @@ export default function AdminHomePage() {
             Public org chart by office (opens the main directory).
           </span>
         </Link>
+        <Link
+          href="/admin/party-leadership"
+          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
+        >
+          Party leadership
+          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
+            Open a 24h D/R election for chair, vice chair, and treasurer (manual start).
+          </span>
+        </Link>
       </div>
     </div>
   );

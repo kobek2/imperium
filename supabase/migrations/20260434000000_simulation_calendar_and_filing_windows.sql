@@ -3,7 +3,7 @@
 -- means "dormant" (hidden from public listings, no filing, skipped by phase scheduler).
 
 -- ---------- Simulation settings (singleton id = 1) ----------
-create table public.simulation_settings (
+create table if not exists public.simulation_settings (
   id smallint primary key default 1 check (id = 1),
   -- Real-world instant when the RP calendar matched rp_anchor_date (use "Set real anchor to now" after changing only the RP date).
   real_anchor_at timestamptz not null default now(),
@@ -26,11 +26,13 @@ insert into public.simulation_settings (id) values (1)
 
 alter table public.simulation_settings enable row level security;
 
+drop policy if exists "simulation_settings read authenticated" on public.simulation_settings;
 create policy "simulation_settings read authenticated"
   on public.simulation_settings for select
   to authenticated
   using (true);
 
+drop policy if exists "simulation_settings update admin" on public.simulation_settings;
 create policy "simulation_settings update admin"
   on public.simulation_settings for update
   to authenticated

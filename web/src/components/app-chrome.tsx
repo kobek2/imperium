@@ -14,6 +14,8 @@ import { SignOut } from "@/components/sign-out";
 const links = [
   { href: "/", label: "Briefing" },
   { href: "/character", label: "Character" },
+  { href: "/economy", label: "Economy" },
+  { href: "/parties", label: "Parties" },
   { href: "/elections", label: "Elections" },
   { href: "/congress", label: "Congress" },
   { href: "/oval", label: "Oval Office" },

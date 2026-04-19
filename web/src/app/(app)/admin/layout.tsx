@@ -51,6 +51,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Members
             </Link>
             <Link
+              href="/admin/party-leadership"
+              className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
+            >
+              Party leadership
+            </Link>
+            <Link
               href="/"
               className="rounded-md px-2.5 py-1.5 text-[var(--psc-muted)] transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_35%,transparent)] hover:text-[var(--psc-ink)] active:bg-[color-mix(in_srgb,var(--psc-border)_60%,transparent)] active:text-[var(--psc-ink)]"
             >
