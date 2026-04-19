@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BriefingInbox } from "@/components/briefing-inbox";
+import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { tryCreateClient } from "@/lib/supabase/server";
 
 const TILES = [
@@ -7,6 +9,16 @@ const TILES = [
     href: "/character",
     title: "Character",
     subtitle: "Name, party, home district.",
+  },
+  {
+    href: "/economy",
+    title: "Economy",
+    subtitle: "Wallet, PAC, campaign tools.",
+  },
+  {
+    href: "/parties",
+    title: "Parties",
+    subtitle: "DNC / RNC rooms and leadership.",
   },
   {
     href: "/elections",
@@ -23,6 +35,11 @@ const TILES = [
     title: "Oval Office",
     subtitle: "Sign, veto, appoint.",
   },
+  {
+    href: "/directory",
+    title: "Directory",
+    subtitle: "Who holds which role.",
+  },
 ];
 
 export default async function BriefingPage() {
@@ -30,6 +47,7 @@ export default async function BriefingPage() {
   // so /character itself isn't caught in a loop, and so unauthenticated visitors to / still see
   // the briefing stub if Supabase isn't configured.
   const supabase = await tryCreateClient();
+  let moments: Awaited<ReturnType<typeof fetchBriefingMoments>> = [];
   if (supabase) {
     const {
       data: { user },
@@ -46,18 +64,24 @@ export default async function BriefingPage() {
       if (!profile?.party) {
         redirect("/character");
       }
+      moments = await fetchBriefingMoments(supabase, user.id);
     }
   }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Imperium</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--psc-muted)]">
-          Briefing — pick a module to get started.
+          Your inbox highlights wins and milestones. Below that, jump into any module.
         </p>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <BriefingInbox moments={moments} />
+
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Modules</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {TILES.map((t) => (
           <Link
             key={t.href}
@@ -68,6 +92,7 @@ export default async function BriefingPage() {
             <p className="mt-2 text-sm text-[var(--psc-muted)]">{t.subtitle}</p>
           </Link>
         ))}
+        </div>
       </section>
     </div>
   );
