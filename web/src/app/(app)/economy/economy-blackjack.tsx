@@ -47,7 +47,7 @@ function Hand({ cards, hideHole }: { cards: number[]; hideHole?: boolean }) {
 
 export function EconomyBlackjack() {
   const router = useRouter();
-  const [msg, setMsg] = useState<string | null>(null);
+  const [flash, setFlash] = useState<{ message: string; ok: boolean } | null>(null);
   const [table, setTable] = useState<BlackjackTableState | null>(null);
   const [pending, start] = useTransition();
 
@@ -71,13 +71,25 @@ export function EconomyBlackjack() {
 
   return (
     <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+      {flash ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className={`rounded border px-3 py-2 text-sm ${
+            flash.ok
+              ? "border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] text-[var(--psc-ink)]"
+              : "border-rose-300 bg-rose-50 text-rose-950"
+          }`}
+        >
+          {flash.message}
+        </p>
+      ) : null}
+
       <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Blackjack vs the house</h2>
       <p className="text-xs text-[var(--psc-muted)]">
         Six-deck shoe, dealer stands on all 17s, blackjack pays 3:2, one hand at a time. Stakes{" "}
         {GAMBLE_BLACKJACK_MIN.toLocaleString()}–{GAMBLE_BLACKJACK_MAX.toLocaleString()}.
       </p>
-
-      {msg ? <p className="rounded border border-[var(--psc-border)] px-3 py-2 text-sm text-[var(--psc-ink)]">{msg}</p> : null}
 
       {active && table ? (
         <div className="space-y-4 text-sm">
@@ -111,9 +123,9 @@ export function EconomyBlackjack() {
                 const fd = new FormData();
                 fd.set("action", "hit");
                 start(async () => {
-                  setMsg(null);
+                  setFlash(null);
                   const r = await blackjackAction(fd);
-                  setMsg(r.message);
+                  setFlash({ message: r.message, ok: r.ok });
                   if (r.state) setTable(r.state);
                   if (r.ok && !r.state?.active) afterRound();
                 });
@@ -129,9 +141,9 @@ export function EconomyBlackjack() {
                 const fd = new FormData();
                 fd.set("action", "stand");
                 start(async () => {
-                  setMsg(null);
+                  setFlash(null);
                   const r = await blackjackAction(fd);
-                  setMsg(r.message);
+                  setFlash({ message: r.message, ok: r.ok });
                   if (r.state) setTable(r.state);
                   if (r.ok && !r.state?.active) afterRound();
                 });
@@ -158,7 +170,7 @@ export function EconomyBlackjack() {
             disabled={pending}
             onClick={() => {
               setTable(null);
-              setMsg(null);
+              setFlash(null);
               sync();
             }}
             className="rounded border px-3 py-2 text-xs font-semibold"
@@ -173,9 +185,9 @@ export function EconomyBlackjack() {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             start(async () => {
-              setMsg(null);
+              setFlash(null);
               const r = await blackjackStart(fd);
-              setMsg(r.message);
+              setFlash({ message: r.message, ok: r.ok });
               if (r.state) setTable(r.state);
               if (r.ok) afterRound();
             });

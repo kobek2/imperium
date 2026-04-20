@@ -96,28 +96,28 @@ export async function finalizePartyOfficerElection(formData: FormData): Promise<
   return { ok: true, message: "Officer term installed." };
 }
 
-export async function partyFundElectionFromTreasury(formData: FormData): Promise<{ ok: boolean; message: string }> {
+export async function partyTransferTreasuryToMember(formData: FormData): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
   const party = String(formData.get("party_key") ?? "").trim();
-  const electionId = String(formData.get("election_id") ?? "").trim();
+  const recipientId = String(formData.get("recipient_id") ?? "").trim();
   const amt = Number(String(formData.get("amount") ?? "").trim());
   if (!assertPartyTreasuryKey(party)) {
     return { ok: false, message: "Only Democratic and Republican parties use this treasury tool." };
   }
-  if (!electionId || !Number.isFinite(amt) || amt <= 0) {
-    return { ok: false, message: "Choose a race and enter a valid amount (minimum $50,000)." };
+  if (!recipientId || !Number.isFinite(amt) || amt <= 0) {
+    return { ok: false, message: "Choose a member and enter a valid amount." };
   }
-  const { data, error } = await supabase.rpc("party_deposit_treasury_to_election", {
+  const { data, error } = await supabase.rpc("party_transfer_treasury_to_member", {
     p_party: party,
-    p_election_id: electionId,
+    p_recipient: recipientId,
     p_amount: amt,
   });
   if (error) return { ok: false, message: error.message };
   revalidatePartyPaths(party);
-  revalidatePath("/elections");
-  const pts = Number((data as { campaign_points_added?: number })?.campaign_points_added ?? 0);
+  const paid = Number((data as { amount?: number })?.amount ?? amt);
+  const treasuryAfter = Number((data as { treasury_after?: number })?.treasury_after ?? 0);
   return {
     ok: true,
-    message: `Treasury spend recorded. ${pts.toLocaleString()} campaign points were split across your party’s candidates in that race.`,
+    message: `Sent $${paid.toLocaleString(undefined, { maximumFractionDigits: 2 })} from the party treasury. Party balance is now $${treasuryAfter.toLocaleString(undefined, { maximumFractionDigits: 0 })}.`,
   };
 }

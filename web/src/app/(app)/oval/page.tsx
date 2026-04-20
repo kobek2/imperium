@@ -37,7 +37,7 @@ export default async function OvalPage() {
   const { data: desk } = await supabase
     .from("bills")
     .select(
-      "id, title, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
+      "id, title, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
     )
     .eq("status", "oval")
     .order("created_at", { ascending: false });
@@ -75,13 +75,6 @@ export default async function OvalPage() {
     <div className="space-y-10">
       <header>
         <h1 className="text-3xl font-semibold">Executive desk</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Signing or vetoing updates the statute line immediately. Cabinet nominations use
-          the seat dropdown and create a Senate confirmation bill. When the vote window
-          closes, if at least half of seated senators (from role grants) vote yea and yeas
-          outnumber nays, the nominee is written to the directory and receives that
-          cabinet role in <code className="font-mono">government_role_grants</code>.
-        </p>
       </header>
 
       {president ? (

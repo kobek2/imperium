@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
-import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
-import { canReviewAnyChamberLeadership } from "@/lib/role-capabilities";
 import {
   computeSimulationRpInstant,
   formatRpCalendarShort,
@@ -28,20 +26,14 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     ? (await supabase.auth.getUser()).data.user
     : null;
 
-  // Admin check and the role-lookup chain that gates the Leadership link are both per-request
-  // and don't depend on each other, so we fan them out in parallel on every (app) page.
   let isAdmin = false;
-  let showLeadership = false;
   let rpCalendarCorner: string | null = null;
   if (supabase && user) {
-    const [adminResult, profileResult, simRes] = await Promise.all([
+    const [adminResult, simRes] = await Promise.all([
       getIsAdmin(),
-      supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle(),
       supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
     isAdmin = adminResult;
-    const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profileResult.data);
-    showLeadership = canReviewAnyChamberLeadership(roleKeys);
     if (!simRes.error && simRes.data) {
       const effective = await resolveSimulationSettingsForWidget(
         supabase,
@@ -57,9 +49,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       <header className="border-b border-[var(--psc-border)] bg-[var(--psc-panel)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
-              U.S. Federal Simulation
-            </p>
             <Link href="/" className="text-lg font-semibold tracking-tight">
               Imperium
             </Link>
@@ -74,12 +63,12 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
                 {l.label}
               </Link>
             ))}
-            {showLeadership ? (
+            {user ? (
               <Link
                 href="/congress/leadership"
                 className="text-[var(--psc-muted)] underline-offset-4 hover:text-[var(--psc-ink)] hover:underline"
               >
-                Leadership
+                Hopper
               </Link>
             ) : null}
             {isAdmin ? (

@@ -47,17 +47,9 @@ export function BriefingInbox({ moments }: { moments: BriefingMoment[] }) {
       <section className="overflow-hidden rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-sm">
         <div className="border-b border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-5 py-4">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Your inbox</h2>
-          <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            Stored notifications from the simulation (election results, bill milestones, party leadership). Apply the
-            inbox migration so rows appear here; until then this stays empty.
-          </p>
         </div>
         <div className="px-5 py-10 text-center">
-          <p className="text-sm font-medium text-[var(--psc-ink)]">Nothing in your inbox yet</p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-[var(--psc-muted)]">
-            When you win a race, your bill reaches a major step, or you take a party officer seat, a note is saved here
-            automatically.
-          </p>
+          <p className="text-sm text-[var(--psc-muted)]">Nothing in your inbox yet.</p>
         </div>
       </section>
     );
@@ -67,9 +59,6 @@ export function BriefingInbox({ moments }: { moments: BriefingMoment[] }) {
     <section className="overflow-hidden rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-sm">
       <div className="border-b border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-5 py-4">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Your inbox</h2>
-        <p className="mt-1 text-sm text-[var(--psc-muted)]">
-          Notifications stored for your account. Open a row to jump in, or mark it read when you have caught up.
-        </p>
       </div>
       <ul className="divide-y divide-[var(--psc-border)]">
         {moments.map((m) => {

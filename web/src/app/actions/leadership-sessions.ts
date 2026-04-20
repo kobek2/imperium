@@ -54,6 +54,8 @@ function assertParty(value: string | null): PartyKey | null {
 
 function revalidateSession(sessionId: string) {
   revalidatePath("/congress");
+  revalidatePath("/congress/house");
+  revalidatePath("/congress/senate");
   revalidatePath("/congress/leadership");
   revalidatePath(`/congress/leadership/session/${sessionId}`);
   revalidatePath("/admin/elections");

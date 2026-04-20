@@ -49,25 +49,23 @@ export function isPartyRepublican(roleKeys: string[]): boolean {
   return roleKeys.includes("party_republican");
 }
 
-const HOUSE_LEADERSHIP_REVIEW = new Set([
-  "admin",
-  "speaker",
-  "house_majority_leader",
-  "house_majority_whip",
-]);
+/** Accept/reject bills in the hopper for the House — Speaker only (plus admin). */
+const HOUSE_HOPPER_ACCEPT_REJECT = new Set(["admin", "speaker"]);
 
-const SENATE_LEADERSHIP_REVIEW = new Set([
-  "admin",
-  "senate_majority_leader",
-  "senate_majority_whip",
-  "president_pro_tempore",
-]);
+/** Accept/reject bills in the hopper for the Senate — Majority Leader only (plus admin). */
+const SENATE_HOPPER_ACCEPT_REJECT = new Set(["admin", "senate_majority_leader"]);
 
-export function canReviewLeadershipForChamber(roleKeys: string[], chamber: "house" | "senate"): boolean {
-  const set = chamber === "house" ? HOUSE_LEADERSHIP_REVIEW : SENATE_LEADERSHIP_REVIEW;
+/** Whether this user may accept or reject hopper bills for the given originating chamber. */
+export function canAcceptRejectHopperForChamber(roleKeys: string[], chamber: "house" | "senate"): boolean {
+  const set = chamber === "house" ? HOUSE_HOPPER_ACCEPT_REJECT : SENATE_HOPPER_ACCEPT_REJECT;
   return roleKeys.some((k) => set.has(k));
 }
 
+/** Alias for {@link canAcceptRejectHopperForChamber}. */
+export function canReviewLeadershipForChamber(roleKeys: string[], chamber: "house" | "senate"): boolean {
+  return canAcceptRejectHopperForChamber(roleKeys, chamber);
+}
+
 export function canReviewAnyChamberLeadership(roleKeys: string[]): boolean {
-  return canReviewLeadershipForChamber(roleKeys, "house") || canReviewLeadershipForChamber(roleKeys, "senate");
+  return canAcceptRejectHopperForChamber(roleKeys, "house") || canAcceptRejectHopperForChamber(roleKeys, "senate");
 }

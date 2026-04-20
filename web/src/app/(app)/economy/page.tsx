@@ -1,14 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import {
-  CAMPAIGN_AD_UNIT_PRICE,
-  ECONOMY_CITIZEN_HOURLY,
-  ECONOMY_REPRESENTATIVE_HOURLY,
-  ECONOMY_SPEAKER_ADDON_HOURLY,
-  ECONOMY_SENATOR_HOURLY,
-  ECONOMY_MAX_OFFLINE_HOURS,
-} from "@/lib/economy-config";
 import { EconomyDashboard } from "./economy-dashboard";
 
 export default async function EconomyPage() {
@@ -91,14 +83,6 @@ export default async function EconomyPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
-          <p className="mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
-            Hourly salaries (capped at {ECONOMY_MAX_OFFLINE_HOURS}h per collect) mirror your Discord-linked roles in
-            Postgres — baseline citizen ${ECONOMY_CITIZEN_HOURLY.toLocaleString()}/hr, representative $
-            {ECONOMY_REPRESENTATIVE_HOURLY.toLocaleString()}/hr, senator ${ECONOMY_SENATOR_HOURLY.toLocaleString()}/hr,
-            Speaker stipend +${ECONOMY_SPEAKER_ADDON_HOURLY.toLocaleString()}/hr when Speaker is present, plus PAC
-            tiers. Spend cash on campaign ads (${CAMPAIGN_AD_UNIT_PRICE.toLocaleString()} each), PAC upgrades, party
-            pools, or send to other players. All ledger lines are visible to signed-in members.
-          </p>
         </div>
         <Link
           href="/economy/leaderboard"

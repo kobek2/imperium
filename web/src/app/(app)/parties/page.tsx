@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
+import { PartyDirectoryCard } from "./party-directory-card";
 
 const PARTIES = [
-  { key: "democrat", name: "Democratic Party" },
-  { key: "republican", name: "Republican Party" },
-] as const;
+  { key: "democrat" as const, name: "Democratic Party" },
+  { key: "republican" as const, name: "Republican Party" },
+];
 
 export default async function PartiesHubPage() {
   const supabase = await tryCreateClient();
@@ -28,40 +29,40 @@ export default async function PartiesHubPage() {
   const treasury = new Map((orgs ?? []).map((o) => [o.party_key as string, Number(o.treasury_balance)]));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <header>
-        <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Party directory</h1>
-        <p className="mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
-          Each party has a pooled treasury (deposit from the Economy page). Members elect a chair, vice chair, and
-          treasurer — declare candidacy, vote, then an admin finalizes the tally to install officers.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Party directory</h1>
       </header>
 
-      <ul className="grid gap-4 md:grid-cols-2">
+      <ul className="grid gap-6 md:grid-cols-2">
         {PARTIES.map((p) => (
-          <li key={p.key} className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">{p.name}</h2>
-            <p className="mt-2 font-mono text-sm text-[var(--psc-muted)]">
-              Treasury:{" "}
-              <span className="text-[var(--psc-ink)]">
-                ${(treasury.get(p.key) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-[var(--psc-muted)]">Members: {countByParty[p.key] ?? 0}</p>
-            <Link
-              href={`/parties/${p.key}`}
-              className="mt-4 inline-block text-sm font-semibold text-[var(--psc-accent)] underline"
-            >
-              Open party room →
-            </Link>
-          </li>
+          <PartyDirectoryCard
+            key={p.key}
+            partyKey={p.key}
+            title={p.name}
+            treasury={treasury.get(p.key) ?? 0}
+            members={countByParty[p.key] ?? 0}
+          />
         ))}
       </ul>
 
-      <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 text-sm text-[var(--psc-muted)]">
-        <strong className="text-[var(--psc-ink)]">Independents</strong> do not use a party treasury or officer slate
-        here ({countByParty.independent ?? 0} registered). Use personal transfers under Economy to coordinate
-        informally.
+      <section className="rounded-2xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Independents</h2>
+            <p className="mt-1 max-w-xl text-sm text-[var(--psc-muted)]">
+              Not a party organization in this directory.{" "}
+              <span className="font-mono tabular-nums text-[var(--psc-ink)]">{countByParty.independent ?? 0}</span>{" "}
+              registered independent{countByParty.independent === 1 ? "" : "s"}.
+            </p>
+          </div>
+          <Link
+            href="/economy"
+            className="inline-flex shrink-0 items-center justify-center rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-4 py-2.5 text-sm font-semibold text-[var(--psc-ink)] shadow-sm transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))]"
+          >
+            Economy
+          </Link>
+        </div>
       </section>
     </div>
   );

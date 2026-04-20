@@ -11,7 +11,7 @@ import {
   isActivePresidentialRunningMate,
   userCanBreakSenateTie,
 } from "@/lib/presidential-running-mate";
-import { canActAsPresident, canReviewLeadershipForChamber } from "@/lib/role-capabilities";
+import { canAcceptRejectHopperForChamber, canActAsPresident } from "@/lib/role-capabilities";
 import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
@@ -19,6 +19,17 @@ import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-r
 function isMissingBillTimerColumn(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
+}
+
+function revalidateCongressPages() {
+  revalidatePath("/congress");
+  revalidatePath("/congress/house");
+  revalidatePath("/congress/senate");
+}
+
+function revalidateCongressPagesAndLeadership() {
+  revalidateCongressPages();
+  revalidatePath("/congress/leadership");
 }
 
 function isMissingAppointmentGrantColumn(message: string | undefined) {
@@ -106,8 +117,7 @@ export async function submitBill(formData: FormData): Promise<void> {
     .maybeSingle();
 
   if (recentDuplicate) {
-    revalidatePath("/congress");
-    revalidatePath("/congress/leadership");
+    revalidateCongressPagesAndLeadership();
     return;
   }
 
@@ -136,8 +146,7 @@ export async function submitBill(formData: FormData): Promise<void> {
 
   if (error) throw new Error(error.message);
   await processBillDeadlines(supabase);
-  revalidatePath("/congress");
-  revalidatePath("/congress/leadership");
+  revalidateCongressPagesAndLeadership();
   revalidatePath("/directory");
 }
 
@@ -174,8 +183,12 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   }
 
   const chamber = bill.originating_chamber as BillChamber;
-  if (!canReviewLeadershipForChamber(roleKeys, chamber)) {
-    throw new Error("You are not in the leadership roster for this chamber.");
+  if (!canAcceptRejectHopperForChamber(roleKeys, chamber)) {
+    throw new Error(
+      chamber === "house"
+        ? "Only the Speaker may accept or reject House legislation in the hopper."
+        : "Only the Senate Majority Leader may accept or reject Senate legislation in the hopper.",
+    );
   }
 
   if (decision === "reject") {
@@ -211,8 +224,7 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   }
 
   await processBillDeadlines(supabase);
-  revalidatePath("/congress");
-  revalidatePath("/congress/leadership");
+  revalidateCongressPagesAndLeadership();
   revalidatePath("/oval");
   revalidatePath("/directory");
 }
@@ -290,7 +302,7 @@ export async function castBillVote(formData: FormData): Promise<void> {
   }
 
   await processBillDeadlines(supabase);
-  revalidatePath("/congress");
+  revalidateCongressPages();
   revalidatePath("/oval");
   revalidatePath("/directory");
 }
@@ -423,8 +435,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
 
   if (apptInsert.error) throw new Error(apptInsert.error.message);
   revalidatePath("/oval");
-  revalidatePath("/congress");
-  revalidatePath("/congress/leadership");
+  revalidateCongressPagesAndLeadership();
   revalidatePath("/directory");
 }
 
@@ -465,6 +476,6 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   const { error } = await supabase.from("bills").update(next).eq("id", bill_id);
   if (error) throw new Error(error.message);
   revalidatePath("/oval");
-  revalidatePath("/congress");
+  revalidateCongressPages();
   revalidatePath("/directory");
 }

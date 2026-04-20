@@ -43,7 +43,7 @@ export type DirectoryTab = {
   heroKicker?: string;
   sections: Array<
     | { kind: "featured"; roles: RoleRow[] }
-    | { kind: "grid"; title: string; roles: RoleRow[] }
+    | { kind: "grid"; title: string; roles: RoleRow[]; maxSlots?: number }
     | { kind: "enacted_laws"; title: string; laws: LawEntry[] }
   >;
 };
@@ -270,6 +270,50 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
                     <FeaturedVacant key={`${role.role_key}-vacant`} roleLabel={role.role_label} />
                   ),
                 )}
+              </section>
+            );
+          }
+
+          // Fixed slot count (e.g. eight Associate Justice seats): always show N profile tiles,
+          // filling with holders in sort order and vacant placeholders for open seats.
+          if (section.maxSlots != null && section.maxSlots > 0) {
+            const primary = section.roles[0];
+            if (!primary) return null;
+            const holders = primary.holders;
+            const tiles: Array<{ holder: DirectoryHolder | null }> = [];
+            for (let i = 0; i < section.maxSlots; i++) {
+              tiles.push({ holder: holders[i] ?? null });
+            }
+
+            return (
+              <section key={`${current.id}-grid-${idx}`} className="space-y-4">
+                <h3 className="border-b border-[var(--psc-border)] pb-2 text-lg font-semibold text-[var(--psc-ink)]">
+                  {section.title}
+                </h3>
+                <ul className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {tiles.map(({ holder }, tileIdx) => (
+                    <li key={`${primary.role_key}-slot-${tileIdx}`}>
+                      {holder ? (
+                        <ProfileCard
+                          profile={{
+                            id: holder.id,
+                            character_name:
+                              holder.character_name ?? holder.discord_username ?? "Unnamed",
+                            face_claim_url: holder.face_claim_url,
+                            party: holder.party,
+                            bio: holder.bio,
+                            residence_state: holder.residence_state,
+                            home_district_code: holder.home_district_code,
+                          }}
+                          subtitle={primary.role_label}
+                          href={profilePath(holder.id) ?? undefined}
+                        />
+                      ) : (
+                        <VacantTile roleLabel={primary.role_label} />
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </section>
             );
           }

@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition, useState } from "react";
 import {
   declarePartyCandidacy,
   finalizePartyOfficerElection,
-  partyFundElectionFromTreasury,
+  partyTransferTreasuryToMember,
   togglePartyOfficerVote,
   withdrawPartyOfficerCandidacy,
 } from "@/app/actions/party";
@@ -27,7 +26,7 @@ type VoteAgg = { candidate_id: string; votes: number; name: string };
 type MemberRow = {
   id: string;
   character_name: string;
-  office_role: string | null;
+  wallet_balance: number;
   home_district_code: string | null;
 };
 
@@ -194,7 +193,6 @@ export function PartyRoom({
   leadershipPhase,
   leadershipElectionEndsAt,
   nextLeadershipOpensOnRp,
-  rpCalendarLabel,
   leadershipOpenOverdue,
   lastLeadershipCompletedAt,
   officers,
@@ -206,7 +204,6 @@ export function PartyRoom({
   viewerId,
   viewerMayRun,
   members,
-  fundableElections,
   canFundTreasury,
   isAdmin,
 }: {
@@ -215,7 +212,6 @@ export function PartyRoom({
   leadershipPhase: string;
   leadershipElectionEndsAt: string | null;
   nextLeadershipOpensOnRp: string | null;
-  rpCalendarLabel: string;
   leadershipOpenOverdue: boolean;
   lastLeadershipCompletedAt: string | null;
   officers: OfficerRow[];
@@ -227,7 +223,6 @@ export function PartyRoom({
   viewerId: string;
   viewerMayRun: boolean;
   members: MemberRow[];
-  fundableElections: Array<{ id: string; label: string; phase: string }>;
   canFundTreasury: boolean;
   isAdmin: boolean;
 }) {
@@ -262,17 +257,6 @@ export function PartyRoom({
 
       <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Leadership cycle</h2>
-        <p className="mt-2 text-sm text-[var(--psc-muted)]">
-          Party chair, vice chair, and treasurer are elected in a single real-time window: members may file, withdraw,
-          and vote with live percentages (same interaction model as primaries). When the window ends, results install
-          automatically.
-        </p>
-        <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          <strong className="text-[var(--psc-ink)]">Simulation clock:</strong> in-character calendar is currently{" "}
-          <strong className="text-[var(--psc-ink)]">{rpCalendarLabel}</strong>. A new leadership election may open when
-          the RP <strong>calendar date</strong> reaches the next scheduled open date (unless an admin starts one
-          sooner). Each open election lasts <strong>24 real-world hours</strong>.
-        </p>
         {leadershipOpenOverdue ? (
           <p className="mt-2 rounded border border-amber-700/40 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             That RP open date has passed but the phase is still Idle. Refresh this page once to run the leadership
@@ -309,28 +293,52 @@ export function PartyRoom({
 
       <section className="space-y-6">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Current officers</h2>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid items-stretch gap-4 md:grid-cols-3">
           {OFFICES.map((o) => {
             const holder = officers.find((x) => x.office === o.key);
-            const holderName =
-              holder?.user_id == null ? "—" : nameById[holder.user_id] ?? holder.user_id.slice(0, 8);
+            const uid = holder?.user_id ?? null;
+            if (!uid) {
+              return (
+                <div
+                  key={o.key}
+                  className="flex min-h-[14rem] flex-col rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4"
+                >
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">{o.label}</h3>
+                  <p className="mt-auto text-sm font-medium text-[var(--psc-muted)]">Vacant</p>
+                </div>
+              );
+            }
+            const full = profileById[uid];
+            const profile: ProfileCardData = full ?? {
+              id: uid,
+              character_name: nameById[uid] ?? null,
+              face_claim_url: null,
+              party: partyKey,
+              bio: null,
+              residence_state: null,
+              home_district_code: null,
+            };
             return (
-              <div key={o.key} className="rounded border border-[var(--psc-border)] p-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">{o.label}</h3>
-                <p className="mt-2 text-base font-semibold text-[var(--psc-ink)]">{holderName}</p>
+              <div key={o.key} className="flex h-full min-w-0 flex-col gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">{o.label}</h3>
+                <ProfileCard
+                  profile={profile}
+                  emphasizeParty
+                  subtitle={`Since ${formatWhen(holder?.since ?? null)}`}
+                  href={profilePath(uid) ?? undefined}
+                />
               </div>
             );
           })}
         </div>
       </section>
 
-      {canFundTreasury && fundableElections.length > 0 ? (
+      {canFundTreasury && members.length > 0 ? (
         <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Treasury support for races</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Send treasury to a member</h2>
           <p className="text-sm text-[var(--psc-muted)]">
-            As chair or treasurer, you may move party funds into active races where your party has filed candidates.
-            Each $50,000 adds one campaign point, split evenly across those candidates (remainder distributed in stable
-            order). Minimum spend per action is $50,000.
+            As chair or treasurer, you can move party funds into a member’s personal wallet. The money does not add
+            campaign points automatically; they choose how to spend it (for example ads on the economy page).
           </p>
           <form
             className="grid max-w-xl gap-3 text-sm"
@@ -339,19 +347,20 @@ export function PartyRoom({
               const fd = new FormData(e.currentTarget);
               start(async () => {
                 setMsg(null);
-                const r = await partyFundElectionFromTreasury(fd);
+                const r = await partyTransferTreasuryToMember(fd);
                 setMsg(r.message);
+                if (r.ok) router.refresh();
               });
             }}
           >
             <input type="hidden" name="party_key" value={partyKey} />
             <label className="grid gap-1 font-semibold">
-              Race
-              <select name="election_id" required className="border px-2 py-2">
+              Member
+              <select name="recipient_id" required className="border px-2 py-2">
                 <option value="">Select…</option>
-                {fundableElections.map((fe) => (
-                  <option key={fe.id} value={fe.id}>
-                    {fe.label}
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.character_name || m.id.slice(0, 8)}
                   </option>
                 ))}
               </select>
@@ -361,29 +370,17 @@ export function PartyRoom({
               <input
                 name="amount"
                 type="number"
-                min={50000}
-                step={1000}
+                min={1}
+                step={1}
                 required
-                placeholder="50000"
+                placeholder="1000"
                 className="border px-2 py-2 font-mono"
               />
             </label>
             <button type="submit" disabled={pending} className="w-fit rounded border px-3 py-2 text-xs font-semibold">
-              Allocate from treasury
+              Send from treasury
             </button>
           </form>
-          <p className="text-xs text-[var(--psc-muted)]">
-            Open a race:{" "}
-            {fundableElections.slice(0, 6).map((fe, i) => (
-              <span key={fe.id}>
-                {i > 0 ? " · " : null}
-                <Link href={`/elections/${fe.id}`} className="text-[var(--psc-accent)] underline">
-                  {fe.label}
-                </Link>
-              </span>
-            ))}
-            {fundableElections.length > 6 ? ` · +${fundableElections.length - 6} more in the menu above` : null}
-          </p>
         </section>
       ) : null}
 
@@ -397,7 +394,7 @@ export function PartyRoom({
               <thead className="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-xs uppercase text-[var(--psc-muted)]">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Member</th>
-                  <th className="px-3 py-2 font-semibold">Sim role</th>
+                  <th className="px-3 py-2 font-semibold">Account balance</th>
                   <th className="px-3 py-2 font-semibold">Home district</th>
                 </tr>
               </thead>
@@ -405,7 +402,9 @@ export function PartyRoom({
                 {members.map((m) => (
                   <tr key={m.id} className="border-b border-[var(--psc-border)] last:border-0">
                     <td className="px-3 py-2 font-medium text-[var(--psc-ink)]">{m.character_name}</td>
-                    <td className="px-3 py-2 text-[var(--psc-muted)]">{m.office_role ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono tabular-nums text-[var(--psc-ink)]">
+                      ${m.wallet_balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs text-[var(--psc-muted)]">
                       {m.home_district_code ?? "—"}
                     </td>

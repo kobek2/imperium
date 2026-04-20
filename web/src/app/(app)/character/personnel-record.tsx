@@ -16,6 +16,11 @@ function partyShort(party: string | null) {
   return "Independent";
 }
 
+function displayName(name: string | null) {
+  const t = (name ?? "").trim();
+  return t.length ? t : "Unnamed";
+}
+
 export function PersonnelRecord({
   profile,
   primaryTitle,
@@ -23,6 +28,7 @@ export function PersonnelRecord({
   profile: PersonnelProfile;
   primaryTitle: string;
 }) {
+  const name = displayName(profile.character_name);
   return (
     <section
       className="mb-10 border-2 border-[var(--psc-ink)] bg-[var(--psc-panel)] p-8 pr-24 shadow-sm"
@@ -37,14 +43,10 @@ export function PersonnelRecord({
             id="personnel-record-heading"
             className="mt-1 text-2xl font-semibold tracking-tight text-[var(--psc-ink)]"
           >
-            {profile.character_name ?? "Unnamed"}
+            {primaryTitle} {name}
           </h1>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Party: <span className="font-semibold text-[var(--psc-ink)]">{partyShort(profile.party)}</span>
-          </p>
-          <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Current position:{" "}
-            <span className="font-semibold text-[var(--psc-ink)]">{primaryTitle}</span>
           </p>
         </div>
         {profile.face_claim_url ? (

@@ -13,18 +13,6 @@ import { PartyRoom } from "./party-room";
 
 const VALID = new Set(["democrat", "republican"]);
 
-function partyElectionSlotLabel(e: {
-  office: string;
-  district_code: string | null;
-  state: string | null;
-  leadership_role: string | null;
-}): string {
-  if (e.leadership_role) return `Leadership · ${e.leadership_role}`;
-  if (e.office === "house") return `House ${e.district_code ?? ""}`;
-  if (e.office === "senate") return `Senate ${e.state ?? ""}`;
-  return "President";
-}
-
 export default async function PartyDetailPage({ params }: { params: Promise<{ party: string }> }) {
   const { party: raw } = await params;
   const partyKey = raw.toLowerCase();
@@ -50,6 +38,7 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     isAdmin,
     { data: viewerProfile },
     { data: myVoteRows },
+    { data: boardSelf },
   ] = await Promise.all([
     supabase
       .from("party_organizations")
@@ -63,13 +52,14 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     supabase.from("party_officer_votes").select("office, candidate_id").eq("party_key", partyKey),
     supabase
       .from("profiles")
-      .select("id, character_name, office_role, home_district_code")
+      .select("id, character_name, home_district_code")
       .eq("party", partyKey)
       .order("character_name", { ascending: true }),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
     getIsAdmin(),
     supabase.from("profiles").select("party").eq("id", user.id).maybeSingle(),
     supabase.from("party_officer_votes").select("office, candidate_id").eq("party_key", partyKey).eq("voter_id", user.id),
+    supabase.from("party_national_board_members").select("user_id").eq("party_key", partyKey).eq("user_id", user.id).maybeSingle(),
   ]);
 
   const simSettings: SimulationSettingsRow = simRow
@@ -96,11 +86,11 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
   for (const p of profiles ?? []) nameMap.set(p.id as string, p.character_name as string | null);
 
   const { data: cardProfiles } =
-    candUserIds.length > 0
+    allNameIds.length > 0
       ? await supabase
           .from("profiles")
           .select("id, character_name, face_claim_url, party, bio, residence_state, home_district_code")
-          .in("id", candUserIds)
+          .in("id", allNameIds)
       : { data: [] as const };
 
   type OfficeKey = "chair" | "vice_chair" | "treasurer";
@@ -144,49 +134,50 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     }
   }
 
-  const { data: partyCandRows } = await supabase.from("election_candidates").select("election_id").eq("party", partyKey);
-  const fundElectionIds = [...new Set((partyCandRows ?? []).map((r) => r.election_id as string))];
-  const { data: fundElectionRows } =
-    fundElectionIds.length > 0
-      ? await supabase
-          .from("elections")
-          .select("id, office, state, district_code, senate_class, phase, leadership_role")
-          .in("id", fundElectionIds)
-          .neq("phase", "closed")
-      : { data: [] as const };
+  const memberIds = (members ?? []).map((m) => m.id as string);
+  const { data: memberWallets, error: memberWalletsError } =
+    memberIds.length > 0
+      ? await supabase.from("economy_wallets").select("user_id, balance").in("user_id", memberIds)
+      : { data: [] as const, error: null };
+  const balanceByMemberId = new Map<string, number>();
+  if (!memberWalletsError && memberWallets) {
+    for (const w of memberWallets) {
+      balanceByMemberId.set(w.user_id as string, Number((w as { balance: number }).balance));
+    }
+  }
 
-  const fundableElections = (fundElectionRows ?? [])
-    .map((row) => {
-      const e = row as {
-        id: string;
-        office: string;
-        state: string | null;
-        district_code: string | null;
-        phase: string;
-        leadership_role: string | null;
-      };
-      return {
-        id: e.id,
-        phase: e.phase,
-        label: `${partyElectionSlotLabel(e)} · ${e.phase}`,
-      };
-    })
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const membersForRoom = (members ?? []).map((m) => ({
+    id: m.id as string,
+    character_name: String((m as { character_name: string }).character_name ?? ""),
+    home_district_code: (m as { home_district_code: string | null }).home_district_code ?? null,
+    wallet_balance: balanceByMemberId.get(m.id as string) ?? 0,
+  }));
 
   const chairOrTreasurer = (officers ?? []).filter(
     (o) => o.office === "chair" || o.office === "treasurer",
   ) as Array<{ office: string; user_id: string | null }>;
   const canFundTreasury = chairOrTreasurer.some((o) => o.user_id === user.id);
 
+  const isPartyOfficer = (officers ?? []).some(
+    (o) =>
+      o.user_id === user.id && (o.office === "chair" || o.office === "vice_chair" || o.office === "treasurer"),
+  );
+  const showLeadershipDashboardLink = isPartyOfficer || Boolean(boardSelf);
+
   const partyTitle =
     partyKey === "democrat" ? "Democratic Party" : partyKey === "republican" ? "Republican Party" : "Independent";
 
   return (
     <div className="space-y-6">
-      <nav className="text-sm">
+      <nav className="flex flex-wrap gap-4 text-sm">
         <Link href="/parties" className="font-semibold text-[var(--psc-accent)] underline">
           ← All parties
         </Link>
+        {showLeadershipDashboardLink ? (
+          <Link href={`/parties/${partyKey}/leadership`} className="font-semibold text-[var(--psc-accent)] underline">
+            Leadership dashboard
+          </Link>
+        ) : null}
       </nav>
       <header>
         <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">{partyTitle}</h1>
@@ -197,7 +188,6 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
         leadershipPhase={leadershipPhase}
         leadershipElectionEndsAt={(org?.leadership_filing_ends_at as string | null) ?? null}
         nextLeadershipOpensOnRp={nextOpensRp}
-        rpCalendarLabel={rpInstant.label}
         leadershipOpenOverdue={leadershipOpenOverdue}
         lastLeadershipCompletedAt={(org?.last_leadership_cycle_completed_at as string | null) ?? null}
         officers={(officers ?? []) as Array<{ party_key: string; office: string; user_id: string | null; since: string }>}
@@ -208,13 +198,7 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
         myVoteByOffice={myVoteByOffice}
         viewerId={user.id}
         viewerMayRun={viewerMayRun}
-        members={(members ?? []) as Array<{
-          id: string;
-          character_name: string;
-          office_role: string | null;
-          home_district_code: string | null;
-        }>}
-        fundableElections={fundableElections}
+        members={membersForRoom}
         canFundTreasury={canFundTreasury}
         isAdmin={isAdmin}
       />

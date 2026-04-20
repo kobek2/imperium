@@ -15,10 +15,7 @@ import {
   CAMPAIGN_AD_POINTS,
   CAMPAIGN_AD_UNIT_PRICE,
   ECONOMY_MAX_OFFLINE_HOURS,
-  PAC_HOURLY_BY_LEVEL,
   PAC_LEVEL_1_COST,
-  PAC_LEVEL_2_UPGRADE_COST,
-  PAC_LEVEL_3_UPGRADE_COST,
 } from "@/lib/economy-config";
 import { EconomyBlackjack } from "./economy-blackjack";
 
@@ -28,7 +25,29 @@ type InvRow = { sku: string; quantity: number } | null;
 type LedgerRow = { id: string; wallet_user_id: string; delta: number; kind: string; detail: unknown; created_at: string };
 type Candidacy = { candidate_id: string; election_id: string; label: string };
 
+type FlashSection = "balance" | "pac" | "ads" | "payments";
+
 const INCOME_COOLDOWN_MS = 60 * 60 * 1000;
+
+function sectionFlash(
+  flash: { message: string; ok: boolean; section: FlashSection } | null,
+  section: FlashSection,
+) {
+  if (!flash || flash.section !== section) return null;
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className={`rounded border px-3 py-2 text-sm ${
+        flash.ok
+          ? "border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] text-[var(--psc-ink)]"
+          : "border-rose-300 bg-rose-50 text-rose-950"
+      }`}
+    >
+      {flash.message}
+    </p>
+  );
+}
 
 function formatCollectWait(ms: number): string {
   const sec = Math.max(0, Math.ceil(ms / 1000));
@@ -78,30 +97,27 @@ export function EconomyDashboard({
   treasuryPartyKey: "democrat" | "republican" | null;
 }) {
   const router = useRouter();
-  const [msg, setMsg] = useState<string | null>(null);
+  const [flash, setFlash] = useState<{ message: string; ok: boolean; section: FlashSection } | null>(null);
+  const [adQty, setAdQty] = useState(1);
   const [pending, start] = useTransition();
   const balance = wallet?.balance ?? 0;
   const ads = inventory?.sku === "campaign_ad" ? inventory.quantity : 0;
+  const adLineTotal = adQty * CAMPAIGN_AD_UNIT_PRICE;
   const collectGate = useIncomeCollectGate(wallet?.last_collected_at);
 
-  function run(label: string, fn: () => Promise<{ ok: boolean; message: string }>) {
+  function run(section: FlashSection, label: string, fn: () => Promise<{ ok: boolean; message: string }>) {
     start(async () => {
-      setMsg(null);
+      setFlash(null);
       const r = await fn();
-      setMsg(r.message);
+      setFlash({ message: r.message, ok: r.ok, section });
       if (r.ok && label === "collect") router.refresh();
     });
   }
 
   return (
     <div className="space-y-10">
-      {msg ? (
-        <p className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 text-sm text-[var(--psc-ink)]">
-          {msg}
-        </p>
-      ) : null}
-
       <section className="grid gap-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 sm:grid-cols-2">
+        <div className="sm:col-span-2">{sectionFlash(flash, "balance")}</div>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Balance</p>
           <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-[var(--psc-ink)]">
@@ -124,7 +140,7 @@ export function EconomyDashboard({
           <button
             type="button"
             disabled={pending || !collectGate.ready}
-            onClick={() => run("collect", collectEconomyIncome)}
+            onClick={() => run("balance", "collect", collectEconomyIncome)}
             className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white disabled:opacity-60"
           >
             {pending ? "Working…" : "Collect hourly income"}
@@ -132,63 +148,74 @@ export function EconomyDashboard({
         </div>
       </section>
 
-      <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">PAC (passive income)</h2>
-        <p className="text-sm text-[var(--psc-muted)]">
-          Level 1: ${PAC_LEVEL_1_COST.toLocaleString()} purchase → +${PAC_HOURLY_BY_LEVEL[1].toLocaleString()}/hr. Level 2
-          upgrade ${PAC_LEVEL_2_UPGRADE_COST.toLocaleString()} → +${PAC_HOURLY_BY_LEVEL[2].toLocaleString()}/hr. Level 3
-          upgrade ${PAC_LEVEL_3_UPGRADE_COST.toLocaleString()} → +${PAC_HOURLY_BY_LEVEL[3].toLocaleString()}/hr.
-        </p>
-        {pac ? (
-          <p className="text-sm font-semibold text-[var(--psc-ink)]">
-            Your PAC is level <span className="font-mono">{pac.level}</span>.
-          </p>
-        ) : (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run("pac", buyPac)}
-            className="rounded border border-[var(--psc-accent)] bg-[var(--psc-accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--psc-ink)] disabled:opacity-60"
-          >
-            Buy PAC (${PAC_LEVEL_1_COST.toLocaleString()})
-          </button>
-        )}
-        {pac && pac.level < 3 ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run("up", upgradePac)}
-            className="ml-0 rounded border border-[var(--psc-border)] px-4 py-2 text-sm font-semibold disabled:opacity-60 sm:ml-2"
-          >
-            Upgrade PAC
-          </button>
-        ) : null}
-      </section>
+      <EconomyBlackjack />
 
-      <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Campaign store</h2>
-        <p className="text-sm text-[var(--psc-muted)]">
-          TV ad: ${CAMPAIGN_AD_UNIT_PRICE.toLocaleString()} each, +{CAMPAIGN_AD_POINTS} campaign point when used on one
-          of your active races. You have <strong className="text-[var(--psc-ink)]">{ads}</strong> in inventory.
-        </p>
+      <section className="space-y-6 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+        {sectionFlash(flash, "ads")}
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="min-w-0 max-w-xl">
+            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Campaign ads</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--psc-muted)]">
+              TV spots for your races. Spending one ad on an active candidacy adds{" "}
+              <span className="font-semibold text-[var(--psc-ink)]">+{CAMPAIGN_AD_POINTS} campaign point</span> to that
+              campaign.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col rounded-xl border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-5 py-4 text-right shadow-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">In inventory</p>
+            <p className="mt-1 font-mono text-3xl font-semibold tabular-nums tracking-tight text-[var(--psc-ink)]">{ads}</p>
+            <p className="mt-1 text-[11px] text-[var(--psc-muted)]">ready to apply</p>
+          </div>
+        </div>
+
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            run("ads", () => buyCampaignAds(fd));
+            run("ads", "ads", () => buyCampaignAds(fd));
           }}
         >
-          <label className="grid gap-1 text-xs font-semibold">
-            Quantity
-            <input name="qty" type="number" min={1} max={99} defaultValue={1} className="border px-2 py-1 font-mono" />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-4 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cost each</p>
+              <p className="mt-2 font-mono text-xl font-semibold tabular-nums text-[var(--psc-ink)]">
+                ${CAMPAIGN_AD_UNIT_PRICE.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-4 py-4">
+              <label htmlFor="campaign-ad-qty" className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+                How many
+              </label>
+              <input
+                id="campaign-ad-qty"
+                name="qty"
+                type="number"
+                min={1}
+                max={99}
+                value={adQty}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (!Number.isFinite(n)) setAdQty(1);
+                  else setAdQty(Math.min(99, Math.max(1, Math.floor(n))));
+                }}
+                className="mt-2 w-full border border-[var(--psc-border)] bg-white px-3 py-2.5 text-center font-mono text-lg font-semibold tabular-nums text-[var(--psc-ink)] outline-none ring-[var(--psc-accent)] focus:ring-2"
+              />
+            </div>
+            <div className="rounded-xl border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,transparent)] px-4 py-4 sm:flex sm:flex-col sm:justify-center">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">You pay</p>
+              <p className="mt-2 font-mono text-xl font-semibold tabular-nums text-[var(--psc-ink)]">
+                ${adLineTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="mt-1 text-[11px] text-[var(--psc-muted)]">{adQty} ad{adQty === 1 ? "" : "s"} × price</p>
+            </div>
+          </div>
           <button
             type="submit"
             disabled={pending}
-            className="rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-4 py-2 text-sm font-semibold disabled:opacity-60"
+            className="w-full rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-60 sm:w-auto sm:min-w-[12rem]"
           >
-            Buy ads
+            Purchase TV ads
           </button>
         </form>
 
@@ -198,7 +225,7 @@ export function EconomyDashboard({
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
-              run("use", () => applyCampaignAdFromInventory(fd));
+              run("ads", "use", () => applyCampaignAdFromInventory(fd));
             }}
           >
             <label className="grid gap-1 font-semibold">
@@ -226,59 +253,86 @@ export function EconomyDashboard({
       </section>
 
       <section
-        className={`grid gap-6 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 ${treasuryPartyKey ? "md:grid-cols-2" : ""}`}
+        className={`grid gap-8 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 ${treasuryPartyKey ? "md:grid-cols-2 md:items-stretch md:gap-0" : ""}`}
       >
-        <div className="space-y-3">
+        {flash?.section === "payments" ? (
+          <div className="md:col-span-2">{sectionFlash(flash, "payments")}</div>
+        ) : null}
+        <div className={`flex min-h-0 flex-col gap-3 md:h-full ${treasuryPartyKey ? "md:pr-8" : ""}`}>
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Send cash</h2>
-          <p className="text-xs text-[var(--psc-muted)]">
+          <p className="min-h-[3.5rem] text-xs leading-snug text-[var(--psc-muted)]">
             Enter the recipient&apos;s Discord username (same handle shown in-game; optional @ prefix or legacy
             #1234 suffix is fine).
           </p>
           <form
-            className="grid gap-2 text-sm"
+            className="flex flex-col gap-2 text-sm md:min-h-0 md:flex-1"
             onSubmit={(e) => {
               e.preventDefault();
-              run("xfer", () => transferToPlayer(new FormData(e.currentTarget)));
+              run("payments", "xfer", () => transferToPlayer(new FormData(e.currentTarget)));
             }}
           >
-            <label className="grid gap-1 font-semibold">
+            <label className="grid w-full gap-1 font-semibold">
               Discord username
               <input
                 name="recipient_discord_username"
                 autoComplete="off"
                 placeholder="e.g. pat_smith"
-                className="border px-2 py-2 font-normal"
+                className="w-full border border-[var(--psc-border)] px-2 py-2 font-normal"
               />
             </label>
-            <label className="grid gap-1 font-semibold">
+            <div className="hidden min-h-0 flex-1 md:block" aria-hidden="true" />
+            <label className="grid w-full gap-1 font-semibold">
               Amount ($)
-              <input name="amount" type="number" min={1} step={1} placeholder="Amount" className="border px-2 py-2 font-mono" />
+              <input
+                name="amount"
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Amount"
+                className="w-full border border-[var(--psc-border)] px-2 py-2 font-mono"
+              />
             </label>
-            <button type="submit" disabled={pending} className="rounded border px-3 py-2 text-xs font-semibold disabled:opacity-60">
+            <button
+              type="submit"
+              disabled={pending}
+              className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))] disabled:opacity-60"
+            >
               Transfer
             </button>
           </form>
         </div>
         {treasuryPartyKey ? (
-          <div className="space-y-3">
+          <div className="flex min-h-0 flex-col gap-3 border-t border-[var(--psc-border)] pt-8 md:h-full md:border-l md:border-t-0 md:pl-8 md:pt-0">
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Party treasury</h2>
-            <p className="text-xs text-[var(--psc-muted)]">
+            <p className="min-h-[3.5rem] text-xs leading-snug text-[var(--psc-muted)]">
               Deposits go only to your affiliation (
               {treasuryPartyKey === "democrat" ? "Democratic Party" : "Republican Party"}).
             </p>
             <form
-              className="grid gap-2 text-sm"
+              className="flex flex-col gap-2 text-sm md:min-h-0 md:flex-1"
               onSubmit={(e) => {
                 e.preventDefault();
-                run("pty", () => depositPartyTreasury(new FormData(e.currentTarget)));
+                run("payments", "pty", () => depositPartyTreasury(new FormData(e.currentTarget)));
               }}
             >
               <input type="hidden" name="party_key" value={treasuryPartyKey} />
-              <label className="grid gap-1 font-semibold">
+              <div className="hidden min-h-0 flex-1 md:block" aria-hidden="true" />
+              <label className="grid w-full gap-1 font-semibold">
                 Amount ($)
-                <input name="amount" type="number" min={1} step={1} placeholder="Amount" className="border px-2 py-2 font-mono" />
+                <input
+                  name="amount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Amount"
+                  className="w-full border border-[var(--psc-border)] px-2 py-2 font-mono"
+                />
               </label>
-              <button type="submit" disabled={pending} className="rounded border px-3 py-2 text-xs font-semibold disabled:opacity-60">
+              <button
+                type="submit"
+                disabled={pending}
+                className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))] disabled:opacity-60"
+              >
                 Deposit to party
               </button>
             </form>
@@ -286,7 +340,34 @@ export function EconomyDashboard({
         ) : null}
       </section>
 
-      <EconomyBlackjack />
+      <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+        {sectionFlash(flash, "pac")}
+        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">PAC</h2>
+        {pac ? (
+          <p className="text-sm font-semibold text-[var(--psc-ink)]">
+            Your PAC is level <span className="font-mono">{pac.level}</span>.
+          </p>
+        ) : (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run("pac", "pac", buyPac)}
+            className="rounded border border-[var(--psc-accent)] bg-[var(--psc-accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--psc-ink)] disabled:opacity-60"
+          >
+            Buy PAC (${PAC_LEVEL_1_COST.toLocaleString()})
+          </button>
+        )}
+        {pac && pac.level < 3 ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run("pac", "up", upgradePac)}
+            className="ml-0 rounded border border-[var(--psc-border)] px-4 py-2 text-sm font-semibold disabled:opacity-60 sm:ml-2"
+          >
+            Upgrade PAC
+          </button>
+        ) : null}
+      </section>
 
       <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">

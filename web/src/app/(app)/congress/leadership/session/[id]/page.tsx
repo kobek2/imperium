@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { ProfileCard, ProfileCardBadge, profilePath, type ProfileCardData } from "@/components/profile-card";
 import { SubmitButton } from "@/components/submit-button";
@@ -85,8 +84,6 @@ export default async function LeadershipSessionPage({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-
-  await runElectionPhaseSchedule(supabase);
 
   const { data: sessionRaw } = await supabase
     .from("leadership_sessions")

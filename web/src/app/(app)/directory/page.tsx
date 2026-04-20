@@ -26,7 +26,7 @@ type DirectoryTabConfig = {
 
 type DirectoryTabSection =
   | { kind: "featured"; roleKeys: string[] }
-  | { kind: "grid"; title: string; roleKeys: string[] }
+  | { kind: "grid"; title: string; roleKeys: string[]; maxSlots?: number }
   | { kind: "enacted_laws"; title: string };
 
 const TABS: DirectoryTabConfig[] = [
@@ -92,7 +92,12 @@ const TABS: DirectoryTabConfig[] = [
     heroKicker: "Judicial Branch",
     sections: [
       { kind: "featured", roleKeys: ["chief_justice"] },
-      { kind: "grid", title: "Associate Justices", roleKeys: ["associate_justice"] },
+      {
+        kind: "grid",
+        title: "Associate Justices",
+        roleKeys: ["associate_justice"],
+        maxSlots: 8,
+      },
     ],
   },
 ];
@@ -258,6 +263,7 @@ export default async function DirectoryPage() {
       return {
         kind: "grid" as const,
         title: section.title,
+        maxSlots: section.maxSlots,
         roles: section.roleKeys.map((k) => ({
           role_key: k,
           role_label: POLITICAL_ROLE_LABELS[k] ?? k,

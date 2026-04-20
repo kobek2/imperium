@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { castBillVote } from "@/app/actions/bills";
+import { BillMarkdownBody } from "@/components/bill-markdown-body";
 import { SubmitButton } from "@/components/submit-button";
 
 export type VoteKind = "yea" | "nay" | "abstain";
@@ -19,6 +20,8 @@ export type VoterProfile = {
 export type BillForCard = {
   id: string;
   title: string;
+  /** Markdown body (nomination details, bill text, etc.) — shown on cards for reading before votes. */
+  content_md?: string | null;
   status: string;
   originating_chamber: "house" | "senate";
   created_at: string;
@@ -32,6 +35,12 @@ const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain"] as const;
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
   return new Date(ts).toLocaleString();
+}
+
+/** Human-readable status line for the card kicker (display is uppercased via CSS). */
+function billStatusLabel(status: string): string {
+  if (status === "hopper") return "Awaiting leadership decision";
+  return status.replaceAll("_", " ");
 }
 
 function partyDotClass(p: string | null | undefined) {
@@ -247,6 +256,8 @@ export function BillCard({
   userChambers,
   isPresidentialRunningMate = false,
   canBreakSenateTie = false,
+  /** When true, floor vote forms are omitted unless the viewer may cast that vote (cleaner observe-only UX). */
+  suppressVoteForms = false,
 }: {
   bill: BillForCard;
   votes: BillVote[];
@@ -256,6 +267,7 @@ export function BillCard({
   userChambers: Array<"house" | "senate">;
   isPresidentialRunningMate?: boolean;
   canBreakSenateTie?: boolean;
+  suppressVoteForms?: boolean;
 }) {
   const houseVotes = votes.filter((v) => v.chamber === "house");
   const senateVotes = votes.filter((v) => v.chamber === "senate");
@@ -271,16 +283,29 @@ export function BillCard({
   const showHouseForm = bill.status === "house_floor";
   const showSenateForm = bill.status === "senate_floor";
 
+  const canCastHouseFloorVote = userChambers.includes("house");
+  const canCastSenateFloorVote = bill.vp_tie_break_pending
+    ? canBreakSenateTie
+    : userChambers.includes("senate") && !isPresidentialRunningMate;
+
+  const showHouseVoteUi =
+    showHouseForm && (!suppressVoteForms || canCastHouseFloorVote);
+  const showSenateVoteUi =
+    showSenateForm && (!suppressVoteForms || canCastSenateFloorVote);
+
   return (
     <article className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            {bill.status.replaceAll("_", " ")}
+            {billStatusLabel(bill.status)}
           </p>
           <h3 className="text-lg font-semibold text-[var(--psc-ink)]">{bill.title}</h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Filed {fmt(bill.created_at)} · Originating {bill.originating_chamber}
+            Filed {fmt(bill.created_at)} · Originating chamber:{" "}
+            <span className="font-semibold text-[var(--psc-ink)]">
+              {bill.originating_chamber === "house" ? "House" : "Senate"}
+            </span>
           </p>
           {bill.status === "hopper" && bill.leadership_deadline_at ? (
             <p className="mt-1 text-xs font-semibold text-amber-900">
@@ -288,7 +313,7 @@ export function BillCard({
             </p>
           ) : null}
           {bill.vp_tie_break_pending && bill.status === "senate_floor" ? (
-            <p className="mt-1 text-xs font-semibold text-violet-900">
+            <p className="mt-1 text-xs font-semibold text-[var(--psc-ink)]">
               Senate vote tied — Vice President or a presidential running mate may cast the
               tie-breaker.
             </p>
@@ -302,7 +327,12 @@ export function BillCard({
         </div>
       </div>
 
-      {(houseVotes.length > 0 || senateVotes.length > 0) ? (
+      {bill.content_md?.trim() ? <BillMarkdownBody content={bill.content_md} /> : null}
+
+      {houseVotes.length > 0 ||
+      senateVotes.length > 0 ||
+      showHouseForm ||
+      showSenateForm ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {houseVotes.length > 0 || showHouseForm ? (
             <TallyCard
@@ -323,16 +353,16 @@ export function BillCard({
         </div>
       ) : null}
 
-      {showHouseForm ? (
+      {showHouseVoteUi ? (
         <FloorVoteForm
           bill={bill}
           chamber="house"
           myVote={myHouseVote}
-          disabled={!userChambers.includes("house")}
+          disabled={!canCastHouseFloorVote}
           disabledReason="Only House members may cast this vote."
         />
       ) : null}
-      {showSenateForm ? (
+      {showSenateVoteUi ? (
         <FloorVoteForm
           bill={bill}
           chamber="senate"
