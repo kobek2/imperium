@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getIsAdmin } from "@/lib/is-admin";
 import { tryCreateClient } from "@/lib/supabase/server";
+import { requireStaffPageAny } from "@/lib/staff-access";
 import { AdminMembersTable, type AdminMemberRow } from "./members-table";
 
 export default async function AdminMembersPage() {
-  if (!(await getIsAdmin())) redirect("/");
+  await requireStaffPageAny(["accounts", "roles"]);
 
   const supabase = await tryCreateClient();
   if (!supabase) redirect("/");

@@ -5,7 +5,7 @@ import { addHours } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { processBillDeadlines, resolveSenateAfterTiebreakVote } from "@/lib/bill-pipeline";
-import { canFileFederalLegislation, originatingChamberForRoles } from "@/lib/legislative-eligibility";
+import { canFileFederalLegislation, canFileLegislationInChamber } from "@/lib/legislative-eligibility";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
   isActivePresidentialRunningMate,
@@ -94,9 +94,17 @@ export async function submitBill(formData: FormData): Promise<void> {
     );
   }
 
-  const originating_chamber = originatingChamberForRoles(roleKeys);
-  if (!originating_chamber) {
-    throw new Error("Could not determine your chamber from your assigned roles.");
+  const rawChamber = String(formData.get("originating_chamber") ?? "").trim();
+  if (rawChamber !== "house" && rawChamber !== "senate") {
+    throw new Error("Missing or invalid originating chamber.");
+  }
+  const originating_chamber = rawChamber as BillChamber;
+  if (!canFileLegislationInChamber(roleKeys, originating_chamber)) {
+    throw new Error(
+      originating_chamber === "house"
+        ? "You may not file House legislation with your current roles (Representatives, President, or admin)."
+        : "You may not file Senate legislation with your current roles (Senators or admin).",
+    );
   }
 
   const now = new Date();

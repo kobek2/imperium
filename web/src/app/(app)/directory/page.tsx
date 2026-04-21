@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
 import { tryCreateClient } from "@/lib/supabase/server";
+import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
+import type { DirectoryHolder } from "@/lib/directory-types";
 import {
   HierarchyTabs,
   type DirectoryTab,
-  type DirectoryHolder,
   type LawEntry,
 } from "./hierarchy-tabs";
 
@@ -210,12 +211,22 @@ export default async function DirectoryPage() {
     if (p.office_role) addHolder(p.office_role, p.id);
   }
 
-  const getHolders = (roleKey: string) =>
+  const getRealHolders = (roleKey: string) =>
     [...(holdersByRole.get(roleKey)?.values() ?? [])].sort((a, b) =>
       (a.character_name ?? a.discord_username ?? "").localeCompare(
         b.character_name ?? b.discord_username ?? "",
       ),
     );
+
+  function holdersForDirectory(roleKey: string, maxSlots?: number): DirectoryHolder[] {
+    const real = getRealHolders(roleKey);
+    if (roleKey === "associate_justice" && maxSlots != null && maxSlots > 0) {
+      return mergeAssociateJusticeHolders(real, maxSlots);
+    }
+    if (real.length > 0) return real;
+    const ph = getPlaceholderForRole(roleKey);
+    return ph ? [ph] : [];
+  }
 
   const laws: LawEntry[] = lawBillRows.map((b) => {
     const tally = lawTallies.get(b.id);
@@ -249,7 +260,7 @@ export default async function DirectoryPage() {
           roles: section.roleKeys.map((k) => ({
             role_key: k,
             role_label: POLITICAL_ROLE_LABELS[k] ?? k,
-            holders: getHolders(k),
+            holders: holdersForDirectory(k),
           })),
         };
       }
@@ -267,7 +278,7 @@ export default async function DirectoryPage() {
         roles: section.roleKeys.map((k) => ({
           role_key: k,
           role_label: POLITICAL_ROLE_LABELS[k] ?? k,
-          holders: getHolders(k),
+          holders: holdersForDirectory(k, section.maxSlots),
         })),
       };
     }),

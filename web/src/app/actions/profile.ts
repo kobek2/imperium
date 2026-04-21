@@ -95,7 +95,17 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error("Character record is incomplete.");
   }
 
+  try {
+    const { error: autoSeatErr } = await supabase.rpc("auto_create_seat_elections_for_onboarding");
+    if (autoSeatErr) {
+      console.warn("[saveCharacter] auto_create_seat_elections_for_onboarding:", autoSeatErr.message);
+    }
+  } catch (e) {
+    console.warn("[saveCharacter] auto seat elections RPC failed:", e instanceof Error ? e.message : e);
+  }
+
   revalidatePath("/character");
   revalidatePath("/onboarding");
+  revalidatePath("/elections");
   revalidatePath("/");
 }

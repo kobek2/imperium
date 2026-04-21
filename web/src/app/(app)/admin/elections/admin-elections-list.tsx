@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useFormStatus } from "react-dom";
 import { useMemo, useState } from "react";
+import { endSelectedElections } from "@/app/actions/elections";
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 
 export type AdminElectionRow = {
@@ -130,9 +132,26 @@ function searchBlob(r: AdminElectionRow): string {
     .toLowerCase();
 }
 
-function OperateChip({ r }: { r: AdminElectionRow }) {
+function canSelectRaceForEnd(r: AdminElectionRow): boolean {
+  if (r.leadership_role) return false;
+  if (r.phase === "closed") return false;
+  return r.office === "house" || r.office === "senate" || r.office === "president";
+}
+
+function OperateChip({
+  r,
+  endSelection,
+  selected,
+  onToggleSelect,
+}: {
+  r: AdminElectionRow;
+  endSelection?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string, next: boolean) => void;
+}) {
   const cd = countdown(r);
-  return (
+  const selectable = !!endSelection && canSelectRaceForEnd(r);
+  const link = (
     <Link
       href={`/admin/elections/${r.id}`}
       className="group flex min-w-0 items-center gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-2.5 py-1.5 text-xs shadow-sm transition hover:border-[var(--psc-accent)] hover:shadow"
@@ -154,6 +173,34 @@ function OperateChip({ r }: { r: AdminElectionRow }) {
         </span>
       ) : null}
     </Link>
+  );
+  if (!selectable) return link;
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="checkbox"
+        checked={!!selected}
+        onChange={(e) => {
+          onToggleSelect?.(r.id, e.target.checked);
+        }}
+        className="h-3.5 w-3.5 shrink-0"
+        aria-label={`Select ${seatLabel(r)} for bulk end`}
+      />
+      {link}
+    </div>
+  );
+}
+
+function EndSelectedSubmit({ count }: { count: number }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending || count < 1}
+      className="rounded border border-rose-900/40 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-rose-100 hover:bg-rose-900/50 disabled:opacity-50"
+    >
+      {pending ? "Ending…" : `End selected (${count})`}
+    </button>
   );
 }
 
@@ -195,11 +242,15 @@ function FilterChip({
 export function AdminElectionsList({
   rows,
   view = "active",
+  enableEndSelection = false,
 }: {
   rows: AdminElectionRow[];
   view?: "active" | "archive";
+  /** When true (active tab), non-closed House/Senate/President races show a checkbox for targeted closeout. */
+  enableEndSelection?: boolean;
 }) {
   const archiveOnly = view === "archive";
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
   const [officeFilter, setOfficeFilter] = useState<Office | "all">("all");
@@ -255,6 +306,15 @@ export function AdminElectionsList({
   }, [filtered]);
 
   const hasAnyClosed = useMemo(() => rows.some((r) => r.phase === "closed"), [rows]);
+
+  function toggleSelect(id: string, next: boolean) {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (next) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -344,6 +404,21 @@ export function AdminElectionsList({
               </p>
             )}
 
+            {enableEndSelection && !archiveOnly ? (
+              <form
+                action={endSelectedElections}
+                className="flex flex-wrap items-center gap-2 rounded border border-rose-900/25 bg-rose-950/15 px-3 py-2"
+              >
+                {[...selectedIds].map((id) => (
+                  <input key={id} type="hidden" name="election_id" value={id} />
+                ))}
+                <p className="text-[11px] text-[var(--psc-muted)]">
+                  Check races below, then end only those (same closeout as opening a race and setting Closed).
+                </p>
+                <EndSelectedSubmit count={selectedIds.size} />
+              </form>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
                 Chamber
@@ -404,7 +479,13 @@ export function AdminElectionsList({
                       </summary>
                       <div className="flex flex-wrap gap-1.5 border-t border-[var(--psc-border)] p-4">
                         {list.map((r) => (
-                          <OperateChip key={r.id} r={r} />
+                          <OperateChip
+                            key={r.id}
+                            r={r}
+                            endSelection={enableEndSelection && !archiveOnly}
+                            selected={selectedIds.has(r.id)}
+                            onToggleSelect={toggleSelect}
+                          />
                         ))}
                       </div>
                     </details>
@@ -459,7 +540,13 @@ export function AdminElectionsList({
                                 return ac.localeCompare(bc);
                               })
                               .map((r) => (
-                                <OperateChip key={r.id} r={r} />
+                                <OperateChip
+                                  key={r.id}
+                                  r={r}
+                                  endSelection={enableEndSelection && !archiveOnly}
+                                  selected={selectedIds.has(r.id)}
+                                  onToggleSelect={toggleSelect}
+                                />
                               ))}
                           </div>
                         </div>

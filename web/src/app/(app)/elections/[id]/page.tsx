@@ -14,7 +14,7 @@ import {
   type LeadershipRole,
 } from "@/lib/leadership";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
 import { PresidentialMap } from "./presidential-map";
@@ -112,7 +112,7 @@ export default async function ElectionDetailPage({
     supabase.from("campaign_speeches").select("candidate_id").eq("election_id", id),
     supabase.from("campaign_rallies").select("candidate_id").eq("election_id", id),
     getStatesCached(supabase),
-    getIsAdmin(),
+    getStaffMayAccessElectionsConsole(),
     (async () => {
       if (election.office === "house" && election.district_code) {
         const { data } = await supabase

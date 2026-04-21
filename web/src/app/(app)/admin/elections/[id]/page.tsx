@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { requireStaffPageAny } from "@/lib/staff-access";
 import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
 import { SubmitButton } from "@/components/submit-button";
 import {
@@ -92,7 +92,7 @@ export default async function AdminElectionDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await getIsAdmin())) redirect("/");
+  await requireStaffPageAny(["elections", "simulation"]);
 
   const { id } = await params;
   const supabase = await tryCreateClient();
@@ -106,6 +106,32 @@ export default async function AdminElectionDetailPage({
     .eq("id", id)
     .maybeSingle();
   if (!election) notFound();
+
+  let jurisdictionPlayerCount: number | undefined;
+  if (
+    election.phase === "filing" &&
+    !election.filing_window_started_at &&
+    !isLeadershipRole(election.leadership_role)
+  ) {
+    if (election.office === "house" && election.district_code) {
+      const d = String(election.district_code).trim().toUpperCase();
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("home_district_code", d);
+      jurisdictionPlayerCount = count ?? 0;
+    } else if (election.office === "senate" && election.state) {
+      const st = String(election.state).trim().toUpperCase();
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("residence_state", st);
+      jurisdictionPlayerCount = count ?? 0;
+    } else if (election.office === "president") {
+      const { count } = await supabase.from("profiles").select("id", { count: "exact", head: true });
+      jurisdictionPlayerCount = count ?? 0;
+    }
+  }
 
   const { data: candidates } = await supabase
     .from("election_candidates")
@@ -294,7 +320,7 @@ export default async function AdminElectionDetailPage({
             window. Opening assigns a fresh 24h filing, 24h primary, and 24h general schedule from now
             and vacates incumbents for this seat where applicable.
           </p>
-          <OpenSeatFilingForm electionId={id} />
+          <OpenSeatFilingForm electionId={id} jurisdictionPlayerCount={jurisdictionPlayerCount} />
         </section>
       ) : null}
 

@@ -1,17 +1,19 @@
 import Link from "next/link";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const ok = await getIsAdmin();
-  if (!ok) {
+  const access = await getStaffAccess();
+  if (!access?.canAccessPanel) {
     return (
       <div className="mx-auto max-w-lg px-6 py-20 text-center">
         <h1 className="text-xl font-semibold text-[var(--psc-ink)]">Access restricted</h1>
         <p className="mt-3 text-sm text-[var(--psc-muted)]">
-          Imperium admin tools require{" "}
-          <code className="font-mono">admin</code> in{" "}
-          <code className="font-mono">profiles.office_role</code> or a matching{" "}
-          <code className="font-mono">government_role_grants</code> row.
+          Staff tools require one of: <code className="font-mono">admin</code> or{" "}
+          <code className="font-mono">staff_super</code> in{" "}
+          <code className="font-mono">government_role_grants</code> (or legacy{" "}
+          <code className="font-mono">profiles.office_role = admin</code>), or a granular{" "}
+          <code className="font-mono">staff_*</code> grant (e.g. <code className="font-mono">staff_elections</code>
+          ).
         </p>
         <Link
           href="/"
@@ -39,6 +41,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Overview
             </Link>
             <Link
+              href="/admin/operations"
+              className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
+            >
+              Operations
+            </Link>
+            <Link
               href="/admin/elections"
               className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
             >
@@ -49,6 +57,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
             >
               Members
+            </Link>
+            <Link
+              href="/admin/economy"
+              className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
+            >
+              Economy
             </Link>
             <Link
               href="/admin/party-leadership"

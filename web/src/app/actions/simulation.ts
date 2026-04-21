@@ -78,30 +78,31 @@ async function vacateSenateLastWinnerForSeat(
 
 export async function updateSimulationSettings(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
-  const real_anchor_at = String(formData.get("real_anchor_at") ?? "").trim();
   const rp_anchor_date = String(formData.get("rp_anchor_date") ?? "").trim();
   const rp_months_raw = String(formData.get("rp_months_per_real_day") ?? "").trim();
-  const admin_off_raw = String(formData.get("admin_rp_month_offset") ?? "").trim();
   const auto_open = String(formData.get("auto_open_filings_in_rp_january") ?? "").trim() === "on";
+  const auto_seat =
+    String(formData.get("auto_create_seat_elections_on_onboarding") ?? "").trim() === "on";
 
-  if (!real_anchor_at || !rp_anchor_date) throw new Error("Anchor date and real anchor time are required.");
-  const d = new Date(real_anchor_at);
-  if (Number.isNaN(d.getTime())) throw new Error("Invalid real anchor time.");
+  if (!rp_anchor_date) throw new Error("RP calendar date is required.");
+
   const rp_months_per_real_day = Number(rp_months_raw);
   if (!Number.isFinite(rp_months_per_real_day) || rp_months_per_real_day <= 0 || rp_months_per_real_day > 366) {
-    throw new Error("RP months per real day must be a positive number (max 366).");
+    throw new Error("Calendar speed must be a positive number (max 366).");
   }
-  const admin_rp_month_offset = admin_off_raw === "" ? 0 : Number(admin_off_raw);
-  if (!Number.isFinite(admin_rp_month_offset)) throw new Error("Admin month offset must be a number.");
+
+  // Simple console: "right now" in real life matches the RP date you set; pace is the only other dial.
+  const real_anchor_at = new Date().toISOString();
 
   const { error } = await supabase
     .from("simulation_settings")
     .update({
-      real_anchor_at: d.toISOString(),
+      real_anchor_at,
       rp_anchor_date,
       rp_months_per_real_day,
-      admin_rp_month_offset,
+      admin_rp_month_offset: 0,
       auto_open_filings_in_rp_january: auto_open,
+      auto_create_seat_elections_on_onboarding: auto_seat,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
@@ -233,14 +234,8 @@ export async function openOccupiedSeatElectionFilings(): Promise<OpenSeatFilings
   return result;
 }
 
-/**
- * Admin: open filings for one seat election (even if empty), with optional vacate of incumbents.
- */
-export async function openSeatElectionFiling(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const id = String(formData.get("election_id") ?? "").trim();
-  if (!id) throw new Error("Missing election id.");
-
+/** Core open-dormant logic (admin RLS). */
+async function openOneDormantSeatElection(supabase: SupabaseClient, id: string): Promise<void> {
   const { data: e, error } = await supabase
     .from("elections")
     .select("id, office, state, district_code, senate_class, phase, leadership_role, filing_window_started_at")
@@ -272,10 +267,52 @@ export async function openSeatElectionFiling(formData: FormData): Promise<void> 
     .eq("id", id);
 
   if (uErr) throw new Error(uErr.message);
+}
+
+/**
+ * Admin: open filings for one seat election (even if empty), with optional vacate of incumbents.
+ */
+export async function openSeatElectionFiling(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const id = String(formData.get("election_id") ?? "").trim();
+  if (!id) throw new Error("Missing election id.");
+
+  await openOneDormantSeatElection(supabase, id);
   revalidatePath("/admin/elections");
   revalidatePath(`/admin/elections/${id}`);
   revalidatePath("/elections");
   revalidatePath(`/elections/${id}`);
+}
+
+/**
+ * Admin: open dormant filings for many seat races at once (same rules as opening one).
+ */
+export async function openSelectedSeatElectionFilings(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const raw = formData.getAll("election_id");
+  const ids = [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))];
+  if (!ids.length) throw new Error("Select at least one dormant race to open.");
+
+  const errors: string[] = [];
+  for (const id of ids.sort((a, b) => a.localeCompare(b))) {
+    try {
+      await openOneDormantSeatElection(supabase, id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${id.slice(0, 8)}…: ${msg}`);
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(`${errors.length} race(s) failed. ${errors.slice(0, 6).join("; ")}`);
+  }
+
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  for (const id of ids) {
+    revalidatePath(`/admin/elections/${id}`);
+    revalidatePath(`/elections/${id}`);
+  }
 }
 
 /**

@@ -2,18 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ProfileCard, profilePath } from "@/components/profile-card";
+import { ProfileCard, profileImageSrc, profilePath } from "@/components/profile-card";
+import type { DirectoryHolder } from "@/lib/directory-types";
 
-export type DirectoryHolder = {
-  id: string;
-  character_name: string | null;
-  discord_username: string | null;
-  party: string | null;
-  bio: string | null;
-  face_claim_url: string | null;
-  residence_state: string | null;
-  home_district_code: string | null;
-};
+export type { DirectoryHolder };
 
 type RoleRow = {
   role_key: string;
@@ -54,11 +46,6 @@ function initials(name: string | null | undefined) {
   const parts = raw.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-function validUrl(url: string | null | undefined) {
-  const u = (url ?? "").trim();
-  return u.startsWith("http://") || u.startsWith("https://") ? u : null;
 }
 
 function partyLabel(party: string | null | undefined) {
@@ -109,7 +96,8 @@ function FeaturedHolder({
   holder: DirectoryHolder;
   roleLabel: string;
 }) {
-  const photo = validUrl(holder.face_claim_url);
+  const isPlaceholder = holder.isPlaceholder === true || holder.id.startsWith("placeholder:");
+  const photo = profileImageSrc(holder.face_claim_url);
   const name = holder.character_name?.trim() || holder.discord_username?.trim() || "Unnamed";
   const party = partyLabel(holder.party);
   const seat = seatLabel(holder);
@@ -156,9 +144,16 @@ function FeaturedHolder({
       )}
 
       <div className="flex flex-col gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
-          {roleLabel}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
+            {roleLabel}
+          </p>
+          {isPlaceholder ? (
+            <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950">
+              Default roster
+            </span>
+          ) : null}
+        </div>
         {href ? (
           <Link href={href} className="group inline-flex w-fit">
             <h3 className="text-3xl font-bold tracking-tight text-[var(--psc-accent)] transition group-hover:underline md:text-4xl">
@@ -307,6 +302,13 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
                           }}
                           subtitle={primary.role_label}
                           href={profilePath(holder.id) ?? undefined}
+                          badges={
+                            holder.isPlaceholder === true || holder.id.startsWith("placeholder:") ? (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-950">
+                                Default
+                              </span>
+                            ) : undefined
+                          }
                         />
                       ) : (
                         <VacantTile roleLabel={primary.role_label} />
@@ -357,6 +359,13 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
                         }}
                         subtitle={role.role_label}
                         href={profilePath(holder.id) ?? undefined}
+                        badges={
+                          holder.isPlaceholder === true || holder.id.startsWith("placeholder:") ? (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-950">
+                              Default
+                            </span>
+                          ) : undefined
+                        }
                       />
                     ) : (
                       <VacantTile roleLabel={role.role_label} />

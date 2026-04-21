@@ -14,7 +14,8 @@ export type ProfileCardData = {
 /** Stable URL for a user's public profile page. */
 export function profilePath(id: string | null | undefined): string | null {
   const v = (id ?? "").trim();
-  return v ? `/profile/${v}` : null;
+  if (!v || v.startsWith("placeholder:")) return null;
+  return `/profile/${v}`;
 }
 
 export type PartyKey = "democrat" | "republican" | "independent";
@@ -60,9 +61,16 @@ function initials(name: string | null | undefined) {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
-function validUrl(url: string | null | undefined) {
+/**
+ * Values safe for `<img src>`: absolute http(s) URLs or same-origin paths (`/...`).
+ * Rejects protocol-relative URLs (`//...`) and other untrusted shapes.
+ */
+export function profileImageSrc(url: string | null | undefined): string | null {
   const u = (url ?? "").trim();
-  return u.startsWith("http://") || u.startsWith("https://") ? u : null;
+  if (!u) return null;
+  if (u.startsWith("https://") || u.startsWith("http://")) return u;
+  if (u.startsWith("/") && !u.startsWith("//")) return u;
+  return null;
 }
 
 function truncate(str: string | null | undefined, max: number) {
@@ -111,7 +119,7 @@ export function ProfileCard({
   winner?: boolean;
 }) {
   const meta = partyColor(profile.party ?? null);
-  const photo = validUrl(profile.face_claim_url);
+  const photo = profileImageSrc(profile.face_claim_url);
   const name = profile.character_name?.trim() || "Unnamed";
   const bio = truncate(profile.bio, 140);
   const resolvedSubtitle = subtitle ?? seatLabel(profile);

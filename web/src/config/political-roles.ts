@@ -52,6 +52,15 @@ export const POLITICAL_ROLE_LABELS: Record<string, string> = {
   caucus_house_republicans: "House Republicans",
   // Site operator bypass (not a Discord role)
   admin: "Imperium Admin",
+  /** Full staff DB access (same RLS as admin); optional alternative to `admin`. */
+  staff_super: "Staff (full)",
+  /** Granular staff panel — app-enforced; combine with admin or staff_super for DB mutations. */
+  staff_accounts: "Staff · Accounts",
+  staff_roles: "Staff · Roles",
+  staff_economy: "Staff · Economy",
+  staff_elections: "Staff · Elections",
+  staff_parties: "Staff · Parties",
+  staff_simulation: "Staff · Simulation",
 };
 
 /** Keys we accept from Discord / DB (excluding admin which is manual). */

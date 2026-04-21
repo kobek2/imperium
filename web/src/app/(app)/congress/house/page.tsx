@@ -2,7 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { submitBill } from "@/app/actions/bills";
-import { canFileFederalLegislation, originatingChamberForRoles } from "@/lib/legislative-eligibility";
+import {
+  canFileFederalLegislation,
+  canFileLegislationInChamber,
+} from "@/lib/legislative-eligibility";
 import { CongressDocketSection } from "../congress-docket-section";
 import { loadCongressDocket } from "../load-congress-docket";
 
@@ -27,15 +30,17 @@ export default async function CongressHousePage() {
 
   const houseBills = billList.filter((b) => b.originating_chamber === "house");
   const canFile = canFileFederalLegislation(roleKeys);
-  const origin = originatingChamberForRoles(roleKeys);
-  const showHouseFiling = Boolean(canFile && origin === "house");
+  const showHouseFiling = canFileLegislationInChamber(roleKeys, "house");
+  const canFileSenateOnly =
+    canFileLegislationInChamber(roleKeys, "senate") && !canFileLegislationInChamber(roleKeys, "house");
 
   const userChambers: ("house" | "senate")[] = [];
-  if (roleKeys.includes("representative")) userChambers.push("house");
-  if (roleKeys.includes("senator")) userChambers.push("senate");
+  const rk = new Set(roleKeys);
+  if (rk.has("representative") || rk.has("president") || rk.has("admin")) userChambers.push("house");
+  if (rk.has("senator") || rk.has("admin")) userChambers.push("senate");
 
   const houseLeadershipSessions = (leadershipSessions ?? []).filter((s) => s.chamber === "house");
-  const isHouseMember = roleKeys.includes("representative");
+  const isHouseMember = rk.has("representative") || rk.has("president") || rk.has("admin");
   const observeHouse = !isHouseMember;
 
   return (
@@ -94,6 +99,7 @@ export default async function CongressHousePage() {
           <>
             <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the House.</p>
             <form action={submitBill} className="mt-4 grid gap-4 md:grid-cols-2">
+              <input type="hidden" name="originating_chamber" value="house" />
               <label className="grid gap-2 text-sm font-semibold md:col-span-2">
                 Title
                 <input
@@ -121,13 +127,13 @@ export default async function CongressHousePage() {
           </>
         ) : (
           <div className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
-            {canFile && origin === "senate" ? (
+            {canFileSenateOnly ? (
               <p>
-                Your seat introduces federal bills in the{" "}
+                Your seated role files Senate-originated measures. Use the{" "}
                 <Link href="/congress/senate" className="font-semibold text-[var(--psc-accent)] underline">
                   Senate
-                </Link>
-                . Only Representatives (and the President, by rule) file House measures here.
+                </Link>{" "}
+                page to file.
               </p>
             ) : !canFile ? (
               <p>

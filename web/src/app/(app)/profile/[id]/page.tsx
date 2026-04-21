@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { profileImageSrc } from "@/components/profile-card";
 import { tryCreateClient } from "@/lib/supabase/server";
 
 function partyMeta(party: string | null | undefined) {
@@ -20,11 +21,6 @@ function initials(name: string) {
   if (!parts.length) return "?";
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-function validUrl(url: string | null | undefined) {
-  const u = (url ?? "").trim();
-  return u.startsWith("http://") || u.startsWith("https://") ? u : null;
 }
 
 function roleLabel(key: string | null | undefined): string | null {
@@ -127,7 +123,7 @@ export default async function ProfilePage({
   }
 
   const meta = partyMeta(profile.party);
-  const photo = validUrl(profile.face_claim_url);
+  const photo = profileImageSrc(profile.face_claim_url);
   const name = profile.character_name?.trim() || profile.discord_username?.trim() || "Unnamed";
   const seat = seatLine(profile);
 

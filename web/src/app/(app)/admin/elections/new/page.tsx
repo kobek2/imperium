@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getIsAdmin } from "@/lib/is-admin";
+import { requireStaffPageAny } from "@/lib/staff-access";
 import { createElection } from "@/app/actions/elections";
 import { tryCreateClient } from "@/lib/supabase/server";
 import {
@@ -11,7 +11,7 @@ import {
 import { CreateElectionForm } from "./create-election-form";
 
 export default async function NewElectionPage() {
-  if (!(await getIsAdmin())) redirect("/");
+  await requireStaffPageAny(["elections", "simulation"]);
 
   const supabase = await tryCreateClient();
   // Pull populations so the form can show "CA-01 — 2 players" and flag empty seats before

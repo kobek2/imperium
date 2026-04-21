@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { adminStartPartyLeadershipFiling } from "@/app/actions/party";
 import { SubmitButton } from "@/components/submit-button";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { requireStaffPage } from "@/lib/staff-access";
 
 type OrgRow = {
   party_key: string;
@@ -65,7 +65,7 @@ function PartyCard({ org }: { org: OrgRow }) {
 }
 
 export default async function AdminPartyLeadershipPage() {
-  if (!(await getIsAdmin())) redirect("/");
+  await requireStaffPage("parties");
 
   const supabase = await tryCreateClient();
   if (!supabase) redirect("/");

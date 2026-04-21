@@ -573,6 +573,73 @@ export async function bulkEndElections(formData: FormData): Promise<void> {
   }
 }
 
+/** End specific seat races (House / Senate / President) by id — same closeout rules as bulk end. */
+export async function endSelectedElections(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const rawIds = formData.getAll("election_id");
+  const ids = [...new Set(rawIds.map((x) => String(x).trim()).filter(Boolean))];
+  if (!ids.length) {
+    throw new Error("Select at least one race to end.");
+  }
+
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .in("id", ids)
+    .is("leadership_role", null)
+    .neq("phase", "closed");
+
+  if (qErr) throw new Error(qErr.message);
+
+  const found = new Set((rows ?? []).map((r) => r.id as string));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length) {
+    throw new Error(
+      `${missing.length} id(s) are not active seat races (closed, missing, or leadership): ${missing.slice(0, 6).join(", ")}`,
+    );
+  }
+
+  const targets = [...(rows ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+
+  const errors: string[] = [];
+  for (const row of targets) {
+    try {
+      const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+        id: row.id,
+        phase: row.phase as ElectionPhase,
+        office: row.office,
+        state: row.state,
+        district_code: row.district_code,
+        leadership_role: row.leadership_role,
+      });
+      const upd: Record<string, unknown> = { phase: "closed" };
+      if (winner_user_id) upd.winner_user_id = winner_user_id;
+      const { error } = await supabase.from("elections").update(upd).eq("id", row.id);
+      if (error) throw new Error(error.message);
+      const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+        e_election: row.id,
+      });
+      if (roleErr) {
+        console.warn("[endSelectedElections] role transition warning:", roleErr.message);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${row.id}: ${msg}`);
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(`${errors.length} race(s) failed. ${errors.slice(0, 8).join("; ")}`);
+  }
+
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  for (const row of targets) {
+    revalidatePath(`/admin/elections/${row.id}`);
+    revalidatePath(`/elections/${row.id}`);
+  }
+}
+
 /** Manual primary closeout. Uses filing-order tiebreak so the earliest filer wins on ties (including 0-vote ties). */
 export async function endPrimarySelectWinners(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();

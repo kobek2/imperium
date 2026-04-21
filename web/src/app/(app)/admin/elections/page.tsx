@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { OpenOccupiedSeatFilingsForm } from "@/components/open-occupied-seat-filings-form";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { SimulationSettingsForm } from "@/components/simulation-settings-form";
-import { runJanuaryAutoOpenIfEligible } from "@/app/actions/simulation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { requireStaffPageAny } from "@/lib/staff-access";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
+import { loadDormantOpenCandidates } from "@/lib/admin-dormant-open-candidates";
 import {
   AdminElectionsList,
   type AdminElectionRow,
@@ -18,13 +17,14 @@ import {
   type LeadershipSessionRow,
 } from "./leadership-toggle";
 import { BulkEndElectionsForm } from "./bulk-end-elections-form";
+import { OpenDormantSeatFilingsSelector } from "./open-dormant-seat-filings-selector";
 
 export default async function AdminElectionsPage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  if (!(await getIsAdmin())) redirect("/");
+  await requireStaffPageAny(["elections", "simulation"]);
 
   const { tab } = await searchParams;
   const electionView: "active" | "archive" = tab === "archive" ? "archive" : "active";
@@ -33,7 +33,6 @@ export default async function AdminElectionsPage({
   if (!supabase) redirect("/");
 
   await runElectionPhaseSchedule(supabase);
-  await runJanuaryAutoOpenIfEligible();
 
   const [{ data: rows }, sessionsRes, simSettingsRes] = await Promise.all([
     supabase
@@ -101,19 +100,21 @@ export default async function AdminElectionsPage({
     ? computeSimulationRpInstant(simSettingsForBanner, new Date())
     : null;
 
+  const dormantOpenCandidates = await loadDormantOpenCandidates(supabase);
+
   return (
     <div className="space-y-6">
       {rpNow && simSettingsForBanner ? (
         <SimulationRpBanner settings={simSettingsForBanner} rp={rpNow} />
       ) : null}
       {simSettingsForForm ? <SimulationSettingsForm initial={simSettingsForForm} /> : null}
-      <OpenOccupiedSeatFilingsForm />
       <LeadershipToggle
         houseSession={houseSession}
         senateSession={senateSession}
         schemaMissing={leadershipSchemaMissing}
       />
       <BulkEndElectionsForm />
+      <OpenDormantSeatFilingsSelector candidates={dormantOpenCandidates} />
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--psc-border)] pb-3">
           <Link
@@ -144,7 +145,12 @@ export default async function AdminElectionsPage({
             </span>
           </Link>
         </div>
-        <AdminElectionsList key={electionView} rows={dashboardRows} view={electionView} />
+        <AdminElectionsList
+          key={electionView}
+          rows={dashboardRows}
+          view={electionView}
+          enableEndSelection={electionView === "active"}
+        />
       </div>
     </div>
   );

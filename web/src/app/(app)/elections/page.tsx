@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { tryCreateClient } from "@/lib/supabase/server";
@@ -26,7 +26,7 @@ export default async function ElectionsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const isAdmin = await getIsAdmin();
+  const isAdmin = await getStaffMayAccessElectionsConsole();
 
   await runElectionPhaseSchedule(supabase);
 

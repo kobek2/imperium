@@ -10,6 +10,8 @@ export type SimulationSettingsRow = {
   admin_rp_month_offset: number;
   auto_open_filings_in_rp_january: boolean;
   last_auto_open_rp_key: string | null;
+  /** When true, finishing character setup may auto-create House + Senate seat races (server RPC). */
+  auto_create_seat_elections_on_onboarding?: boolean;
 };
 
 function parseISODateOnly(s: string): { y: number; m: number; d: number } {
@@ -151,5 +153,6 @@ export function defaultSimulationSettingsForDisplay(): SimulationSettingsRow {
     admin_rp_month_offset: 0,
     auto_open_filings_in_rp_january: false,
     last_auto_open_rp_key: null,
+    auto_create_seat_elections_on_onboarding: false,
   };
 }

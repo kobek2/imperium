@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffMayManagePartyOrg } from "@/lib/staff-access";
 import {
   computeSimulationRpInstant,
   defaultSimulationSettingsForDisplay,
@@ -56,7 +56,7 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
       .eq("party", partyKey)
       .order("character_name", { ascending: true }),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
-    getIsAdmin(),
+    getStaffMayManagePartyOrg(),
     supabase.from("profiles").select("party").eq("id", user.id).maybeSingle(),
     supabase.from("party_officer_votes").select("office, candidate_id").eq("party_key", partyKey).eq("voter_id", user.id),
     supabase.from("party_national_board_members").select("user_id").eq("party_key", partyKey).eq("user_id", user.id).maybeSingle(),

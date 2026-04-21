@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
 import {
   computeSimulationRpInstant,
   formatRpCalendarShort,
@@ -26,19 +26,20 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     ? (await supabase.auth.getUser()).data.user
     : null;
 
-  let isAdmin = false;
+  let showStaffLink = false;
   let rpCalendarCorner: string | null = null;
   if (supabase && user) {
-    const [adminResult, simRes] = await Promise.all([
-      getIsAdmin(),
+    const [staffAccess, simRes] = await Promise.all([
+      getStaffAccess(),
       supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
-    isAdmin = adminResult;
+    showStaffLink = staffAccess?.canAccessPanel ?? false;
     if (!simRes.error && simRes.data) {
+      const canPersistSimHeal = staffAccess?.hasFullStaff ?? false;
       const effective = await resolveSimulationSettingsForWidget(
         supabase,
         simRes.data as SimulationSettingsRow,
-        isAdmin,
+        canPersistSimHeal,
       );
       rpCalendarCorner = formatRpCalendarShort(computeSimulationRpInstant(effective, new Date()));
     }
@@ -71,7 +72,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
                 Hopper
               </Link>
             ) : null}
-            {isAdmin ? (
+            {showStaffLink ? (
               <Link
                 href="/admin"
                 className="font-semibold text-[var(--psc-seal)] underline-offset-4 hover:underline"
