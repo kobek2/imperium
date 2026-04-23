@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavRouteButton } from "@/components/nav-route-button";
 import type { HomeCareerStats } from "@/lib/home-career-stats";
 
 function usd(n: number) {
@@ -32,12 +32,11 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
               <p className="mt-2 font-mono text-lg font-semibold tabular-nums text-[var(--psc-ink)]">
                 {usd(stats.walletBalance)}
               </p>
-              <Link
-                href="/economy"
-                className="mt-3 inline-block text-xs font-semibold text-[var(--psc-accent)] underline underline-offset-2"
-              >
-                Open economy
-              </Link>
+              <div className="mt-3">
+                <NavRouteButton href="/economy" className="px-2 py-1.5 text-xs">
+                  Open economy
+                </NavRouteButton>
+              </div>
             </>
           ) : (
             <p className="mt-2 text-sm text-[var(--psc-muted)]">
@@ -53,12 +52,11 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
           <p className="mt-2 text-lg font-semibold tabular-nums text-[var(--psc-ink)]">
             {stats.electionsWon} wins · {stats.electionsLost} losses
           </p>
-          <Link
-            href="/elections"
-            className="mt-3 inline-block text-xs font-semibold text-[var(--psc-accent)] underline underline-offset-2"
-          >
-            Elections hub
-          </Link>
+          <div className="mt-3">
+            <NavRouteButton href="/elections" className="px-2 py-1.5 text-xs">
+              Elections hub
+            </NavRouteButton>
+          </div>
         </div>
 
         <div className="bg-[var(--psc-panel)] p-5">
@@ -73,12 +71,11 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
             <span className="font-mono text-[var(--psc-ink)]">{stats.billsDeadOrVetoed}</span> dead or
             vetoed
           </p>
-          <Link
-            href="/congress"
-            className="mt-3 inline-block text-xs font-semibold text-[var(--psc-accent)] underline underline-offset-2"
-          >
-            Congress
-          </Link>
+          <div className="mt-3">
+            <NavRouteButton href="/congress" className="px-2 py-1.5 text-xs">
+              Congress
+            </NavRouteButton>
+          </div>
         </div>
       </div>
     </section>

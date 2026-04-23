@@ -6,7 +6,7 @@ import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib
  * Refreshes the Supabase session and gates the app until character onboarding is complete.
  * Must not throw — a failure here would 500 every route.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -64,7 +64,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/", request.url));
     }
   } catch (err) {
-    console.error("[middleware] failed, passing through:", err);
+    console.error("[proxy] failed, passing through:", err);
   }
 
   return supabaseResponse;

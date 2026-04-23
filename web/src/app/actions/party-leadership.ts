@@ -63,6 +63,24 @@ export async function partyRuleProposeAmendment(formData: FormData): Promise<{ o
   return { ok: true, message: "Amendment proposal is open for board vote." };
 }
 
+export async function partySetMemberCollectLevyRate(formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const party = String(formData.get("party_key") ?? "").trim();
+  const rateRaw = String(formData.get("member_collect_levy_rate") ?? "").trim();
+  if (!assertPartyKey(party)) return { ok: false, message: "Invalid party." };
+  const rate = Number(rateRaw);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 0.25) {
+    return { ok: false, message: "Levy rate must be between 0 and 0.25 (25%)." };
+  }
+  const { error } = await supabase.rpc("party_set_member_collect_levy_rate", {
+    p_party: party,
+    p_rate: rate,
+  });
+  if (error) return { ok: false, message: error.message };
+  revalidatePartyLeadership(party);
+  return { ok: true, message: "Member collect levy rate updated." };
+}
+
 export async function partyRuleCastVote(formData: FormData): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
   const party = String(formData.get("party_key") ?? "").trim();

@@ -47,6 +47,18 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error("Choose a valid party.");
   }
 
+  const { data: beforeProfile, error: beforeErr } = await supabase
+    .from("profiles")
+    .select("character_name, date_of_birth, residence_state, home_district_code, party")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (beforeErr) {
+    throw new Error(beforeErr.message);
+  }
+
+  const wasOnboardingComplete = isProfileOnboardingComplete(beforeProfile);
+
   const { error: profileError } = await supabase
     .from("profiles")
     .update({
@@ -95,13 +107,18 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error("Character record is incomplete.");
   }
 
-  try {
-    const { error: autoSeatErr } = await supabase.rpc("auto_create_seat_elections_for_onboarding");
-    if (autoSeatErr) {
-      console.warn("[saveCharacter] auto_create_seat_elections_for_onboarding:", autoSeatErr.message);
+  // Only the first time a profile crosses from "incomplete" to "complete" may auto-open seat
+  // filing races. Editing an already-registered character must not spawn new elections.
+  const isFirstOnboardingCompletion = !wasOnboardingComplete;
+  if (isFirstOnboardingCompletion) {
+    try {
+      const { error: autoSeatErr } = await supabase.rpc("auto_create_seat_elections_for_onboarding");
+      if (autoSeatErr) {
+        console.warn("[saveCharacter] auto_create_seat_elections_for_onboarding:", autoSeatErr.message);
+      }
+    } catch (e) {
+      console.warn("[saveCharacter] auto seat elections RPC failed:", e instanceof Error ? e.message : e);
     }
-  } catch (e) {
-    console.warn("[saveCharacter] auto seat elections RPC failed:", e instanceof Error ? e.message : e);
   }
 
   revalidatePath("/character");

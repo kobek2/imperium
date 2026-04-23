@@ -17,6 +17,7 @@ import {
   ECONOMY_MAX_OFFLINE_HOURS,
   PAC_LEVEL_1_COST,
 } from "@/lib/economy-config";
+import { NavRouteButton } from "@/components/nav-route-button";
 import { EconomyBlackjack } from "./economy-blackjack";
 
 type WalletRow = { balance: number; last_collected_at: string };
@@ -87,6 +88,11 @@ export function EconomyDashboard({
   myCandidacies,
   viewerId,
   treasuryPartyKey,
+  economyFrozen,
+  governmentShutdown,
+  appropriationDeadlineAt,
+  federalTaxYtd,
+  showFederalBudgetLink,
 }: {
   wallet: WalletRow | null;
   pac: PacRow;
@@ -95,6 +101,13 @@ export function EconomyDashboard({
   myCandidacies: Candidacy[];
   viewerId: string;
   treasuryPartyKey: "democrat" | "republican" | null;
+  economyFrozen: boolean;
+  governmentShutdown?: boolean;
+  appropriationDeadlineAt?: string | null;
+  /** YTD employment income and marginal tax under the active FY brackets (RPC). */
+  federalTaxYtd?: { grossInflows: number; estimatedTax: number } | null;
+  /** President / game admin — federal appropriations workspace. */
+  showFederalBudgetLink: boolean;
 }) {
   const router = useRouter();
   const [flash, setFlash] = useState<{ message: string; ok: boolean; section: FlashSection } | null>(null);
@@ -114,8 +127,67 @@ export function EconomyDashboard({
     });
   }
 
+  const freezeDisabled = economyFrozen;
+
   return (
     <div className="space-y-10">
+      {economyFrozen ? (
+        <div className="rounded border border-rose-400/80 bg-rose-50 p-4 text-sm text-rose-950">
+          <p className="font-semibold">{governmentShutdown ? "Government shutdown" : "Economy frozen"}</p>
+          <p className="mt-2 leading-relaxed">
+            {governmentShutdown ? (
+              <>
+                The annual appropriations act was not enrolled before the statutory deadline (one IRL day after the fiscal year
+                opened). Collects, purchases, and other economy debits are suspended until Congress enrolls appropriations and
+                the President signs the bill into law.
+              </>
+            ) : (
+              <>
+                The active fiscal year&apos;s federal budget must be marked <strong>submitted</strong> (after the appropriations
+                act is adopted in Congress) before wallets, gambling, PACs, and party treasury actions work. Public indicators
+                are on the National metrics page.
+              </>
+            )}{" "}
+            {showFederalBudgetLink ? (
+              <NavRouteButton
+                href="/economy/federal"
+                className="border-rose-800/50 bg-rose-50 text-rose-950 hover:bg-rose-100"
+              >
+                Open federal budget
+              </NavRouteButton>
+            ) : (
+              <NavRouteButton
+                href="/national-metrics"
+                className="border-rose-800/50 bg-rose-50 text-rose-950 hover:bg-rose-100"
+              >
+                National metrics
+              </NavRouteButton>
+            )}
+          </p>
+        </div>
+      ) : null}
+      {!economyFrozen && federalTaxYtd ? (
+        <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
+          <p className="font-semibold">Federal income tax (this fiscal year, estimate)</p>
+          <p className="mt-2 text-[var(--psc-muted)]">
+            Based on your <strong className="text-[var(--psc-ink)]">employment income</strong> credited so far (
+            <span className="font-mono">${federalTaxYtd.grossInflows.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>{" "}
+            from hourly collects) and the active year&apos;s bracket table. Final liability is settled when the year closes.
+          </p>
+          <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
+            Estimated tax due (YTD): ${federalTaxYtd.estimatedTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </p>
+        </div>
+      ) : null}
+      {!economyFrozen && appropriationDeadlineAt && !governmentShutdown ? (
+        <p className="text-xs text-[var(--psc-muted)]">
+          Appropriations deadline (IRL):{" "}
+          <span className="font-mono font-semibold text-[var(--psc-ink)]">
+            {new Date(appropriationDeadlineAt).toLocaleString()}
+          </span>
+          . If the appropriations act is not enrolled by then, the economy shuts down until it passes.
+        </p>
+      ) : null}
       <section className="grid gap-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 sm:grid-cols-2">
         <div className="sm:col-span-2">{sectionFlash(flash, "balance")}</div>
         <div>
@@ -139,7 +211,7 @@ export function EconomyDashboard({
           ) : null}
           <button
             type="button"
-            disabled={pending || !collectGate.ready}
+            disabled={pending || !collectGate.ready || freezeDisabled}
             onClick={() => run("balance", "collect", collectEconomyIncome)}
             className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white disabled:opacity-60"
           >
@@ -148,7 +220,7 @@ export function EconomyDashboard({
         </div>
       </section>
 
-      <EconomyBlackjack />
+      <EconomyBlackjack economyFrozen={freezeDisabled} />
 
       <section className="space-y-6 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         {sectionFlash(flash, "ads")}
@@ -212,7 +284,7 @@ export function EconomyDashboard({
           </div>
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || freezeDisabled}
             className="w-full rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-60 sm:w-auto sm:min-w-[12rem]"
           >
             Purchase TV ads
@@ -241,7 +313,7 @@ export function EconomyDashboard({
             </label>
             <button
               type="submit"
-              disabled={pending || ads < 1}
+              disabled={pending || ads < 1 || freezeDisabled}
               className="justify-self-start rounded border border-[var(--psc-border)] px-4 py-2 text-xs font-semibold uppercase disabled:opacity-60"
             >
               Use ad (+{CAMPAIGN_AD_POINTS} pt)
@@ -294,7 +366,7 @@ export function EconomyDashboard({
             </label>
             <button
               type="submit"
-              disabled={pending}
+              disabled={pending || freezeDisabled}
               className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))] disabled:opacity-60"
             >
               Transfer
@@ -330,7 +402,7 @@ export function EconomyDashboard({
               </label>
               <button
                 type="submit"
-                disabled={pending}
+                disabled={pending || freezeDisabled}
                 className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))] disabled:opacity-60"
               >
                 Deposit to party
@@ -350,7 +422,7 @@ export function EconomyDashboard({
         ) : (
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || freezeDisabled}
             onClick={() => run("pac", "pac", buyPac)}
             className="rounded border border-[var(--psc-accent)] bg-[var(--psc-accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--psc-ink)] disabled:opacity-60"
           >
@@ -360,7 +432,7 @@ export function EconomyDashboard({
         {pac && pac.level < 3 ? (
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || freezeDisabled}
             onClick={() => run("pac", "up", upgradePac)}
             className="ml-0 rounded border border-[var(--psc-border)] px-4 py-2 text-sm font-semibold disabled:opacity-60 sm:ml-2"
           >

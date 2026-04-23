@@ -37,7 +37,7 @@ export default async function OvalPage() {
   const { data: desk } = await supabase
     .from("bills")
     .select(
-      "id, title, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
+      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
     )
     .eq("status", "oval")
     .order("created_at", { ascending: false });

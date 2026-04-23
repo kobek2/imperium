@@ -20,13 +20,19 @@ export async function collectEconomyIncome(): Promise<{ ok: boolean; message: st
   const { data, error } = await supabase.rpc("economy_collect_income", { p_body: {} });
   if (error) return { ok: false, message: error.message };
   const paid = Number((data as { paid?: number })?.paid ?? 0);
+  const partyLevy = Number((data as { party_levy?: number })?.party_levy ?? 0);
   revalidateEconomy();
+  const base =
+    paid > 0
+      ? `Collected $${paid.toLocaleString()} (up to ${ECONOMY_MAX_OFFLINE_HOURS}h).`
+      : "Nothing to collect yet — the timer above shows when the next payout is available.";
+  const partyNote =
+    partyLevy > 0
+      ? ` Party salary levy to treasury: $${partyLevy.toLocaleString(undefined, { maximumFractionDigits: 0 })} (withheld automatically).`
+      : "";
   return {
     ok: true,
-    message:
-      paid > 0
-        ? `Collected $${paid.toLocaleString()} (up to ${ECONOMY_MAX_OFFLINE_HOURS}h).`
-        : "Nothing to collect yet — the timer above shows when the next payout is available.",
+    message: base + partyNote,
   };
 }
 

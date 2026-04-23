@@ -411,7 +411,11 @@ function EnactedLawsSection({ title, laws }: { title: string; laws: LawEntry[] }
           return (
             <li key={law.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-[var(--psc-ink)]">{law.title}</p>
+                <p className="text-sm font-semibold text-[var(--psc-ink)]">
+                  <Link href={`/bill/${law.id}`} className="hover:underline">
+                    {law.title}
+                  </Link>
+                </p>
                 <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
                   Authored by{" "}
                   {authorHref ? (

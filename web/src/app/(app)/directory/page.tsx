@@ -4,11 +4,15 @@ import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-role
 import { tryCreateClient } from "@/lib/supabase/server";
 import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
 import type { DirectoryHolder } from "@/lib/directory-types";
+import { getIsAdmin } from "@/lib/is-admin";
+import { isPresident } from "@/lib/president";
 import {
   HierarchyTabs,
   type DirectoryTab,
   type LawEntry,
 } from "./hierarchy-tabs";
+import { DirectoryHashScroll } from "./directory-hash-scroll";
+import { DirectoryMetricsEntry } from "./directory-metrics-entry";
 
 /**
  * Each tab is a branch/chamber of government. Sections inside a tab render either as a
@@ -118,7 +122,7 @@ export default async function DirectoryPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: grants }, { data: profiles }, { data: lawBills }] = await Promise.all([
+  const [{ data: grants }, { data: profiles }, { data: lawBills }, pres, isAdmin] = await Promise.all([
     supabase.from("government_role_grants").select("user_id, role_key"),
     supabase
       .from("profiles")
@@ -130,6 +134,8 @@ export default async function DirectoryPage() {
       .select("id, title, originating_chamber, created_at, signed_at, author_id")
       .eq("status", "law")
       .order("signed_at", { ascending: false, nullsFirst: false }),
+    isPresident(supabase, user.id),
+    getIsAdmin(),
   ]);
 
   const lawBillRows = (lawBills ?? []) as Array<{
@@ -284,5 +290,11 @@ export default async function DirectoryPage() {
     }),
   }));
 
-  return <HierarchyTabs tabs={tabs} />;
+  return (
+    <div className="space-y-10">
+      <DirectoryHashScroll />
+      <DirectoryMetricsEntry showFederalBudget={pres || isAdmin} />
+      <HierarchyTabs tabs={tabs} />
+    </div>
+  );
 }

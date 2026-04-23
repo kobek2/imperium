@@ -9,22 +9,33 @@ import {
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { SignOut } from "@/components/sign-out";
 
-const links = [
-  { href: "/", label: "Home" },
-  { href: "/character", label: "Character" },
-  { href: "/economy", label: "Economy" },
-  { href: "/parties", label: "Parties" },
-  { href: "/elections", label: "Elections" },
-  { href: "/congress", label: "Congress" },
-  { href: "/oval", label: "Oval Office" },
-  { href: "/directory", label: "Directory" },
-];
-
 export async function AppChrome({ children }: { children: React.ReactNode }) {
   const supabase = await tryCreateClient();
   const user = supabase
     ? (await supabase.auth.getUser()).data.user
     : null;
+
+  let partyNavHref = "/parties";
+  if (supabase && user) {
+    const { data: partyRow } = await supabase.from("profiles").select("party").eq("id", user.id).maybeSingle();
+    const p = String((partyRow as { party?: string | null } | null)?.party ?? "")
+      .trim()
+      .toLowerCase();
+    if (p === "democrat" || p === "republican") {
+      partyNavHref = `/parties/${p}`;
+    }
+  }
+
+  const links = [
+    { href: "/", label: "Home" },
+    { href: "/character", label: "Character" },
+    { href: "/economy", label: "Economy" },
+    { href: partyNavHref, label: "Party" },
+    { href: "/elections", label: "Elections" },
+    { href: "/congress", label: "Congress" },
+    { href: "/oval", label: "Oval Office" },
+    { href: "/directory", label: "Directory" },
+  ];
 
   let showStaffLink = false;
   let rpCalendarCorner: string | null = null;

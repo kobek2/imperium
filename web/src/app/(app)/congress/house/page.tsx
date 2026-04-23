@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { submitBill } from "@/app/actions/bills";
+import { FileBillForm } from "../file-bill-form";
 import {
   canFileFederalLegislation,
   canFileLegislationInChamber,
 } from "@/lib/legislative-eligibility";
 import { CongressDocketSection } from "../congress-docket-section";
-import { loadCongressDocket } from "../load-congress-docket";
+import { filterBillsForHouseDocket, loadCongressDocket } from "../load-congress-docket";
 
 export default async function CongressHousePage() {
   const supabase = await tryCreateClient();
@@ -28,7 +28,7 @@ export default async function CongressHousePage() {
   const { billList, votesByBill, voterById, roleKeys, leadershipSessions, isRunningMate, canBreakSenateTie } =
     docket;
 
-  const houseBills = billList.filter((b) => b.originating_chamber === "house");
+  const houseBills = filterBillsForHouseDocket(billList);
   const canFile = canFileFederalLegislation(roleKeys);
   const showHouseFiling = canFileLegislationInChamber(roleKeys, "house");
   const canFileSenateOnly =
@@ -54,10 +54,9 @@ export default async function CongressHousePage() {
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-sm">
         <h2 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">House of Representatives</h2>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          House-originated bills: leadership has <strong className="text-[var(--psc-ink)]">12 hours</strong> to schedule
-          from the hopper; if scheduled, the House has{" "}
-          <strong className="text-[var(--psc-ink)]">24 hours</strong> to vote before the bill moves on. Other chambers
-          still act in sequence — cards show both House and Senate tallies when relevant.
+          House-originated bills: leadership reviews filings, places them on the docket, then opens a floor vote with a
+          chosen duration. Other chambers still act in sequence — cards show both House and Senate tallies when
+          relevant.
         </p>
         {observeHouse ? (
           <p className="mt-4 rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
@@ -98,32 +97,7 @@ export default async function CongressHousePage() {
         {showHouseFiling ? (
           <>
             <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the House.</p>
-            <form action={submitBill} className="mt-4 grid gap-4 md:grid-cols-2">
-              <input type="hidden" name="originating_chamber" value="house" />
-              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                Title
-                <input
-                  name="title"
-                  required
-                  className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                Markdown body
-                <textarea
-                  name="content_md"
-                  rows={6}
-                  required
-                  className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-                />
-              </label>
-            <button
-              type="submit"
-              className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
-            >
-              File House bill
-            </button>
-            </form>
+            <FileBillForm originatingChamber="house" />
           </>
         ) : (
           <div className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
@@ -151,7 +125,7 @@ export default async function CongressHousePage() {
       <CongressDocketSection
         sectionId="house-docket"
         heading="House docket"
-        subheading="All active measures that originated in the House."
+        subheading="Measures filed in the House and any bill currently on the House floor (including Senate-originated measures after they clear the Senate)."
         shellClassName="border-[var(--psc-border)] bg-white"
         headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         bills={houseBills}

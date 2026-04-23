@@ -18,6 +18,24 @@ export type CongressDocketPayload = {
   canBreakSenateTie: boolean;
 };
 
+/** Bills listed under /congress/house: House filing pipeline + anything on the House floor (any origin). */
+export function filterBillsForHouseDocket(bills: BillForCard[]): BillForCard[] {
+  return bills.filter((b) => {
+    if (b.status === "house_floor") return true;
+    if (b.status === "senate_floor") return false;
+    return b.originating_chamber === "house";
+  });
+}
+
+/** Bills listed under /congress/senate: Senate filing pipeline + anything on the Senate floor (any origin). */
+export function filterBillsForSenateDocket(bills: BillForCard[]): BillForCard[] {
+  return bills.filter((b) => {
+    if (b.status === "senate_floor") return true;
+    if (b.status === "house_floor") return false;
+    return b.originating_chamber === "senate";
+  });
+}
+
 export async function loadCongressDocket(supabase: SupabaseClient, userId: string): Promise<CongressDocketPayload> {
   const { data: profile } = await supabase
     .from("profiles")
@@ -31,7 +49,7 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
     supabase
       .from("bills")
       .select(
-        "id, title, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
+        "id, title, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
       .neq("status", "dead")
       .order("created_at", { ascending: false }),

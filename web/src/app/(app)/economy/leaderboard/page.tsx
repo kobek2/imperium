@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { NavRouteButton } from "@/components/nav-route-button";
 import { tryCreateClient } from "@/lib/supabase/server";
 
 export default async function EconomyLeaderboardPage() {
@@ -70,9 +70,7 @@ export default async function EconomyLeaderboardPage() {
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy leaderboard</h1>
           <p className="mt-1 text-sm text-[var(--psc-muted)]">Top wallet balances (public to members).</p>
         </div>
-        <Link href="/economy" className="text-sm font-semibold text-[var(--psc-accent)] underline">
-          ← Economy hub
-        </Link>
+        <NavRouteButton href="/economy">Economy hub</NavRouteButton>
       </header>
 
       <ol className="divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]">

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
+import type { BillChamber } from "@/lib/bill-types";
 
 export type PartyCounts = {
   democrat: number;
@@ -153,4 +154,14 @@ export async function fetchCongressOverviewSnapshot(
     houseLeaders: slot(HOUSE_LEADER_KEYS),
     senateLeaders: slot(SENATE_LEADER_KEYS),
   };
+}
+
+/** Distinct members counted for chamber composition (same basis as the Congress overview page). */
+export async function countChamberVotingMembers(
+  supabase: SupabaseClient,
+  chamber: BillChamber,
+): Promise<number> {
+  const snap = await fetchCongressOverviewSnapshot(supabase);
+  if (!snap) return 0;
+  return chamber === "house" ? snap.house.total : snap.senate.total;
 }

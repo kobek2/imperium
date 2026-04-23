@@ -182,6 +182,13 @@ export default async function LeadershipSessionPage({
           chamber-wide ballot; Majority and Minority leader / whip are caucus-scoped. Ties break on
           seniority (earliest {session.chamber === "house" ? "House" : "Senate"} role grant).
         </p>
+        {!isOpen ? (
+          <p className="max-w-3xl rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
+            <strong className="text-[var(--psc-ink)]">Election results:</strong> {voteRows.length} total vote
+            {voteRows.length === 1 ? "" : "s"} cast across all roles. Each candidate card shows raw votes and their
+            percentage of ballots cast <em>for that role</em> (not the whole chamber unless the role is chamber-wide).
+          </p>
+        ) : null}
         {!inChamber ? (
           <p className="rounded border border-amber-700 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             You can watch this session, but only members of the {session.chamber} may file or vote.

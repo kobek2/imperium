@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { submitBill } from "@/app/actions/bills";
+import { FileBillForm } from "../file-bill-form";
 import {
   canFileFederalLegislation,
   canFileLegislationInChamber,
 } from "@/lib/legislative-eligibility";
 import { CongressDocketSection } from "../congress-docket-section";
-import { loadCongressDocket } from "../load-congress-docket";
+import { filterBillsForSenateDocket, loadCongressDocket } from "../load-congress-docket";
 
 export default async function CongressSenatePage() {
   const supabase = await tryCreateClient();
@@ -28,7 +28,7 @@ export default async function CongressSenatePage() {
   const { billList, votesByBill, voterById, roleKeys, leadershipSessions, isRunningMate, canBreakSenateTie } =
     docket;
 
-  const senateBills = billList.filter((b) => b.originating_chamber === "senate");
+  const senateBills = filterBillsForSenateDocket(billList);
   const canFile = canFileFederalLegislation(roleKeys);
   const showSenateFiling = canFileLegislationInChamber(roleKeys, "senate");
   const canFileHouseOnly =
@@ -54,8 +54,8 @@ export default async function CongressSenatePage() {
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-sm">
         <h2 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">United States Senate</h2>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Senate-originated bills: same hopper and leadership deadlines apply. When a bill is on the Senate floor,
-          members vote here; Vice Presidential tie-breaks follow the usual rules shown on each bill.
+          Senate-originated bills follow review → docket → floor vote. When a bill is on the Senate floor, members vote
+          here; Vice Presidential tie-breaks follow the usual rules shown on each bill.
         </p>
         {observeSenate ? (
           <p className="mt-4 rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
@@ -96,32 +96,7 @@ export default async function CongressSenatePage() {
         {showSenateFiling ? (
           <>
             <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the Senate.</p>
-            <form action={submitBill} className="mt-4 grid gap-4 md:grid-cols-2">
-              <input type="hidden" name="originating_chamber" value="senate" />
-              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                Title
-                <input
-                  name="title"
-                  required
-                  className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                Markdown body
-                <textarea
-                  name="content_md"
-                  rows={6}
-                  required
-                  className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-                />
-              </label>
-            <button
-              type="submit"
-              className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
-            >
-              File Senate bill
-            </button>
-            </form>
+            <FileBillForm originatingChamber="senate" />
           </>
         ) : (
           <div className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
@@ -149,7 +124,7 @@ export default async function CongressSenatePage() {
       <CongressDocketSection
         sectionId="senate-docket"
         heading="Senate docket"
-        subheading="All active measures that originated in the Senate."
+        subheading="Measures filed in the Senate and any bill currently on the Senate floor (including House-originated measures after they clear the House)."
         shellClassName="border-[var(--psc-border)] bg-white"
         headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         bills={senateBills}

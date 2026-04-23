@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { castBillVote } from "@/app/actions/bills";
-import { BillMarkdownBody } from "@/components/bill-markdown-body";
+import { BillBody } from "@/components/bill-body";
+import { BillVoteCountdown } from "@/components/bill-vote-countdown";
 import { SubmitButton } from "@/components/submit-button";
+import { billStatusDisplay } from "@/lib/bill-display-status";
 
 export type VoteKind = "yea" | "nay" | "abstain";
 export type BillVote = {
@@ -20,7 +22,9 @@ export type VoterProfile = {
 export type BillForCard = {
   id: string;
   title: string;
-  /** Markdown body (nomination details, bill text, etc.) — shown on cards for reading before votes. */
+  /** Rich HTML from the bill editor when present. */
+  content_html?: string | null;
+  /** Markdown / plain (legacy bills, nominations). */
   content_md?: string | null;
   status: string;
   originating_chamber: "house" | "senate";
@@ -35,12 +39,6 @@ const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain"] as const;
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
   return new Date(ts).toLocaleString();
-}
-
-/** Human-readable status line for the card kicker (display is uppercased via CSS). */
-function billStatusLabel(status: string): string {
-  if (status === "hopper") return "Awaiting leadership decision";
-  return status.replaceAll("_", " ");
 }
 
 function partyDotClass(p: string | null | undefined) {
@@ -298,18 +296,27 @@ export function BillCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            {billStatusLabel(bill.status)}
+            {billStatusDisplay(bill.status)}
           </p>
-          <h3 className="text-lg font-semibold text-[var(--psc-ink)]">{bill.title}</h3>
+          <h3 className="text-lg font-semibold text-[var(--psc-ink)]">
+            <Link href={`/bill/${bill.id}`} className="hover:underline">
+              {bill.title}
+            </Link>
+          </h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Filed {fmt(bill.created_at)} · Originating chamber:{" "}
             <span className="font-semibold text-[var(--psc-ink)]">
               {bill.originating_chamber === "house" ? "House" : "Senate"}
             </span>
           </p>
-          {bill.status === "hopper" && bill.leadership_deadline_at ? (
+          {bill.status === "submitted" && bill.leadership_deadline_at ? (
             <p className="mt-1 text-xs font-semibold text-amber-900">
-              Leadership deadline: {fmt(bill.leadership_deadline_at)}
+              Leadership review deadline: {fmt(bill.leadership_deadline_at)}
+            </p>
+          ) : null}
+          {bill.status === "on_docket" ? (
+            <p className="mt-1 text-xs font-semibold text-[var(--psc-ink)]">
+              On the leadership docket — floor vote has not been opened yet.
             </p>
           ) : null}
           {bill.vp_tie_break_pending && bill.status === "senate_floor" ? (
@@ -320,14 +327,12 @@ export function BillCard({
           ) : null}
           {(bill.status === "house_floor" || bill.status === "senate_floor") &&
           bill.chamber_vote_deadline_at ? (
-            <p className="mt-1 text-xs font-semibold text-green-900">
-              Floor vote closes: {fmt(bill.chamber_vote_deadline_at)}
-            </p>
+            <BillVoteCountdown endsAtIso={bill.chamber_vote_deadline_at} />
           ) : null}
         </div>
       </div>
 
-      {bill.content_md?.trim() ? <BillMarkdownBody content={bill.content_md} /> : null}
+      <BillBody content_html={bill.content_html} content_md={bill.content_md} />
 
       {houseVotes.length > 0 ||
       senateVotes.length > 0 ||

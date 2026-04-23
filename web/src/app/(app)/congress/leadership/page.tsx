@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { tryCreateClient } from "@/lib/supabase/server";
-import { leadershipReviewBill } from "@/app/actions/bills";
+import { leadershipOpenFloorVote, leadershipReviewBill } from "@/app/actions/bills";
 import { SubmitButton } from "@/components/submit-button";
+import { BillBody } from "@/components/bill-body";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canAcceptRejectHopperForChamber } from "@/lib/role-capabilities";
 
@@ -11,7 +12,18 @@ function fmt(ts: string | null) {
   return new Date(ts).toLocaleString();
 }
 
-export default async function HopperPage() {
+type BillRow = {
+  id: string;
+  title: string;
+  content_md: string | null;
+  content_html: string | null;
+  originating_chamber: "house" | "senate";
+  created_at: string;
+  leadership_deadline_at: string | null;
+  author_id: string;
+};
+
+export default async function LeadershipPage() {
   const supabase = await tryCreateClient();
   if (!supabase) redirect("/");
 
@@ -45,45 +57,43 @@ export default async function HopperPage() {
     (s) => userChambers.length === 0 || userChambers.includes(s.chamber),
   );
 
-  type HopperRow = {
-    id: string;
-    title: string;
-    content_md: string;
-    originating_chamber: "house" | "senate";
-    created_at: string;
-    leadership_deadline_at: string | null;
-    author_id: string;
-  };
-  let queue: HopperRow[] | null = null;
+  const selectCols =
+    "id, title, content_md, content_html, originating_chamber, created_at, leadership_deadline_at, author_id";
+
+  let submitted: BillRow[] = [];
+  let onDocket: BillRow[] = [];
   let schemaWarning: string | null = null;
+
   {
-    const primary = await supabase
+    const sub = await supabase
       .from("bills")
-      .select(
-        "id, title, content_md, originating_chamber, created_at, leadership_deadline_at, author_id",
-      )
-      .eq("status", "hopper")
+      .select(selectCols)
+      .eq("status", "submitted")
       .order("created_at", { ascending: true });
-    if (primary.error) {
-      const msg = (primary.error.message ?? "").toLowerCase();
-      if (msg.includes("leadership_deadline_at") || msg.includes("chamber_vote_deadline_at")) {
+    const dock = await supabase
+      .from("bills")
+      .select(selectCols)
+      .eq("status", "on_docket")
+      .order("created_at", { ascending: true });
+
+    if (sub.error || dock.error) {
+      const msg = (sub.error?.message ?? dock.error?.message ?? "").toLowerCase();
+      if (msg.includes("submitted") || msg.includes("on_docket") || msg.includes("content_html")) {
         schemaWarning =
-          "bills.leadership_deadline_at is missing. Run: alter table public.bills add column if not exists leadership_deadline_at timestamptz, add column if not exists chamber_vote_deadline_at timestamptz;";
-        const retry = await supabase
-          .from("bills")
-          .select("id, title, content_md, originating_chamber, created_at, author_id")
-          .eq("status", "hopper")
-          .order("created_at", { ascending: true });
-        queue = (retry.data ?? []).map((r) => ({ ...r, leadership_deadline_at: null })) as HopperRow[];
+          "Run the latest database migrations (bill status `submitted` / `on_docket`, optional `content_html`).";
+      } else if (msg.includes("leadership_deadline_at") || msg.includes("chamber_vote_deadline_at")) {
+        schemaWarning =
+          "bills.leadership_deadline_at is missing. Run the timer columns migration.";
       } else {
-        throw new Error(primary.error.message);
+        throw new Error(sub.error?.message ?? dock.error?.message);
       }
     } else {
-      queue = (primary.data ?? []) as HopperRow[];
+      submitted = (sub.data ?? []) as BillRow[];
+      onDocket = (dock.data ?? []) as BillRow[];
     }
   }
 
-  const allHopper = queue ?? [];
+  const hasQueue = submitted.length > 0 || onDocket.length > 0;
 
   return (
     <div className="space-y-8">
@@ -91,18 +101,19 @@ export default async function HopperPage() {
         ← Congress overview
       </Link>
       <header>
-        <h1 className="text-3xl font-semibold">Hopper</h1>
+        <h1 className="text-3xl font-semibold">Leadership</h1>
         <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
-          All filed legislation appears here while it awaits a decision. The <strong className="text-[var(--psc-ink)]">Speaker</strong>{" "}
-          accepts or rejects House-originated bills; the <strong className="text-[var(--psc-ink)]">Senate Majority Leader</strong> does
-          the same for Senate bills. Accept sends a measure to the chamber floor for 24 hours; reject or no action before the
-          deadline drops it.
+          <strong className="text-[var(--psc-ink)]">Review</strong> newly filed bills, then{" "}
+          <strong className="text-[var(--psc-ink)]">place them on the docket</strong>. When you are ready,{" "}
+          <strong className="text-[var(--psc-ink)]">open the floor vote</strong> and choose how long voting
+          stays open. The <strong className="text-[var(--psc-ink)]">Speaker</strong> acts for House bills; the{" "}
+          <strong className="text-[var(--psc-ink)]">Senate Majority Leader</strong> acts for Senate bills.
         </p>
       </header>
 
       {schemaWarning ? (
         <div className="border border-amber-700 bg-amber-50 p-4 text-xs text-amber-900">
-          <strong>Schema out of date:</strong> {schemaWarning}
+          <strong>Schema:</strong> {schemaWarning}
         </div>
       ) : null}
 
@@ -121,9 +132,7 @@ export default async function HopperPage() {
                   <p className="text-sm font-semibold text-[var(--psc-ink)]">
                     {s.chamber === "house" ? "House" : "Senate"} leadership
                   </p>
-                  <p className="text-xs text-[var(--psc-muted)]">
-                    Closes {new Date(s.closes_at).toLocaleString()}
-                  </p>
+                  <p className="text-xs text-[var(--psc-muted)]">Closes {new Date(s.closes_at).toLocaleString()}</p>
                 </div>
                 <Link
                   href={`/congress/leadership/session/${s.id}`}
@@ -137,62 +146,142 @@ export default async function HopperPage() {
         </section>
       ) : null}
 
-      {!allHopper.length && !visibleSessions.length ? (
-        <p className="text-sm text-[var(--psc-muted)]">No bills in the hopper.</p>
-      ) : !allHopper.length ? null : (
-        <ul className="space-y-6">
-          {allHopper.map((bill) => {
-            const canAct =
-              (bill.originating_chamber === "house" && canActHouse) ||
-              (bill.originating_chamber === "senate" && canActSenate);
-            return (
-              <li
-                key={bill.id}
-                className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
-              >
-                <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
-                  {bill.originating_chamber === "house" ? "House" : "Senate"} · Awaiting leadership decision · deadline{" "}
-                  {fmt(bill.leadership_deadline_at)}
-                </p>
-                <h2 className="mt-1 text-lg font-semibold">{bill.title}</h2>
-                <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-[var(--psc-border)] bg-white p-3 text-xs">
-                  {bill.content_md}
-                </pre>
-                {canAct ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <form action={leadershipReviewBill}>
-                      <input type="hidden" name="bill_id" value={bill.id} />
-                      <input type="hidden" name="decision" value="accept" />
-                      <SubmitButton
-                        pendingLabel="Accepting…"
-                        className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
-                      >
-                        Accept → floor (24h)
-                      </SubmitButton>
-                    </form>
-                    <form action={leadershipReviewBill}>
-                      <input type="hidden" name="bill_id" value={bill.id} />
-                      <input type="hidden" name="decision" value="reject" />
-                      <SubmitButton
-                        pendingLabel="Rejecting…"
-                        className="border border-red-800 bg-red-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
-                      >
-                        Reject
-                      </SubmitButton>
-                    </form>
-                  </div>
-                ) : (
-                  <p className="mt-4 text-xs text-[var(--psc-muted)]">
-                    {bill.originating_chamber === "house"
-                      ? "Only the Speaker may accept or reject House bills in the hopper."
-                      : "Only the Senate Majority Leader may accept or reject Senate bills in the hopper."}
+      {!hasQueue && !visibleSessions.length ? (
+        <p className="text-sm text-[var(--psc-muted)]">No bills awaiting leadership action.</p>
+      ) : null}
+
+      {submitted.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">1 · Leadership review</h2>
+          <p className="text-xs text-[var(--psc-muted)]">
+            Accept to move a bill onto the chamber docket (not yet in voting). Reject to drop it.
+          </p>
+          <ul className="space-y-6">
+            {submitted.map((bill) => {
+              const canAct =
+                (bill.originating_chamber === "house" && canActHouse) ||
+                (bill.originating_chamber === "senate" && canActSenate);
+              return (
+                <li
+                  key={bill.id}
+                  className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
+                >
+                  <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
+                    {bill.originating_chamber === "house" ? "House" : "Senate"} · Submitted · deadline{" "}
+                    {fmt(bill.leadership_deadline_at)}
                   </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <h3 className="mt-1 text-lg font-semibold">
+                    <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">
+                      {bill.title}
+                    </Link>
+                  </h3>
+                  <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+                  {canAct ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <form action={leadershipReviewBill}>
+                        <input type="hidden" name="bill_id" value={bill.id} />
+                        <input type="hidden" name="decision" value="accept" />
+                        <SubmitButton
+                          pendingLabel="Accepting…"
+                          className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+                        >
+                          Accept → docket
+                        </SubmitButton>
+                      </form>
+                      <form action={leadershipReviewBill}>
+                        <input type="hidden" name="bill_id" value={bill.id} />
+                        <input type="hidden" name="decision" value="reject" />
+                        <SubmitButton
+                          pendingLabel="Rejecting…"
+                          className="border border-red-800 bg-red-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+                        >
+                          Reject
+                        </SubmitButton>
+                      </form>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-xs text-[var(--psc-muted)]">
+                      {bill.originating_chamber === "house"
+                        ? "Only the Speaker may accept or reject House bills in review."
+                        : "Only the Senate Majority Leader may accept or reject Senate bills in review."}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {onDocket.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">2 · On docket — open voting</h2>
+          <p className="text-xs text-[var(--psc-muted)]">
+            When the chamber is ready, start the floor vote and set how long it stays open.
+          </p>
+          <ul className="space-y-6">
+            {onDocket.map((bill) => {
+              const canAct =
+                (bill.originating_chamber === "house" && canActHouse) ||
+                (bill.originating_chamber === "senate" && canActSenate);
+              return (
+                <li
+                  key={bill.id}
+                  className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
+                >
+                  <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
+                    {bill.originating_chamber === "house" ? "House" : "Senate"} · On docket
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">
+                      {bill.title}
+                    </Link>
+                  </h3>
+                  <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+                  {canAct ? (
+                    <form action={leadershipOpenFloorVote} className="mt-4 flex flex-wrap items-end gap-3">
+                      <input type="hidden" name="bill_id" value={bill.id} />
+                      <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
+                        Duration
+                        <select
+                          name="duration_preset"
+                          className="border border-[var(--psc-border)] bg-white px-2 py-2 text-sm font-normal"
+                          defaultValue="24"
+                        >
+                          <option value="24">24 hours</option>
+                          <option value="48">48 hours</option>
+                          <option value="72">72 hours</option>
+                          <option value="custom">Custom (hours)</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
+                        Custom hours
+                        <input
+                          name="duration_custom_hours"
+                          placeholder="e.g. 36"
+                          className="w-28 border border-[var(--psc-border)] bg-white px-2 py-2 text-sm font-normal"
+                        />
+                      </label>
+                      <SubmitButton
+                        pendingLabel="Opening…"
+                        className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:brightness-110"
+                      >
+                        Open floor vote
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <p className="mt-4 text-xs text-[var(--psc-muted)]">
+                      {bill.originating_chamber === "house"
+                        ? "Only the Speaker may open a House floor vote."
+                        : "Only the Senate Majority Leader may open a Senate floor vote."}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

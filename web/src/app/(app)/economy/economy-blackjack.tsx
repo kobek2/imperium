@@ -45,7 +45,7 @@ function Hand({ cards, hideHole }: { cards: number[]; hideHole?: boolean }) {
   );
 }
 
-export function EconomyBlackjack() {
+export function EconomyBlackjack({ economyFrozen = false }: { economyFrozen?: boolean }) {
   const router = useRouter();
   const [flash, setFlash] = useState<{ message: string; ok: boolean } | null>(null);
   const [table, setTable] = useState<BlackjackTableState | null>(null);
@@ -90,6 +90,11 @@ export function EconomyBlackjack() {
         Six-deck shoe, dealer stands on all 17s, blackjack pays 3:2, one hand at a time. Stakes{" "}
         {GAMBLE_BLACKJACK_MIN.toLocaleString()}–{GAMBLE_BLACKJACK_MAX.toLocaleString()}.
       </p>
+      {economyFrozen ? (
+        <p className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950">
+          Economy is frozen until the federal budget is marked submitted after congressional adoption.
+        </p>
+      ) : null}
 
       {active && table ? (
         <div className="space-y-4 text-sm">
@@ -118,7 +123,7 @@ export function EconomyBlackjack() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || economyFrozen}
               onClick={() => {
                 const fd = new FormData();
                 fd.set("action", "hit");
@@ -136,7 +141,7 @@ export function EconomyBlackjack() {
             </button>
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || economyFrozen}
               onClick={() => {
                 const fd = new FormData();
                 fd.set("action", "stand");
@@ -167,7 +172,7 @@ export function EconomyBlackjack() {
           </div>
           <button
             type="button"
-            disabled={pending}
+            disabled={pending || economyFrozen}
             onClick={() => {
               setTable(null);
               setFlash(null);
@@ -207,7 +212,7 @@ export function EconomyBlackjack() {
           </label>
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || economyFrozen}
             className="rounded border border-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase disabled:opacity-60"
           >
             Deal

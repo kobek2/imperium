@@ -31,13 +31,18 @@ export default async function CongressOverviewPage() {
   const isRep = roleKeys.includes("representative");
   const isSen = roleKeys.includes("senator");
 
-  const [{ data: leadershipSessions }, snapshot, { data: hopperBills }] = await Promise.all([
+  const [{ data: leadershipSessions }, snapshot, { data: reviewBills }, { data: docketBills }] = await Promise.all([
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     fetchCongressOverviewSnapshot(supabase),
     supabase
       .from("bills")
       .select("id, title, originating_chamber, leadership_deadline_at")
-      .eq("status", "hopper")
+      .eq("status", "submitted")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("bills")
+      .select("id, title, originating_chamber")
+      .eq("status", "on_docket")
       .order("created_at", { ascending: true }),
   ]);
 
@@ -45,11 +50,17 @@ export default async function CongressOverviewPage() {
   const openHouseSessions = sessions.filter((s) => s.chamber === "house");
   const openSenateSessions = sessions.filter((s) => s.chamber === "senate");
 
-  const hopperRows = (hopperBills ?? []) as Array<{
+  const reviewRows = (reviewBills ?? []) as Array<{
     id: string;
     title: string;
     originating_chamber: "house" | "senate";
     leadership_deadline_at: string | null;
+  }>;
+
+  const docketRows = (docketBills ?? []) as Array<{
+    id: string;
+    title: string;
+    originating_chamber: "house" | "senate";
   }>;
 
   if (!snapshot) {
@@ -66,29 +77,34 @@ export default async function CongressOverviewPage() {
         <h1 className="text-3xl font-semibold text-[var(--psc-ink)]">Congress overview</h1>
       </header>
 
-      {hopperRows.length > 0 ? (
+      {reviewRows.length > 0 ? (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Awaiting leadership decision</h2>
+            <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Leadership review</h2>
             <Link
               href="/congress/leadership"
               className="text-xs font-semibold text-[var(--psc-accent)] underline"
             >
-              Open hopper →
+              Open leadership desk →
             </Link>
           </div>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Measures filed but not yet accepted to the floor. Same list appears on the House and Senate tabs with full text.
+            Newly filed measures awaiting Speaker / Majority Leader action before they go on the docket.
           </p>
           <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
-            {hopperRows.map((b) => (
+            {reviewRows.map((b) => (
               <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[var(--psc-ink)]">{b.title}</p>
+                  <Link
+                    href={`/bill/${b.id}`}
+                    className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
+                  >
+                    {b.title}
+                  </Link>
                   <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
                     {b.originating_chamber === "house" ? "House" : "Senate"}
                     {b.leadership_deadline_at
-                      ? ` · leadership deadline ${new Date(b.leadership_deadline_at).toLocaleString()}`
+                      ? ` · review deadline ${new Date(b.leadership_deadline_at).toLocaleString()}`
                       : null}
                   </p>
                 </div>
@@ -96,7 +112,41 @@ export default async function CongressOverviewPage() {
                   href={b.originating_chamber === "house" ? "/congress/house" : "/congress/senate"}
                   className="shrink-0 text-xs font-semibold text-[var(--psc-accent)] underline"
                 >
-                  View on {b.originating_chamber === "house" ? "House" : "Senate"} tab →
+                  Chamber tab →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {docketRows.length > 0 ? (
+        <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[var(--psc-ink)]">On leadership docket</h2>
+            <Link href="/congress/leadership" className="text-xs font-semibold text-[var(--psc-accent)] underline">
+              Open voting →
+            </Link>
+          </div>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            Accepted to the docket — leadership can open a floor vote when ready.
+          </p>
+          <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
+            {docketRows.map((b) => (
+              <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <Link
+                    href={`/bill/${b.id}`}
+                    className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
+                  >
+                    {b.title}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                    {b.originating_chamber === "house" ? "House" : "Senate"}
+                  </p>
+                </div>
+                <Link href={`/bill/${b.id}`} className="shrink-0 text-xs font-semibold text-[var(--psc-accent)] underline">
+                  Bill page →
                 </Link>
               </li>
             ))}

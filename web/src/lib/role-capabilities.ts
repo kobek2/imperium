@@ -69,3 +69,8 @@ export function canReviewLeadershipForChamber(roleKeys: string[], chamber: "hous
 export function canReviewAnyChamberLeadership(roleKeys: string[]): boolean {
   return canAcceptRejectHopperForChamber(roleKeys, "house") || canAcceptRejectHopperForChamber(roleKeys, "senate");
 }
+
+/** Speaker / Senate Majority Leader (and admin) may edit filed bills for that chamber. */
+export function canLeadershipEditBillContent(roleKeys: string[], chamber: "house" | "senate"): boolean {
+  return canAcceptRejectHopperForChamber(roleKeys, chamber);
+}

@@ -4,21 +4,37 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addHours } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { processBillDeadlines, resolveSenateAfterTiebreakVote } from "@/lib/bill-pipeline";
+import {
+  processBillDeadlines,
+  resolveSenateAfterTiebreakVote,
+  tryClinchFloorVoteAfterBallotChange,
+} from "@/lib/bill-pipeline";
 import { canFileFederalLegislation, canFileLegislationInChamber } from "@/lib/legislative-eligibility";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
   isActivePresidentialRunningMate,
   userCanBreakSenateTie,
 } from "@/lib/presidential-running-mate";
-import { canAcceptRejectHopperForChamber, canActAsPresident } from "@/lib/role-capabilities";
+import {
+  canAcceptRejectHopperForChamber,
+  canActAsPresident,
+  canLeadershipEditBillContent,
+} from "@/lib/role-capabilities";
+import { escapeHtmlPlain, htmlToPlainText, sanitizeBillHtml } from "@/lib/sanitize-bill-html";
 import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
+import { getIsAdmin } from "@/lib/is-admin";
+import { isPresident } from "@/lib/president";
 
 function isMissingBillTimerColumn(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
+}
+
+function isMissingVpTieColumn(message: string | undefined) {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("vp_tie_break_pending");
 }
 
 function revalidateCongressPages() {
@@ -32,9 +48,25 @@ function revalidateCongressPagesAndLeadership() {
   revalidatePath("/congress/leadership");
 }
 
+function revalidateBillPage(billId: string) {
+  revalidatePath(`/bill/${billId}`);
+}
+
 function isMissingAppointmentGrantColumn(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("granted_role_key") || m.includes("schema cache");
+}
+
+function isMissingContentHtmlColumn(message: string | undefined) {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("content_html") || m.includes("schema cache");
+}
+
+const FEDERAL_APPROPRIATIONS_TITLE_PREFIX = "Federal appropriations and revenue";
+
+function isMissingAppropriationsColumns(message: string | undefined) {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("is_federal_appropriations") || m.includes("linked_fiscal_year_id");
 }
 
 async function assertFloorVoteOpen(supabase: SupabaseClient, bill_id: string, chamber: BillChamber) {
@@ -70,10 +102,28 @@ export async function submitBill(formData: FormData): Promise<void> {
   if (!user) throw new Error("Unauthorized");
 
   const title = String(formData.get("title") ?? "").trim();
-  const content_md = String(formData.get("content_md") ?? "").trim();
+  const rawHtml = String(formData.get("content_html") ?? "").trim();
+  const content_html = rawHtml ? sanitizeBillHtml(rawHtml) : "";
+  const content_md = htmlToPlainText(content_html);
 
   if (!title || !content_md) {
     throw new Error("Title and bill text are required.");
+  }
+
+  const presEarly = await isPresident(supabase, user.id);
+  const adminEarly = await getIsAdmin();
+
+  if (title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX)) {
+    if (!presEarly && !adminEarly) {
+      throw new Error("Only the President (or an admin) may use the federal appropriations bill title.");
+    }
+  }
+
+  const federalAppropriationsFlag = String(formData.get("federal_appropriations") ?? "") === "1";
+  if (federalAppropriationsFlag) {
+    if (!presEarly && !adminEarly) {
+      throw new Error("Invalid appropriations filing flag.");
+    }
   }
 
   const { data: profile } = await supabase
@@ -129,26 +179,117 @@ export async function submitBill(formData: FormData): Promise<void> {
     return;
   }
 
-  let { error } = await supabase.from("bills").insert({
+  const { data: activeFy } = await supabase
+    .from("rp_fiscal_years")
+    .select("id, appropriation_deadline_at, appropriations_act_bill_id")
+    .eq("status", "active")
+    .maybeSingle();
+
+  const pres = presEarly;
+  const admin = adminEarly;
+
+  const wantsAppropriations =
+    federalAppropriationsFlag || title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX);
+  const needsAppropriationsGate =
+    Boolean(activeFy?.appropriation_deadline_at) && activeFy?.appropriations_act_bill_id == null;
+
+  if (needsAppropriationsGate) {
+    if (!pres && !admin) {
+      throw new Error(
+        "Until the annual federal appropriations act is enrolled for this fiscal year, only the President may introduce legislation. The first enrolled measure must be that appropriations bill (file it from the federal budget workspace).",
+      );
+    }
+    if (!wantsAppropriations || originating_chamber !== "house") {
+      throw new Error(
+        "Until the annual appropriations act is enrolled, new legislation is limited to the President's House appropriations bill. File it from the federal budget workspace.",
+      );
+    }
+  }
+
+  if (activeFy?.id && wantsAppropriations && originating_chamber === "house" && (pres || admin)) {
+    if (activeFy.appropriations_act_bill_id) {
+      throw new Error(
+        "This fiscal year's appropriations act is already enrolled. Further appropriations bills for this year are locked.",
+      );
+    }
+    const { data: pendingAppRows, error: pendErr } = await supabase
+      .from("bills")
+      .select("id, status")
+      .eq("linked_fiscal_year_id", activeFy.id)
+      .eq("is_federal_appropriations", true)
+      .limit(40);
+    if (pendErr) throw new Error(pendErr.message);
+    const terminal = new Set(["dead", "vetoed"]);
+    const hasOpenPipeline = (pendingAppRows ?? []).some(
+      (r) => !terminal.has(String((r as { status?: string }).status ?? "")),
+    );
+    if (hasOpenPipeline) {
+      throw new Error("An appropriations bill for this fiscal year is already in Congress or enrolled.");
+    }
+  }
+
+  const isFederalAppropriationsBill =
+    wantsAppropriations &&
+    originating_chamber === "house" &&
+    (pres || admin) &&
+    Boolean(activeFy?.id);
+
+  const appropriationExtras =
+    isFederalAppropriationsBill && activeFy?.id
+      ? { is_federal_appropriations: true as const, linked_fiscal_year_id: activeFy.id }
+      : {};
+
+  const baseInsert = {
     title,
     content_md,
+    content_html,
     originating_chamber,
     author_id: user.id,
     expires_at,
-    status: "hopper",
+    status: "submitted" as const,
     leadership_deadline_at,
-    chamber_vote_deadline_at: null,
-  });
+    chamber_vote_deadline_at: null as string | null,
+    ...appropriationExtras,
+  };
+
+  let { error } = await supabase.from("bills").insert(baseInsert);
 
   if (error && isMissingBillTimerColumn(error.message)) {
+    const { leadership_deadline_at: _ld, chamber_vote_deadline_at: _cv, ...minimal } = baseInsert;
+    const retry = await supabase.from("bills").insert(minimal);
+    error = retry.error;
+  }
+
+  if (error && isMissingContentHtmlColumn(error.message)) {
     const retry = await supabase.from("bills").insert({
       title,
       content_md,
       originating_chamber,
       author_id: user.id,
       expires_at,
-      status: "hopper",
+      status: "submitted",
+      leadership_deadline_at,
+      chamber_vote_deadline_at: null,
+      ...appropriationExtras,
     });
+    error = retry.error;
+    if (error && isMissingBillTimerColumn(error.message)) {
+      const retry2 = await supabase.from("bills").insert({
+        title,
+        content_md,
+        originating_chamber,
+        author_id: user.id,
+        expires_at,
+        status: "submitted",
+        ...appropriationExtras,
+      });
+      error = retry2.error;
+    }
+  }
+
+  if (error && isMissingAppropriationsColumns(error.message)) {
+    const { is_federal_appropriations: _ifa, linked_fiscal_year_id: _lf, ...withoutApp } = baseInsert;
+    const retry = await supabase.from("bills").insert(withoutApp);
     error = retry.error;
   }
 
@@ -186,7 +327,7 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
     .eq("id", bill_id)
     .maybeSingle();
 
-  if (!bill || bill.status !== "hopper") {
+  if (!bill || bill.status !== "submitted") {
     throw new Error("This bill is not awaiting leadership review.");
   }
 
@@ -210,19 +351,27 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
     }
     if (error) throw new Error(error.message);
   } else if (decision === "accept") {
-    const floorStatus = chamber === "house" ? "house_floor" : "senate_floor";
     let { error } = await supabase
       .from("bills")
       .update({
-        status: floorStatus,
+        status: "on_docket",
         leadership_deadline_at: null,
-        chamber_vote_deadline_at: addHours(new Date(), 24).toISOString(),
+        chamber_vote_deadline_at: null,
+        vp_tie_break_pending: false,
       })
       .eq("id", bill_id);
     if (error && isMissingBillTimerColumn(error.message)) {
+      const retry = await supabase.from("bills").update({ status: "on_docket" }).eq("id", bill_id);
+      error = retry.error;
+    }
+    if (error && isMissingVpTieColumn(error.message)) {
       const retry = await supabase
         .from("bills")
-        .update({ status: floorStatus })
+        .update({
+          status: "on_docket",
+          leadership_deadline_at: null,
+          chamber_vote_deadline_at: null,
+        })
         .eq("id", bill_id);
       error = retry.error;
     }
@@ -235,6 +384,175 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   revalidateCongressPagesAndLeadership();
   revalidatePath("/oval");
   revalidatePath("/directory");
+  revalidateBillPage(bill_id);
+}
+
+/** Move a bill from the leadership docket to an active floor vote with a chosen duration. */
+export async function leadershipOpenFloorVote(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const bill_id = String(formData.get("bill_id"));
+  const preset = String(formData.get("duration_preset") ?? "24").trim();
+  const customRaw = String(formData.get("duration_custom_hours") ?? "").trim();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("office_role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error("Presidential running mates may not open floor votes.");
+  }
+
+  const { data: bill } = await supabase
+    .from("bills")
+    .select("id, status, originating_chamber")
+    .eq("id", bill_id)
+    .maybeSingle();
+
+  if (!bill || bill.status !== "on_docket") {
+    throw new Error("This bill is not on the leadership docket.");
+  }
+
+  const chamber = bill.originating_chamber as BillChamber;
+  if (!canAcceptRejectHopperForChamber(roleKeys, chamber)) {
+    throw new Error(
+      chamber === "house"
+        ? "Only the Speaker may open a House floor vote."
+        : "Only the Senate Majority Leader may open a Senate floor vote.",
+    );
+  }
+
+  let hours =
+    preset === "custom" ? Number(customRaw) : Number(preset);
+  if (!Number.isFinite(hours) || hours < 1) hours = 24;
+  if (hours > 336) hours = 336;
+
+  const floorStatus = chamber === "house" ? "house_floor" : "senate_floor";
+  let { error } = await supabase
+    .from("bills")
+    .update({
+      status: floorStatus,
+      leadership_deadline_at: null,
+      chamber_vote_deadline_at: addHours(new Date(), hours).toISOString(),
+      vp_tie_break_pending: false,
+    })
+    .eq("id", bill_id);
+
+  if (error && isMissingBillTimerColumn(error.message)) {
+    const retry = await supabase.from("bills").update({ status: floorStatus }).eq("id", bill_id);
+    error = retry.error;
+  }
+  if (error && isMissingVpTieColumn(error.message)) {
+    const retry = await supabase
+      .from("bills")
+      .update({
+        status: floorStatus,
+        chamber_vote_deadline_at: addHours(new Date(), hours).toISOString(),
+      })
+      .eq("id", bill_id);
+    error = retry.error;
+  }
+  if (error) throw new Error(error.message);
+
+  await processBillDeadlines(supabase);
+  revalidateCongressPagesAndLeadership();
+  revalidatePath("/oval");
+  revalidatePath("/directory");
+  revalidateBillPage(bill_id);
+}
+
+export async function updateBillContent(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const bill_id = String(formData.get("bill_id"));
+  const rawHtml = String(formData.get("content_html") ?? "");
+  const content_html = rawHtml ? sanitizeBillHtml(rawHtml) : "";
+  const content_md = htmlToPlainText(content_html);
+
+  if (!content_md) {
+    throw new Error("Bill text is required.");
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("office_role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+
+  if (await isActivePresidentialRunningMate(supabase, user.id)) {
+    throw new Error("Presidential running mates may not edit bills.");
+  }
+
+  const { data: bill } = await supabase
+    .from("bills")
+    .select("id, originating_chamber, content_html, content_md, status")
+    .eq("id", bill_id)
+    .maybeSingle();
+
+  if (!bill) throw new Error("Bill not found.");
+
+  const chamber = bill.originating_chamber as BillChamber;
+  if (!canLeadershipEditBillContent(roleKeys, chamber)) {
+    throw new Error(
+      chamber === "house"
+        ? "Only the Speaker may edit House bills."
+        : "Only the Senate Majority Leader may edit Senate bills.",
+    );
+  }
+
+  const terminal = new Set(["law", "vetoed", "dead"]);
+  if (terminal.has(bill.status)) {
+    throw new Error("This bill can no longer be edited.");
+  }
+
+  const previousHtml = (bill as { content_html?: string | null }).content_html?.trim();
+  const previousMd = (bill as { content_md?: string | null }).content_md?.trim();
+  const snapshot =
+    previousHtml && previousHtml.length > 0
+      ? previousHtml
+      : `<pre>${escapeHtmlPlain(previousMd ?? "")}</pre>`;
+
+  if (snapshot !== content_html) {
+    const { error: verErr } = await supabase.from("bill_versions").insert({
+      bill_id,
+      content_html: snapshot,
+      edited_by: user.id,
+    });
+    if (verErr && !verErr.message?.includes("bill_versions") && verErr.code !== "PGRST205") {
+      console.warn("[updateBillContent] version insert:", verErr.message);
+    }
+  }
+
+  let { error } = await supabase
+    .from("bills")
+    .update({ content_html, content_md })
+    .eq("id", bill_id);
+
+  if (error && isMissingContentHtmlColumn(error.message)) {
+    const retry = await supabase.from("bills").update({ content_md }).eq("id", bill_id);
+    error = retry.error;
+  }
+  if (error) throw new Error(error.message);
+
+  await processBillDeadlines(supabase);
+  revalidateCongressPagesAndLeadership();
+  revalidatePath("/oval");
+  revalidatePath("/directory");
+  revalidateBillPage(bill_id);
 }
 
 export async function castBillVote(formData: FormData): Promise<void> {
@@ -309,10 +627,12 @@ export async function castBillVote(formData: FormData): Promise<void> {
     await resolveSenateAfterTiebreakVote(supabase, bill_id);
   }
 
+  await tryClinchFloorVoteAfterBallotChange(supabase, bill_id);
   await processBillDeadlines(supabase);
-  revalidateCongressPages();
+  revalidateCongressPagesAndLeadership();
   revalidatePath("/oval");
   revalidatePath("/directory");
+  revalidateBillPage(bill_id);
 }
 
 export async function createAppointment(formData: FormData): Promise<void> {
@@ -409,7 +729,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
       content_md,
       originating_chamber: "senate",
       author_id: user.id,
-      status: "hopper",
+      status: "submitted",
       expires_at,
       leadership_deadline_at: addHours(now, 12).toISOString(),
       chamber_vote_deadline_at: null,
@@ -483,7 +803,23 @@ export async function presidentialAction(formData: FormData): Promise<void> {
 
   const { error } = await supabase.from("bills").update(next).eq("id", bill_id);
   if (error) throw new Error(error.message);
+
+  if (action === "sign") {
+    const { data: signed } = await supabase
+      .from("bills")
+      .select("is_federal_appropriations")
+      .eq("id", bill_id)
+      .maybeSingle();
+    if ((signed as { is_federal_appropriations?: boolean } | null)?.is_federal_appropriations) {
+      const { error: enrollErr } = await supabase.rpc("fiscal_on_appropriations_enrolled", {
+        p_bill_id: bill_id,
+      });
+      if (enrollErr) throw new Error(enrollErr.message);
+    }
+  }
+
   revalidatePath("/oval");
   revalidateCongressPages();
   revalidatePath("/directory");
+  revalidateBillPage(bill_id);
 }

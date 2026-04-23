@@ -15,6 +15,15 @@ type AnalyticsRow = {
   vacant_officer_slots?: number;
   leadership_cycle_phase?: string;
   leadership_candidate_rows?: number;
+  /** Sum of party salary levies (`party_collect_levy`) credited to treasury via member collects. */
+  salary_levy_collected_all_time_usd?: number;
+  salary_levy_collected_active_fy_usd?: number;
+  salary_levy_payers_all_time?: number;
+  salary_levy_by_member?: Array<{ user_id: string; character_name: string; total: number; salary_base?: number }>;
+  salary_levy_active_fy_label?: string | null;
+  /** Sum of implied government-salary bases underlying levy rows (for chair rate preview). */
+  salary_levy_salary_base_all_time_usd?: number;
+  salary_levy_salary_base_active_fy_usd?: number;
 };
 
 export default async function PartyLeadershipDashboardPage({ params }: { params: Promise<{ party: string }> }) {
@@ -37,7 +46,7 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
       supabase
         .from("party_organizations")
         .select(
-          "governing_charter_md, charter_ratified_at, treasury_balance, leadership_phase, leadership_filing_ends_at, leadership_voting_ends_at",
+          "governing_charter_md, charter_ratified_at, treasury_balance, member_collect_levy_rate, leadership_phase, leadership_filing_ends_at, leadership_voting_ends_at",
         )
         .eq("party_key", partyKey)
         .maybeSingle(),
@@ -105,6 +114,19 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
 
   const charterMd = (org?.governing_charter_md as string | null) ?? null;
   const charterAt = (org?.charter_ratified_at as string | null) ?? null;
+
+  const chairLevyAnalytics =
+    isChair && analytics
+      ? {
+          allTimeWithheld: Number(analytics.salary_levy_collected_all_time_usd ?? 0),
+          fyWithheld: Number(analytics.salary_levy_collected_active_fy_usd ?? 0),
+          fyLabel: analytics.salary_levy_active_fy_label ?? null,
+          payers: Number(analytics.salary_levy_payers_all_time ?? 0),
+          salaryBaseAll: Number(analytics.salary_levy_salary_base_all_time_usd ?? 0),
+          salaryBaseFy: Number(analytics.salary_levy_salary_base_active_fy_usd ?? 0),
+          byMember: Array.isArray(analytics.salary_levy_by_member) ? analytics.salary_levy_by_member : [],
+        }
+      : null;
 
   return (
     <div className="space-y-10">
@@ -219,6 +241,8 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
         partyKey={partyKey}
         boardLabel={boardLabel}
         isChair={isChair}
+        memberCollectLevyRate={Number((org as { member_collect_levy_rate?: number } | null)?.member_collect_levy_rate ?? 0)}
+        chairLevyAnalytics={chairLevyAnalytics}
         canProposeRules={isChair || isBoardMember}
         isBoardVoter={isBoardMember}
         members={membersForForms}

@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { NavRouteButton } from "@/components/nav-route-button";
 import { tryCreateClient } from "@/lib/supabase/server";
 import { PartyDirectoryCard } from "./party-directory-card";
 
@@ -56,12 +56,9 @@ export default async function PartiesHubPage() {
               registered independent{countByParty.independent === 1 ? "" : "s"}.
             </p>
           </div>
-          <Link
-            href="/economy"
-            className="inline-flex shrink-0 items-center justify-center rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-4 py-2.5 text-sm font-semibold text-[var(--psc-ink)] shadow-sm transition hover:bg-[color-mix(in_srgb,var(--psc-ink)_6%,var(--psc-canvas))]"
-          >
+          <NavRouteButton href="/economy" className="shrink-0 px-4 py-2.5">
             Economy
-          </Link>
+          </NavRouteButton>
         </div>
       </section>
     </div>

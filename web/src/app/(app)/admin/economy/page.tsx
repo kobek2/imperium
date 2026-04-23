@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavRouteButton } from "@/components/nav-route-button";
 import { requireStaffPage } from "@/lib/staff-access";
 
 export default async function AdminEconomyPage() {
@@ -25,25 +25,13 @@ export default async function AdminEconomyPage() {
           here that check <code className="font-mono">staff_economy</code> explicitly for fine-grained control.
         </p>
       </section>
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href="/economy"
-          className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-        >
+      <div className="flex flex-wrap gap-2">
+        <NavRouteButton href="/admin/economy/overview">Economy overview (audit)</NavRouteButton>
+        <NavRouteButton href="/economy" className="border-[var(--psc-ink)] bg-[var(--psc-ink)] text-white hover:bg-[color-mix(in_srgb,var(--psc-ink)_88%,black)]">
           Open player economy
-        </Link>
-        <Link
-          href="/economy/leaderboard"
-          className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]"
-        >
-          Leaderboard
-        </Link>
-        <Link
-          href="/admin/operations"
-          className="text-xs font-semibold text-[var(--psc-accent)] underline underline-offset-2"
-        >
-          Back to operations
-        </Link>
+        </NavRouteButton>
+        <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
+        <NavRouteButton href="/admin/operations">Back to operations</NavRouteButton>
       </div>
     </div>
   );
