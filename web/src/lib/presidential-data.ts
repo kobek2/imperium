@@ -24,6 +24,15 @@ export type PresidentialDataBundle = {
   events: PresCampaignEvent[];
 };
 
+const NATIONAL_PRESIDENTIAL_ENDORSEMENT_ROLES = new Set<string>([
+  "speaker",
+  "president_pro_tempore",
+  "senate_majority_leader",
+  "senate_minority_leader",
+  "house_majority_leader",
+  "house_minority_leader",
+]);
+
 function looksLikeMissingEvColumn(message: string | null | undefined): boolean {
   const m = (message ?? "").toLowerCase();
   return m.includes("electoral_votes");
@@ -38,7 +47,14 @@ export async function loadPresidentialBundle(
   supabase: SupabaseClient,
   election_id: string,
 ): Promise<PresidentialDataBundle> {
-  const [candidatesRes, votesRes, speechesRes, ralliesRes, statesRes] = await Promise.all([
+  const [
+    candidatesRes,
+    votesRes,
+    speechesRes,
+    ralliesRes,
+    endorsementsRes,
+    statesRes,
+  ] = await Promise.all([
     supabase
       .from("election_candidates")
       .select("id, user_id, party, primary_winner, created_at")
@@ -54,6 +70,10 @@ export async function loadPresidentialBundle(
     supabase
       .from("campaign_rallies")
       .select("candidate_id, target_state, points")
+      .eq("election_id", election_id),
+    supabase
+      .from("campaign_endorsements")
+      .select("candidate_id, endorser_user_id, role_key, points")
       .eq("election_id", election_id),
     supabase
       .from("states")
@@ -132,7 +152,43 @@ export async function loadPresidentialBundle(
     target_state: r.target_state ? r.target_state.toUpperCase() : null,
     points: Number(r.points ?? 0),
   }));
-  const events: PresCampaignEvent[] = [...speeches, ...rallies];
+  const endorsementsRaw = (endorsementsRes.data ?? []) as Array<{
+    candidate_id: string;
+    endorser_user_id: string;
+    role_key: string | null;
+    points: number | null;
+  }>;
+
+  const endorserIds = [...new Set(endorsementsRaw.map((e) => e.endorser_user_id))];
+  const endorserStateById = new Map<string, string | null>();
+  if (endorserIds.length > 0) {
+    const { data: endorserProfiles } = await supabase
+      .from("profiles")
+      .select("id, residence_state, home_district_code")
+      .in("id", endorserIds);
+    for (const p of endorserProfiles ?? []) {
+      const derivedState =
+        (p.residence_state ? String(p.residence_state).toUpperCase() : null) ??
+        (p.home_district_code ? String(p.home_district_code).slice(0, 2).toUpperCase() : null);
+      endorserStateById.set(p.id, derivedState);
+    }
+  }
+
+  const endorsements: PresCampaignEvent[] = endorsementsRaw.map((e) => {
+    const roleKey = String(e.role_key ?? "");
+    const national = NATIONAL_PRESIDENTIAL_ENDORSEMENT_ROLES.has(roleKey);
+    const endorserState = endorserStateById.get(e.endorser_user_id) ?? null;
+    return {
+      candidate_id: e.candidate_id,
+      // Presidential endorsements are state-scoped unless the endorser holds selected
+      // congressional leadership roles, in which case they contribute nationally.
+      target_state: national ? null : endorserState,
+      points: Number(e.points ?? 0),
+      is_national: national,
+    };
+  });
+
+  const events: PresCampaignEvent[] = [...speeches, ...rallies, ...endorsements];
 
   return { candidates, states, votes, events };
 }

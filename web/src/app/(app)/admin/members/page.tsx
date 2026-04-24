@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPageAny } from "@/lib/staff-access";
 import { AdminMembersTable, type AdminMemberRow } from "./members-table";
 
 export default async function AdminMembersPage() {
   await requireStaffPageAny(["accounts", "roles"]);
 
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
   const [{ data: profiles }, { data: grants }] = await Promise.all([

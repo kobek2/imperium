@@ -1,4 +1,3 @@
-import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { createJiti } from "jiti";
 

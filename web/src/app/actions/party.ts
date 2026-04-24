@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/is-admin";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 function assertPartyTreasuryKey(party: string): string | null {
   if (party === "democrat" || party === "republican") return party;
@@ -22,7 +23,7 @@ export async function adminStartPartyLeadershipFiling(formData: FormData): Promi
     throw new Error("Invalid party.");
   }
   const { error } = await supabase.rpc("party_admin_start_party_leadership_filing", { p_party: party });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePartyPaths(party);
   revalidatePath("/admin");
   revalidatePath("/admin/party-leadership");
@@ -37,7 +38,7 @@ export async function declarePartyCandidacy(formData: FormData): Promise<void> {
     throw new Error("Party officer elections are only for Democratic or Republican affiliates.");
   }
   const { error } = await supabase.rpc("party_declare_candidacy", { p_party: party, p_office: office });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePartyPaths(party);
 }
 
@@ -55,7 +56,7 @@ export async function togglePartyOfficerVote(formData: FormData): Promise<void> 
     p_office: office,
     p_candidate: candidate,
   });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePartyPaths(party);
 }
 
@@ -67,7 +68,7 @@ export async function withdrawPartyOfficerCandidacy(formData: FormData): Promise
     throw new Error("Invalid party.");
   }
   const { error } = await supabase.rpc("party_withdraw_officer_candidacy", { p_party: party, p_office: office });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePartyPaths(party);
 }
 

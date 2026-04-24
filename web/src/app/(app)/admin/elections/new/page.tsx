@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { requireStaffPageAny } from "@/lib/staff-access";
 import { createElection } from "@/app/actions/elections";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import {
   countTotalPlayers,
   loadDistrictPopulations,
@@ -13,7 +12,7 @@ import { CreateElectionForm } from "./create-election-form";
 export default async function NewElectionPage() {
   await requireStaffPageAny(["elections", "simulation"]);
 
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   // Pull populations so the form can show "CA-01 — 2 players" and flag empty seats before
   // admins create elections no one is going to file for.
   const [districts, states, totalPlayers] = supabase

@@ -34,7 +34,8 @@ function marginalSlices(income: number, brackets: FiscalTaxBracket[]): number[] 
 }
 
 /**
- * Aggregate marginal-band analytics for a population's annual incomes.
+ * Aggregate marginal-band analytics for a population's taxable income amounts
+ * (e.g. each player's FY-to-date `hourly_income` total for previews, or full-year totals after close).
  * `brackets` must match the active federal budget (same order as tax).
  */
 export function computeMarginalBracketAnalytics(

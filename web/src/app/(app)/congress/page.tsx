@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { fetchCongressOverviewSnapshot } from "@/lib/congress-composition";
 import { ChamberHemicycle } from "./chamber-hemicycle";
 import { CongressLeadersPanel } from "./congress-leaders-panel";
 
 export default async function CongressOverviewPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -16,9 +16,6 @@ export default async function CongressOverviewPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase

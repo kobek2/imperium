@@ -11,6 +11,7 @@ import {
   upgradePac,
   applyCampaignAdFromInventory,
 } from "@/app/actions/economy";
+import { payFiscalTax } from "@/app/actions/fiscal";
 import {
   CAMPAIGN_AD_POINTS,
   CAMPAIGN_AD_UNIT_PRICE,
@@ -92,6 +93,7 @@ export function EconomyDashboard({
   governmentShutdown,
   appropriationDeadlineAt,
   federalTaxYtd,
+  taxAccount,
   showFederalBudgetLink,
 }: {
   wallet: WalletRow | null;
@@ -104,8 +106,16 @@ export function EconomyDashboard({
   economyFrozen: boolean;
   governmentShutdown?: boolean;
   appropriationDeadlineAt?: string | null;
-  /** YTD employment income and marginal tax under the active FY brackets (RPC). */
+  /** Employment income this fiscal year (hourly_income since FY start) and marginal tax on that amount (RPC). */
   federalTaxYtd?: { grossInflows: number; estimatedTax: number } | null;
+  taxAccount?: {
+    assessed_tax?: number;
+    paid_amount?: number;
+    outstanding_amount?: number;
+    total_penalties?: number;
+    due_at?: string;
+    status?: string;
+  } | null;
   /** President / game admin — federal appropriations workspace. */
   showFederalBudgetLink: boolean;
 }) {
@@ -168,16 +178,65 @@ export function EconomyDashboard({
       ) : null}
       {!economyFrozen && federalTaxYtd ? (
         <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
-          <p className="font-semibold">Federal income tax (this fiscal year, estimate)</p>
+          <p className="font-semibold">Federal income tax (this fiscal year)</p>
           <p className="mt-2 text-[var(--psc-muted)]">
-            Based on your <strong className="text-[var(--psc-ink)]">employment income</strong> credited so far (
-            <span className="font-mono">${federalTaxYtd.grossInflows.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>{" "}
-            from hourly collects) and the active year&apos;s bracket table. Final liability is settled when the year closes.
+            Employment income <strong className="text-[var(--psc-ink)]">this fiscal year only</strong> (sum of{" "}
+            <code className="text-xs">hourly_income</code> since the year began):{" "}
+            <span className="font-mono">${federalTaxYtd.grossInflows.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            . The estimate applies the active year&apos;s marginal brackets to that running total — not a projection of how much
+            you might earn by year-end. <strong className="text-[var(--psc-ink)]">Final tax</strong> is collected when the
+            President closes the fiscal year (same basis, full-year window).
           </p>
           <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
-            Estimated tax due (YTD): ${federalTaxYtd.estimatedTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            Estimated tax if the year closed now: $
+            {federalTaxYtd.estimatedTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </p>
         </div>
+      ) : null}
+      {!economyFrozen ? (
+        <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
+          <p className="font-semibold">Tax account</p>
+          {taxAccount ? (
+            <>
+              <p className="mt-2 text-[var(--psc-muted)]">
+                Assessed: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.assessed_tax ?? 0).toLocaleString()}</span>
+                {" · "}Paid: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.paid_amount ?? 0).toLocaleString()}</span>
+                {" · "}Outstanding:{" "}
+                <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.outstanding_amount ?? 0).toLocaleString()}</span>
+                {" · "}Penalties: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.total_penalties ?? 0).toLocaleString()}</span>
+              </p>
+              <p className="mt-1 text-xs text-[var(--psc-muted)]">
+                Status: <strong className="text-[var(--psc-ink)]">{taxAccount.status ?? "pending"}</strong>
+                {taxAccount.due_at ? ` · Due ${new Date(taxAccount.due_at).toLocaleString()}` : ""}
+              </p>
+              <form
+                className="mt-3 flex flex-wrap gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  run("payments", "tax", () => payFiscalTax(new FormData(e.currentTarget)));
+                }}
+              >
+                <input
+                  name="amount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Payment amount"
+                  className="w-44 border border-[var(--psc-border)] px-2 py-1.5 font-mono"
+                />
+                <button
+                  type="submit"
+                  disabled={pending}
+                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-1.5 text-xs font-semibold uppercase disabled:opacity-60"
+                >
+                  Pay tax
+                </button>
+              </form>
+            </>
+          ) : (
+            <p className="mt-2 text-[var(--psc-muted)]">No assessed tax account yet for this fiscal year.</p>
+          )}
+        </section>
       ) : null}
       {!economyFrozen && appropriationDeadlineAt && !governmentShutdown ? (
         <p className="text-xs text-[var(--psc-muted)]">

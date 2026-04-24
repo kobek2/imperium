@@ -34,8 +34,8 @@ export function NationalMetricsHub({
         <div className="border-t border-[var(--psc-border)] pt-6">
           <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Recent fiscal years (trend)</h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Rows keyed to each fiscal year. Federal income tax uses marginal brackets on employment income (role salary + PAC
-            hourly collects), not gifts or transfers.
+            Rows keyed to each fiscal year. Federal income tax uses marginal brackets on employment income in that year (role
+            salary + PAC hourly collects), not gifts or transfers.
           </p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-xs">

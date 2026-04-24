@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayManagePartyOrg } from "@/lib/staff-access";
 import {
   computeSimulationRpInstant,
@@ -18,12 +18,9 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
   const partyKey = raw.toLowerCase();
   if (!VALID.has(partyKey)) notFound();
 
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   await supabase.rpc("party_tick_leadership_cycle", { p_party: partyKey });

@@ -3,19 +3,16 @@ import { BriefingInbox } from "@/components/briefing-inbox";
 import { HomeCareerStats } from "@/components/home-career-stats";
 import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { fetchHomeCareerStats } from "@/lib/home-career-stats";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 
 export default async function HomePage() {
   // Redirect first-time users to the character setup screen. We do this here (not in a layout)
   // so /character itself isn't caught in a loop, and so unauthenticated visitors to / still see
   // the home stub if Supabase isn't configured.
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   let moments: Awaited<ReturnType<typeof fetchBriefingMoments>> = [];
   let careerStats: Awaited<ReturnType<typeof fetchHomeCareerStats>> | null = null;
   if (supabase) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase
         .from("profiles")

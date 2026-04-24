@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { SimulationSettingsForm } from "@/components/simulation-settings-form";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPageAny } from "@/lib/staff-access";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
@@ -29,7 +29,7 @@ export default async function AdminElectionsPage({
   const { tab } = await searchParams;
   const electionView: "active" | "archive" = tab === "archive" ? "archive" : "active";
 
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
   await runElectionPhaseSchedule(supabase);

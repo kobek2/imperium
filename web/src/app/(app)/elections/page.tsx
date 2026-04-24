@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import {
@@ -12,7 +12,7 @@ import {
 } from "./elections-dashboard";
 
 export default async function ElectionsPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -21,9 +21,6 @@ export default async function ElectionsPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const isAdmin = await getStaffMayAccessElectionsConsole();

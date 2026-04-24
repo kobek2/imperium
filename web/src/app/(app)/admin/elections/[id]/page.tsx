@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPageAny } from "@/lib/staff-access";
 import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
+import { FormSubmitButton } from "@/components/form-submit-button";
 import { SubmitButton } from "@/components/submit-button";
 import {
   deleteElection,
@@ -95,7 +96,7 @@ export default async function AdminElectionDetailPage({
   await requireStaffPageAny(["elections", "simulation"]);
 
   const { id } = await params;
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
   await runElectionPhaseSchedule(supabase);
@@ -370,12 +371,11 @@ export default async function AdminElectionDetailPage({
                 </option>
               </select>
             </label>
-            <button
-              type="submit"
+            <FormSubmitButton
+              idleLabel="Save"
+              pendingLabel="Saving…"
               className="justify-self-start border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white"
-            >
-              Save
-            </button>
+            />
           </form>
         )}
       </section>
@@ -421,12 +421,11 @@ export default async function AdminElectionDetailPage({
               existing deadlines.
             </span>
           </label>
-          <button
-            type="submit"
+          <FormSubmitButton
+            idleLabel="Apply"
+            pendingLabel="Applying…"
             className="justify-self-start border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white sm:justify-self-end"
-          >
-            Apply
-          </button>
+          />
         </form>
 
         <div className="grid gap-2 text-[11px] text-[var(--psc-muted)] sm:grid-cols-2">
@@ -626,12 +625,11 @@ export default async function AdminElectionDetailPage({
                         className="w-36 border border-[var(--psc-border)] bg-white px-2 py-1 font-normal"
                       />
                     </label>
-                    <button
-                      type="submit"
-                      className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1 font-semibold uppercase text-white"
-                    >
-                      Save
-                    </button>
+                    <FormSubmitButton
+                      idleLabel="Save"
+                      pendingLabel="Saving…"
+                      className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1 text-xs font-semibold uppercase text-white"
+                    />
                   </form>
                 </li>
               );

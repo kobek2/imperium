@@ -1,14 +1,11 @@
 import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 
 export default async function EconomyLeaderboardPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: rows, error } = await supabase

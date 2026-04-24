@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient, tryCreateClient } from "@/lib/supabase/server";
+import { createClient, getServerAuth } from "@/lib/supabase/server";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
   canOpenStaffPanel,
@@ -34,19 +34,26 @@ export async function getStaffMayManagePartyOrg(): Promise<boolean> {
   return access.permissions.has("parties");
 }
 
-export async function getStaffAccess(): Promise<StaffAccess | null> {
-  const supabase = await tryCreateClient();
-  if (!supabase) return null;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+export type StaffProfileOfficeRow = { office_role: string | null };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("office_role")
-    .eq("id", user.id)
-    .maybeSingle();
+/**
+ * @param officeProfile — when supplied (e.g. from a combined `profiles` read in layout), skips a duplicate `profiles` fetch.
+ */
+export async function getStaffAccess(officeProfile?: StaffProfileOfficeRow | null): Promise<StaffAccess | null> {
+  const { supabase, user } = await getServerAuth();
+  if (!supabase || !user) return null;
+
+  let profile: StaffProfileOfficeRow | null;
+  if (officeProfile !== undefined) {
+    profile = officeProfile;
+  } else {
+    const { data } = await supabase
+      .from("profiles")
+      .select("office_role")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = data ?? null;
+  }
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   const hasFullStaff = hasFullStaffAccess(roleKeys);

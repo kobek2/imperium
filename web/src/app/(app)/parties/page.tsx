@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { PartyDirectoryCard } from "./party-directory-card";
 
 const PARTIES = [
@@ -9,12 +9,9 @@ const PARTIES = [
 ];
 
 export default async function PartiesHubPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: orgs } = await supabase.from("party_organizations").select("party_key, treasury_balance");

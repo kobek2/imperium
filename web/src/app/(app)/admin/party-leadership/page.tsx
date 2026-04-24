@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { adminStartPartyLeadershipFiling } from "@/app/actions/party";
 import { SubmitButton } from "@/components/submit-button";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPage } from "@/lib/staff-access";
 
 type OrgRow = {
@@ -67,7 +67,7 @@ function PartyCard({ org }: { org: OrgRow }) {
 export default async function AdminPartyLeadershipPage() {
   await requireStaffPage("parties");
 
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
   const { data: orgs, error } = await supabase

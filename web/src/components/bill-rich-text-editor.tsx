@@ -149,7 +149,7 @@ export function BillRichTextEditorWithHiddenInput({
   if (!editor) {
     return (
       <>
-        <input ref={hiddenRef} type="hidden" name={fieldName} value="" />
+        <input ref={hiddenRef} type="hidden" name={fieldName} defaultValue="" />
         <div className="min-h-[22rem] rounded border border-[var(--psc-border)] bg-white" />
       </>
     );

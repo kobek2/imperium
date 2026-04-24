@@ -26,16 +26,8 @@ import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
 import { getIsAdmin } from "@/lib/is-admin";
 import { isPresident } from "@/lib/president";
-
-function isMissingBillTimerColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
-}
-
-function isMissingVpTieColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("vp_tie_break_pending");
-}
+import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 function revalidateCongressPages() {
   revalidatePath("/congress");
@@ -52,22 +44,15 @@ function revalidateBillPage(billId: string) {
   revalidatePath(`/bill/${billId}`);
 }
 
-function isMissingAppointmentGrantColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("granted_role_key") || m.includes("schema cache");
-}
-
-function isMissingContentHtmlColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("content_html") || m.includes("schema cache");
+function omitKeys<T extends Record<string, unknown>, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const next = { ...obj };
+  for (const key of keys) {
+    delete next[key];
+  }
+  return next;
 }
 
 const FEDERAL_APPROPRIATIONS_TITLE_PREFIX = "Federal appropriations and revenue";
-
-function isMissingAppropriationsColumns(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("is_federal_appropriations") || m.includes("linked_fiscal_year_id");
-}
 
 async function assertFloorVoteOpen(supabase: SupabaseClient, bill_id: string, chamber: BillChamber) {
   const { data: b } = await supabase
@@ -162,6 +147,9 @@ export async function submitBill(formData: FormData): Promise<void> {
   const expires_at = addHours(now, 24 * 30).toISOString();
   const duplicateCutoff = new Date(now.getTime() - 30_000).toISOString();
 
+  // Ensures the FY appropriations timer starts once the first President is seated.
+  await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
+
   const { data: recentDuplicate } = await supabase
     .from("bills")
     .select("id")
@@ -191,7 +179,7 @@ export async function submitBill(formData: FormData): Promise<void> {
   const wantsAppropriations =
     federalAppropriationsFlag || title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX);
   const needsAppropriationsGate =
-    Boolean(activeFy?.appropriation_deadline_at) && activeFy?.appropriations_act_bill_id == null;
+    Boolean(activeFy?.id) && activeFy?.appropriations_act_bill_id == null;
 
   if (needsAppropriationsGate) {
     if (!pres && !admin) {
@@ -254,13 +242,16 @@ export async function submitBill(formData: FormData): Promise<void> {
 
   let { error } = await supabase.from("bills").insert(baseInsert);
 
-  if (error && isMissingBillTimerColumn(error.message)) {
-    const { leadership_deadline_at: _ld, chamber_vote_deadline_at: _cv, ...minimal } = baseInsert;
+  if (error && dbErrorHintsMissingColumn(error.message, [
+    "leadership_deadline_at",
+    "chamber_vote_deadline_at",
+  ])) {
+    const minimal = omitKeys(baseInsert, ["leadership_deadline_at", "chamber_vote_deadline_at"]);
     const retry = await supabase.from("bills").insert(minimal);
     error = retry.error;
   }
 
-  if (error && isMissingContentHtmlColumn(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, ["content_html", "schema cache"])) {
     const retry = await supabase.from("bills").insert({
       title,
       content_md,
@@ -273,7 +264,10 @@ export async function submitBill(formData: FormData): Promise<void> {
       ...appropriationExtras,
     });
     error = retry.error;
-    if (error && isMissingBillTimerColumn(error.message)) {
+    if (error && dbErrorHintsMissingColumn(error.message, [
+    "leadership_deadline_at",
+    "chamber_vote_deadline_at",
+  ])) {
       const retry2 = await supabase.from("bills").insert({
         title,
         content_md,
@@ -287,13 +281,13 @@ export async function submitBill(formData: FormData): Promise<void> {
     }
   }
 
-  if (error && isMissingAppropriationsColumns(error.message)) {
-    const { is_federal_appropriations: _ifa, linked_fiscal_year_id: _lf, ...withoutApp } = baseInsert;
+  if (error && dbErrorHintsMissingColumn(error.message, ["is_federal_appropriations", "linked_fiscal_year_id"])) {
+    const withoutApp = omitKeys(baseInsert, ["is_federal_appropriations", "linked_fiscal_year_id"]);
     const retry = await supabase.from("bills").insert(withoutApp);
     error = retry.error;
   }
 
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   await processBillDeadlines(supabase);
   revalidateCongressPagesAndLeadership();
   revalidatePath("/directory");
@@ -345,11 +339,14 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
       .from("bills")
       .update({ status: "dead", leadership_deadline_at: null, chamber_vote_deadline_at: null })
       .eq("id", bill_id);
-    if (error && isMissingBillTimerColumn(error.message)) {
+    if (error && dbErrorHintsMissingColumn(error.message, [
+    "leadership_deadline_at",
+    "chamber_vote_deadline_at",
+  ])) {
       const retry = await supabase.from("bills").update({ status: "dead" }).eq("id", bill_id);
       error = retry.error;
     }
-    if (error) throw new Error(error.message);
+    throwIfPostgrestError(error);
   } else if (decision === "accept") {
     let { error } = await supabase
       .from("bills")
@@ -360,11 +357,14 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
         vp_tie_break_pending: false,
       })
       .eq("id", bill_id);
-    if (error && isMissingBillTimerColumn(error.message)) {
+    if (error && dbErrorHintsMissingColumn(error.message, [
+    "leadership_deadline_at",
+    "chamber_vote_deadline_at",
+  ])) {
       const retry = await supabase.from("bills").update({ status: "on_docket" }).eq("id", bill_id);
       error = retry.error;
     }
-    if (error && isMissingVpTieColumn(error.message)) {
+    if (error && dbErrorHintsMissingColumn(error.message, ["vp_tie_break_pending"])) {
       const retry = await supabase
         .from("bills")
         .update({
@@ -375,7 +375,7 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
         .eq("id", bill_id);
       error = retry.error;
     }
-    if (error) throw new Error(error.message);
+    throwIfPostgrestError(error);
   } else {
     throw new Error("Invalid decision.");
   }
@@ -446,11 +446,14 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
     })
     .eq("id", bill_id);
 
-  if (error && isMissingBillTimerColumn(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, [
+    "leadership_deadline_at",
+    "chamber_vote_deadline_at",
+  ])) {
     const retry = await supabase.from("bills").update({ status: floorStatus }).eq("id", bill_id);
     error = retry.error;
   }
-  if (error && isMissingVpTieColumn(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, ["vp_tie_break_pending"])) {
     const retry = await supabase
       .from("bills")
       .update({
@@ -460,7 +463,7 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
       .eq("id", bill_id);
     error = retry.error;
   }
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
 
   await processBillDeadlines(supabase);
   revalidateCongressPagesAndLeadership();
@@ -542,11 +545,11 @@ export async function updateBillContent(formData: FormData): Promise<void> {
     .update({ content_html, content_md })
     .eq("id", bill_id);
 
-  if (error && isMissingContentHtmlColumn(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, ["content_html", "schema cache"])) {
     const retry = await supabase.from("bills").update({ content_md }).eq("id", bill_id);
     error = retry.error;
   }
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
 
   await processBillDeadlines(supabase);
   revalidateCongressPagesAndLeadership();
@@ -621,7 +624,7 @@ export async function castBillVote(formData: FormData): Promise<void> {
     vote,
   });
 
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
 
   if (chamber === "senate" && billGate?.vp_tie_break_pending) {
     await resolveSenateAfterTiebreakVote(supabase, bill_id);
@@ -655,6 +658,8 @@ export async function createAppointment(formData: FormData): Promise<void> {
   if (await isActivePresidentialRunningMate(supabase, user.id)) {
     throw new Error("Presidential running mates may not create appointments.");
   }
+
+  await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
 
   const rawDiscord = String(formData.get("nominee_discord") ?? "").trim();
   const nominee_discord = rawDiscord.replace(/\D/g, "") || rawDiscord;
@@ -756,7 +761,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
   if (
     apptInsert.error &&
     granted_role_key &&
-    isMissingAppointmentGrantColumn(apptInsert.error.message)
+    dbErrorHintsMissingColumn(apptInsert.error.message, ["granted_role_key", "schema cache"])
   ) {
     apptInsert = await supabase.from("appointments").insert(baseAppt);
   }
@@ -802,7 +807,7 @@ export async function presidentialAction(formData: FormData): Promise<void> {
       : { status: "vetoed" as const, vetoed_at: new Date().toISOString() };
 
   const { error } = await supabase.from("bills").update(next).eq("id", bill_id);
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
 
   if (action === "sign") {
     const { data: signed } = await supabase

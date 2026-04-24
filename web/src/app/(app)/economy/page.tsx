@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { isPresident } from "@/lib/president";
 import { EconomyDashboard } from "./economy-dashboard";
 
 export default async function EconomyPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -15,9 +15,6 @@ export default async function EconomyPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const [
@@ -49,6 +46,8 @@ export default async function EconomyPage() {
     isPresident(supabase, user.id),
     getIsAdmin(),
   ]);
+
+  await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
 
   const fyRow = activeFy as {
     id?: string;
@@ -85,6 +84,13 @@ export default async function EconomyPage() {
 
   const aff = String((meProf as { party?: string } | null)?.party ?? "").trim();
   const treasuryPartyKey = aff === "democrat" || aff === "republican" ? aff : null;
+  const { data: taxAccount } = await supabase
+    .from("fiscal_tax_accounts")
+    .select("assessed_tax, paid_amount, outstanding_amount, total_penalties, due_at, status")
+    .eq("user_id", user.id)
+    .order("assessed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const inventory =
     (invRows ?? []).find((r) => (r as { sku: string }).sku === "campaign_ad") ?? null;
@@ -154,6 +160,16 @@ export default async function EconomyPage() {
         governmentShutdown={governmentShutdown}
         appropriationDeadlineAt={fyRow?.appropriation_deadline_at ?? null}
         federalTaxYtd={federalTaxYtd}
+        taxAccount={
+          (taxAccount as {
+            assessed_tax?: number;
+            paid_amount?: number;
+            outstanding_amount?: number;
+            total_penalties?: number;
+            due_at?: string;
+            status?: string;
+          } | null) ?? null
+        }
         showFederalBudgetLink={pres || isAdmin}
       />
     </div>

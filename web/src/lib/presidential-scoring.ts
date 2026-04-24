@@ -45,6 +45,7 @@ export type PresCampaignEvent = {
   candidate_id: string;
   target_state: string | null;
   points: number;
+  is_national?: boolean;
 };
 
 export type CandidateStateScore = {
@@ -133,7 +134,10 @@ export function scorePresidentialState(
   const pointsByCand: Record<string, number> = {};
   for (const c of candidates) pointsByCand[c.id] = 0;
   for (const e of events) {
-    if (!e.target_state || e.target_state.toUpperCase() !== stateCode) continue;
+    const isNational = e.is_national === true;
+    if (!isNational) {
+      if (!e.target_state || e.target_state.toUpperCase() !== stateCode) continue;
+    }
     if (!(e.candidate_id in pointsByCand)) continue;
     pointsByCand[e.candidate_id] += Number(e.points ?? 0);
   }

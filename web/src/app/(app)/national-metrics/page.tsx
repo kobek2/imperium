@@ -3,7 +3,7 @@ import { NavRouteButton } from "@/components/nav-route-button";
 import { NationalMetricsHub } from "@/components/national-metrics-hub";
 import type { NationalMetricsHistoryRow, NationalMetricsRow } from "@/lib/national-metrics-types";
 import { parseTaxBrackets, type FiscalTaxBracket } from "@/lib/fiscal-tax";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { isPresident } from "@/lib/president";
 
@@ -45,7 +45,7 @@ function MarginalTaxBracketsTable({ brackets }: { brackets: FiscalTaxBracket[] }
 }
 
 export default async function NationalMetricsPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -54,9 +54,6 @@ export default async function NationalMetricsPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const [{ data: activeFy }, pres, isAdmin] = await Promise.all([
@@ -150,11 +147,11 @@ export default async function NationalMetricsPage() {
       <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Federal income tax (public reference)</h2>
         <p className="text-sm text-[var(--psc-muted)]">
-          Tax is assessed on <strong className="text-[var(--psc-ink)]">employment income</strong> for the fiscal year:
+          Tax is assessed on <strong className="text-[var(--psc-ink)]">employment income</strong> earned in each fiscal year:
           scheduled government-role salary plus PAC hourly collects (ledger{" "}
           <code className="rounded bg-[color-mix(in_srgb,var(--psc-ink)_6%,transparent)] px-1 text-xs">hourly_income</code>
-          ). Gifts, transfers, and other credits are excluded. Marginal bands apply to consecutive slices of income (same logic
-          as the live budget and year-end close).
+          ). Gifts, transfers, and other credits are excluded. Marginal bands apply to consecutive slices of income (same logic as
+          the live budget and year-end close). Mid-year figures are FY-to-date, not a projection of full-year earnings.
         </p>
         {fy ? (
           <p className="text-xs text-[var(--psc-muted)]">
@@ -173,7 +170,7 @@ export default async function NationalMetricsPage() {
         <p className="text-xs text-[var(--psc-muted)]">
           Party chairs may set a levy on the <strong className="text-[var(--psc-ink)]">salary slice only</strong> of hourly
           collects; it is withheld automatically when members collect (no separate party bill). That is separate from federal tax
-          and is not shown here. Your personal YTD federal estimate appears on the Economy page when you are signed in.
+          and is not shown here. Your personal FY-to-date federal estimate appears on the Economy page when you are signed in.
         </p>
       </section>
 

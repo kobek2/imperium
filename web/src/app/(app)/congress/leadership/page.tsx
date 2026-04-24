@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { leadershipOpenFloorVote, leadershipReviewBill } from "@/app/actions/bills";
 import { SubmitButton } from "@/components/submit-button";
 import { BillBody } from "@/components/bill-body";
@@ -24,12 +24,9 @@ type BillRow = {
 };
 
 export default async function LeadershipPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase

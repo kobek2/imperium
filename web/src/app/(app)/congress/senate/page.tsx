@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { FileBillForm } from "../file-bill-form";
 import {
   canFileFederalLegislation,
@@ -10,7 +10,7 @@ import { CongressDocketSection } from "../congress-docket-section";
 import { filterBillsForSenateDocket, loadCongressDocket } from "../load-congress-docket";
 
 export default async function CongressSenatePage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -19,9 +19,6 @@ export default async function CongressSenatePage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const docket = await loadCongressDocket(supabase, user.id);

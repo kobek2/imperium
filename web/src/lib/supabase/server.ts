@@ -1,5 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 async function createServerClientWithCookies() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,14 +30,28 @@ async function createServerClientWithCookies() {
   });
 }
 
-export async function tryCreateClient() {
-  return createServerClientWithCookies();
-}
+/** One Supabase server client per request (deduped across layout + pages). */
+export const tryCreateClient = cache(createServerClientWithCookies);
 
 export async function createClient() {
-  const client = await createServerClientWithCookies();
+  const client = await tryCreateClient();
   if (!client) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
   }
   return client;
 }
+
+/** One `getUser()` per request when combined with `tryCreateClient` (deduped). */
+export const getServerAuth = cache(
+  async (): Promise<{
+    supabase: NonNullable<Awaited<ReturnType<typeof tryCreateClient>>> | null;
+    user: User | null;
+  }> => {
+    const supabase = await tryCreateClient();
+    if (!supabase) return { supabase: null, user: null };
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return { supabase, user };
+  },
+);

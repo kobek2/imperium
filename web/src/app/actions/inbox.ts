@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 export async function markInboxItemRead(formData: FormData): Promise<void> {
   const supabase = await createClient();
@@ -14,6 +15,6 @@ export async function markInboxItemRead(formData: FormData): Promise<void> {
   if (!id) throw new Error("Missing item.");
 
   const { error } = await supabase.rpc("inbox_mark_read", { p_id: id });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePath("/");
 }

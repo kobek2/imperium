@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   partyNationalBoardAppoint,
   partyNationalBoardRemove,
@@ -82,10 +82,6 @@ export function PartyLeadershipForms({
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [levyDraftStr, setLevyDraftStr] = useState(() => String(memberCollectLevyRate));
-
-  useEffect(() => {
-    setLevyDraftStr(String(memberCollectLevyRate));
-  }, [memberCollectLevyRate]);
 
   const parsedDraft = Number.parseFloat(levyDraftStr.trim());
   const previewRate = clampLevyDecimal(Number.isFinite(parsedDraft) ? parsedDraft : 0);

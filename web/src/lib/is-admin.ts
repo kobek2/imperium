@@ -1,18 +1,24 @@
-import { createClient, tryCreateClient } from "@/lib/supabase/server";
+import { createClient, getServerAuth } from "@/lib/supabase/server";
+import type { StaffProfileOfficeRow } from "@/lib/staff-access";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 
-export async function getIsAdmin(): Promise<boolean> {
-  const supabase = await tryCreateClient();
-  if (!supabase) return false;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("office_role")
-    .eq("id", user.id)
-    .maybeSingle();
+/** @param officeProfile — when supplied, skips a duplicate `profiles` fetch (e.g. combined with staff access). */
+export async function getIsAdmin(officeProfile?: StaffProfileOfficeRow | null): Promise<boolean> {
+  const { supabase, user } = await getServerAuth();
+  if (!supabase || !user) return false;
+
+  let profile: StaffProfileOfficeRow | null;
+  if (officeProfile !== undefined) {
+    profile = officeProfile;
+  } else {
+    const { data } = await supabase
+      .from("profiles")
+      .select("office_role")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = data ?? null;
+  }
+
   const keys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   return keys.includes("admin");
 }

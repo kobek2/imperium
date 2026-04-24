@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { ProfileCard, ProfileCardBadge, profilePath, type ProfileCardData } from "@/components/profile-card";
 import { SubmitButton } from "@/components/submit-button";
@@ -71,7 +71,7 @@ export default async function LeadershipSessionPage({
 }) {
   const { id } = await params;
 
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -80,9 +80,6 @@ export default async function LeadershipSessionPage({
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: sessionRaw } = await supabase
@@ -145,7 +142,8 @@ export default async function LeadershipSessionPage({
 
   const myFiling = candRows.find((c) => c.user_id === user.id);
 
-  const isOpen = session.phase === "open" && new Date(session.closes_at).getTime() > Date.now();
+  const nowMs = new Date().getTime();
+  const isOpen = session.phase === "open" && new Date(session.closes_at).getTime() > nowMs;
 
   return (
     <div className="space-y-8">

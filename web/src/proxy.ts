@@ -9,6 +9,12 @@ import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  const path = request.nextUrl.pathname;
+  // Skip Supabase for anonymous login and for API routes (each handler owns auth / onboarding).
+  if (path === "/login" || path.startsWith("/login/") || path.startsWith("/api/")) {
+    return supabaseResponse;
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
@@ -35,9 +41,7 @@ export async function proxy(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const path = request.nextUrl.pathname;
-
-    if (path.startsWith("/login") || path.startsWith("/auth")) {
+    if (path.startsWith("/auth")) {
       return supabaseResponse;
     }
 

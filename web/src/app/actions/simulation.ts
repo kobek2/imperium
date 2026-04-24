@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const FILING_HOURS = 24;
@@ -107,7 +108,7 @@ export async function updateSimulationSettings(formData: FormData): Promise<void
     })
     .eq("id", 1);
 
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
 }
@@ -126,7 +127,7 @@ export async function syncSimulationRealAnchorToNow(): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
 }
@@ -142,7 +143,7 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
     .is("leadership_role", null)
     .in("office", ["house", "senate", "president"]);
 
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   const rows = dormant ?? [];
   let opened = 0;
   let skipped = 0;
@@ -150,7 +151,7 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
   const { count: totalPlayers, error: pcErr } = await supabase
     .from("profiles")
     .select("id", { count: "exact", head: true });
-  if (pcErr) throw new Error(pcErr.message);
+  throwIfPostgrestError(pcErr);
   const playerTotal = totalPlayers ?? 0;
 
   for (const e of rows) {
@@ -168,7 +169,7 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
         .from("profiles")
         .select("id", { count: "exact", head: true })
         .eq("home_district_code", code.trim().toUpperCase());
-      if (cErr) throw new Error(cErr.message);
+      throwIfPostgrestError(cErr);
       occupied = (count ?? 0) >= 1;
     } else if (office === "senate") {
       const st = String(e.state ?? "").trim().toUpperCase();
@@ -180,7 +181,7 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
         .from("profiles")
         .select("id", { count: "exact", head: true })
         .eq("residence_state", st);
-      if (cErr) throw new Error(cErr.message);
+      throwIfPostgrestError(cErr);
       occupied = (count ?? 0) >= 1;
     } else {
       skipped += 1;
@@ -214,7 +215,7 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
       .eq("id", e.id)
       .is("filing_window_started_at", null);
 
-    if (uErr) throw new Error(uErr.message);
+    throwIfPostgrestError(uErr);
     opened += 1;
   }
 
@@ -242,7 +243,7 @@ async function openOneDormantSeatElection(supabase: SupabaseClient, id: string):
     .eq("id", id)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
   if (!e) throw new Error("Election not found.");
   if (e.leadership_role) throw new Error("Use the leadership tools for leadership races.");
   if (e.phase !== "filing") throw new Error("Only races in filing phase can use dormant filing windows.");
@@ -266,7 +267,7 @@ async function openOneDormantSeatElection(supabase: SupabaseClient, id: string):
     })
     .eq("id", id);
 
-  if (uErr) throw new Error(uErr.message);
+  throwIfPostgrestError(uErr);
 }
 
 /**

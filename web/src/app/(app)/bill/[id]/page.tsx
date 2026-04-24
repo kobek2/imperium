@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { billStatusDisplay } from "@/lib/bill-display-status";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
@@ -12,7 +12,7 @@ import { BillLeadershipEditForm } from "./bill-leadership-edit-form";
 
 export default async function BillDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -21,9 +21,6 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   await processBillDeadlines(supabase);

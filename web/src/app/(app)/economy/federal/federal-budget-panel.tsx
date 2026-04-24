@@ -68,7 +68,7 @@ export function FederalBudgetPanel({
     gdp_opening_total: number | null;
     gdp_closing_total: number | null;
   }>;
-  /** Per-player YTD `hourly_income` totals (annualized basis for bracket preview). */
+  /** Per-player totals of `hourly_income` since this fiscal year began (same basis as year-end tax; not projected). */
   salaryAnnualIncomes: number[];
   nationalMetrics: NationalMetricsRow | null;
   /** Latest closed FY appropriations + estimated tax (for YoY). Null if no closed year on file. */
@@ -273,11 +273,13 @@ export function FederalBudgetPanel({
       {showFullProcess ? (
         <>
           <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Progressive income tax (annual)</h2>
+            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Progressive income tax (fiscal year)</h2>
             <p className="text-sm text-[var(--psc-muted)]">
-              Tax is computed on each player&apos;s <strong className="text-[var(--psc-ink)]">employment income</strong> for the
-              fiscal year: scheduled role salary plus PAC hourly collects (ledger <code className="text-xs">hourly_income</code>
-              only). Donations, transfers, and other credits are excluded. Marginal bands apply to consecutive slices of income.
+              At year-end, tax is computed on each player&apos;s total <strong className="text-[var(--psc-ink)]">employment income</strong>{" "}
+              for that fiscal year: scheduled role salary plus PAC hourly collects (ledger{" "}
+              <code className="text-xs">hourly_income</code> only). Donations, transfers, and other credits are excluded. Marginal
+              bands apply to consecutive slices of income. Previews below use income <strong className="text-[var(--psc-ink)]">earned so far this FY</strong>{" "}
+              (not a forecast of full-year earnings).
             </p>
             <p className="text-xs text-[var(--psc-muted)]">
               Bracket impact below uses your <strong className="text-[var(--psc-ink)]">draft</strong> ceilings and rates and
@@ -445,9 +447,10 @@ export function FederalBudgetPanel({
             <div className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Budget analytics (this draft)</h3>
               <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
-                Employment tax and income are <strong className="text-[var(--psc-ink)]">YTD</strong> through now (same basis as
-                bracket impact). Appropriations are the sum of your line items. Year-end close uses the full FY window and may
-                differ. Net (tax − appropriations) is a simple operating snapshot, not a full cash-flow model.
+                Employment income and tax here are <strong className="text-[var(--psc-ink)]">FY-to-date through now</strong> (same
+                basis as bracket impact above). Appropriations are the sum of your line items. Totals rise as players collect more;
+                year-end close settles tax on the <strong className="text-[var(--psc-ink)]">full</strong> fiscal year. Net (tax −
+                appropriations) is a simple operating snapshot, not a full cash-flow model.
               </p>
               <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -476,7 +479,7 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Est. income tax (draft brackets × YTD salary)
+                    Est. income tax (draft brackets × FY-to-date employment income)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${estimatedTaxYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -484,7 +487,7 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Taxable salary / PAC income (YTD)
+                    Taxable salary / PAC income (FY-to-date)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${taxableSalaryIncomeYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -549,25 +552,25 @@ export function FederalBudgetPanel({
                     </div>
                     <div className="rounded border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-3 py-2.5">
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                        Their est. income tax (full year)
+                        Their income tax (closed year, actual)
                       </dt>
                       <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                         ${priorYearBudgetSummary.estimatedIncomeTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </dd>
                       <dd className="mt-1 text-[10px] text-[var(--psc-muted)]">
-                        YTD this FY vs their full-year est.:{" "}
+                        Draft preview (FY-to-date now) minus that closed-year total:{" "}
                         <span className="font-mono font-semibold text-[var(--psc-ink)]">
                           {estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax >= 0 ? "+" : ""}$
                           {(estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax).toLocaleString(undefined, {
                             maximumFractionDigits: 0,
                           })}
                         </span>{" "}
-                        (not apples-to-apples until the year closes)
+                        (rough; current year still open)
                       </dd>
                     </div>
                     <div className="rounded border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-3 py-2.5">
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                        Their taxable salary income (full year)
+                        Their taxable employment income (closed year, actual)
                       </dt>
                       <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                         $
@@ -732,7 +735,7 @@ export function FederalBudgetPanel({
             <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
               <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Closed fiscal years</h2>
               <p className="mt-1 text-xs text-[var(--psc-muted)]">
-                GDP snapshots are stored when the year closed (before annual tax collection).
+                GDP snapshots are stored when the year closed (before federal income tax was settled for that year).
               </p>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full min-w-[560px] text-left text-sm">

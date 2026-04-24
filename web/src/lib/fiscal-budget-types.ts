@@ -10,8 +10,9 @@ export type FiscalLineItemRow = {
 export type PriorFiscalYearBudgetSummary = {
   yearLabel: string;
   totalAppropriations: number;
+  /** Federal income tax actually implied by brackets on that year's employment income (closed year). */
   estimatedIncomeTax: number;
-  /** Sum of employment income used in the marginal tax preview for that year. */
+  /** Sum of employment income (`hourly_income`) in that closed fiscal year (actual, not projected). */
   totalTaxableSalaryIncome: number;
   playersWithIncome: number;
 };

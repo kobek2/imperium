@@ -4,7 +4,7 @@ import type { FiscalTaxBracket } from "@/lib/fiscal-tax";
 
 /**
  * Per-user **salary / PAC collect** totals (`hourly_income` only) between `fiscalYearStartedAt` (inclusive)
- * and `windowEndAt` (inclusive). When `windowEndAt` is null, uses "now" (active fiscal year YTD).
+ * and `windowEndAt` (inclusive). When `windowEndAt` is null, uses "now" (FY-to-date for the active year).
  */
 export async function loadAnnualInflowsForFiscalYearWindow(
   supabase: SupabaseClient,
@@ -31,7 +31,7 @@ export async function loadAnnualInflowsForFiscalYearWindow(
   return [...byUser.values()];
 }
 
-/** Active fiscal year: from FY start through the current instant (exclusive upper bound in prior impl → use lte now). */
+/** Active fiscal year: from FY start through the current instant (`lte` end bound). */
 export async function loadAnnualInflowsForFiscalYear(
   supabase: SupabaseClient,
   fiscalYearStartedAt: string,

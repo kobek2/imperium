@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { buildBracketAnalytics, loadAnnualInflowsForFiscalYear, loadAnnualInflowsForFiscalYearWindow } from "@/lib/load-fiscal-tax-analytics";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
@@ -11,7 +11,7 @@ import { FederalBudgetPanel } from "./federal-budget-panel";
 import { FederalPriorYearSidebar, type FederalPriorYearSnapshot } from "./federal-prior-year-sidebar";
 
 export default async function FederalEconomyPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -20,9 +20,6 @@ export default async function FederalEconomyPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const [{ data: activeYear }, { data: wallets }, { data: treasuryRow }, pres, isAdmin] = await Promise.all([
@@ -152,9 +149,9 @@ export default async function FederalEconomyPage() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Economy</p>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Federal budget &amp; GDP</h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
-            One fiscal year is active at a time. Tax uses marginal brackets on each player&apos;s{' '}
-            <strong>employment income</strong> for the year (scheduled role salary plus PAC hourly collects), not donations or
-            transfers.
+            One fiscal year is active at a time. Tax uses marginal brackets on each player&apos;s{" "}
+            <strong>employment income</strong> for that fiscal year (scheduled role salary plus PAC hourly collects), not donations
+            or transfers.
             Economy actions stay frozen until a full staff operator marks the budget submitted after Congress acts. Fiscal
             year-end tax, spending execution, and rollovers are intended to run through cabinet offices (e.g. Treasury), not a
             manual &quot;close year&quot; control on this page.

@@ -1,18 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPage } from "@/lib/staff-access";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { EconomyOverviewUnlock } from "./economy-overview-unlock";
+import { EconomyFiscalConfig } from "./economy-fiscal-config";
 
 export default async function AdminEconomyOverviewPage() {
   const access = await requireStaffPage("economy");
-  const supabase = await tryCreateClient();
+  const { supabase } = await getServerAuth();
   if (!supabase) redirect("/admin");
 
   const { data: activeFy } = await supabase
     .from("rp_fiscal_years")
-    .select("id, label, status")
+    .select("id, label, status, appropriation_window_hours, tax_due_days_after_close, tax_penalty_daily_rate, tax_warning_lead_days")
     .eq("status", "active")
     .maybeSingle();
 
@@ -61,6 +62,17 @@ export default async function AdminEconomyOverviewPage() {
         budgetStatus={fyBudget ? String((fyBudget as { status: string }).status) : null}
         canMarkSubmitted={access.hasFullStaff}
       />
+      {activeFy ? (
+        <EconomyFiscalConfig
+          canEdit={access.hasFullStaff}
+          initial={{
+            appropriationWindowHours: Number((activeFy as { appropriation_window_hours?: number }).appropriation_window_hours ?? 24),
+            taxDueDaysAfterClose: Number((activeFy as { tax_due_days_after_close?: number }).tax_due_days_after_close ?? 7),
+            taxPenaltyDailyRate: Number((activeFy as { tax_penalty_daily_rate?: number }).tax_penalty_daily_rate ?? 0.05),
+            taxWarningLeadDays: Number((activeFy as { tax_warning_lead_days?: number }).tax_warning_lead_days ?? 2),
+          }}
+        />
+      ) : null}
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Players &amp; economy rows</h2>

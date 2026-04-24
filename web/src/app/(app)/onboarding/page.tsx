@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { pickDiscordUsername } from "@/lib/discord-username";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { CharacterForm } from "../character/character-form";
 
 export default async function OnboardingPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -14,9 +14,6 @@ export default async function OnboardingPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   let { data: profile } = await supabase

@@ -49,7 +49,7 @@ export function buildFederalAppropriationsBillHtml(input: {
 <h2>Federal appropriations and revenue schedule — ${y}</h2>
 <p>This bill sets forth the President&apos;s proposed marginal income tax brackets for the fiscal year identified above, and authorizes aggregate appropriations by program line as enumerated. Amounts are expressed in United States dollars.</p>
 <h3>Section 1. Marginal income tax brackets</h3>
-<p>Rates are applied marginally to each band of annual <strong>employment-related income</strong> (scheduled role salary and PAC hourly collects posted as <code>hourly_income</code> in the federal ledger), consistent with the active fiscal year window.</p>
+<p>Rates are applied marginally to each band of <strong>employment-related income</strong> for the fiscal year (scheduled role salary and PAC hourly collects posted as <code>hourly_income</code> in the federal ledger), consistent with that fiscal year window.</p>
 <table>
 <thead><tr><th>Band</th><th>Annual taxable income in band</th><th>Rate</th></tr></thead>
 <tbody>${bracketRows}</tbody>

@@ -4,6 +4,7 @@ import {
   getFilingEligibilityMessage,
   loadActiveCandidacySlots,
 } from "@/lib/election-filing";
+import { endorsementPointsForRoles } from "@/lib/fec";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
@@ -13,7 +14,8 @@ import {
   requiredChamberRoleKey,
   type LeadershipRole,
 } from "@/lib/leadership";
-import { tryCreateClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
@@ -30,7 +32,7 @@ import {
 // requests instead of hitting Postgres on every page view.
 type StateRow = { code: string; name: string };
 let statesPromise: Promise<StateRow[]> | null = null;
-function getStatesCached(supabase: Awaited<ReturnType<typeof tryCreateClient>>) {
+function getStatesCached(supabase: SupabaseClient | null) {
   if (!supabase) return Promise.resolve([] as StateRow[]);
   if (!statesPromise) {
     statesPromise = (async () => {
@@ -53,7 +55,7 @@ export default async function ElectionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -62,9 +64,6 @@ export default async function ElectionDetailPage({
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   await runElectionPhaseSchedule(supabase);
@@ -80,6 +79,7 @@ export default async function ElectionDetailPage({
     { data: generalVoteRows },
     { data: myPrimaryVote },
     { data: myGeneralVote },
+    { data: myEndorsement },
     { data: myProfile },
     activeSlots,
     { data: speechRows },
@@ -102,6 +102,12 @@ export default async function ElectionDetailPage({
       .select("candidate_id")
       .eq("election_id", id)
       .eq("voter_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("campaign_endorsements")
+      .select("candidate_id")
+      .eq("election_id", id)
+      .eq("endorser_user_id", user.id)
       .maybeSingle(),
     supabase
       .from("profiles")
@@ -143,6 +149,9 @@ export default async function ElectionDetailPage({
     })(),
   ]);
 
+  const effectiveRoleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
+  const myEndorsementPoints = endorsementPointsForRoles(effectiveRoleKeys);
+
   // Pre-compute filing eligibility server-side so the detail component can show the right
   // hint or File button without knowing the rules. Leadership races branch to a different
   // eligibility check (chamber role + caucus party); seat races use the existing helper.
@@ -150,8 +159,7 @@ export default async function ElectionDetailPage({
   if (isLeadershipRole(election.leadership_role)) {
     const role = election.leadership_role as LeadershipRole;
     const needed = requiredChamberRoleKey(role);
-    const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
-    if (!roleKeys.includes(needed)) {
+    if (!effectiveRoleKeys.includes(needed)) {
       const label = needed === "representative" ? "representatives" : "senators";
       filingBlockReason = `Only sitting ${label} can file for this leadership race.`;
     } else if (
@@ -346,6 +354,8 @@ export default async function ElectionDetailPage({
         generalTally={generalTally}
         myPrimaryCandidateId={myPrimaryVote?.candidate_id ?? null}
         myGeneralCandidateId={myGeneralVote?.candidate_id ?? null}
+        myEndorsedCandidateId={myEndorsement?.candidate_id ?? null}
+        myEndorsementPoints={myEndorsementPoints}
         profileParty={myProfile?.party ?? null}
         filingBlockReason={filingBlockReason}
         userId={user.id}

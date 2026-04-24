@@ -14,6 +14,7 @@ import {
   type LeadershipRole,
   type PartyKey,
 } from "@/lib/leadership";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 const SESSION_DURATION_HOURS = 24;
 
@@ -217,7 +218,7 @@ export async function startLeadershipSession(formData: FormData): Promise<void> 
     if (isMissingLeadershipSchema(error.message)) {
       throw new Error(LEADERSHIP_MIGRATION_HINT);
     }
-    throw new Error(error.message);
+    throwIfPostgrestError(error);
   }
 
   if (inserted) revalidateSession(inserted.id);
@@ -235,7 +236,7 @@ export async function closeLeadershipSessionNow(formData: FormData): Promise<voi
     if (isMissingLeadershipSchema(error.message)) {
       throw new Error(LEADERSHIP_MIGRATION_HINT);
     }
-    throw new Error(error.message);
+    throwIfPostgrestError(error);
   }
 
   revalidateSession(sessionId);
@@ -254,7 +255,7 @@ async function loadSessionOrThrow(
     if (isMissingLeadershipSchema(error.message)) {
       throw new Error(LEADERSHIP_MIGRATION_HINT);
     }
-    throw new Error(error.message);
+    throwIfPostgrestError(error);
   }
   if (!data) throw new Error("Leadership session not found.");
   return data as {
@@ -330,7 +331,7 @@ export async function fileLeadershipCandidacy(formData: FormData): Promise<void>
   const { error } = await supabase
     .from("leadership_session_candidates")
     .insert({ session_id: sessionId, user_id: user.id, role });
-  if (error) throw new Error(error.message);
+  throwIfPostgrestError(error);
 
   revalidateSession(sessionId);
 }

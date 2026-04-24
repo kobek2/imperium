@@ -6,6 +6,8 @@ import {
   castPrimaryVote,
   fileCandidacy,
   setPresidentialRunningMate,
+  submitCampaignEndorsement,
+  withdrawCampaignEndorsement,
 } from "@/app/actions/elections";
 import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
 import { districtLeanBonus } from "@/lib/fec";
@@ -122,6 +124,8 @@ function CandidateCard({
   electionId,
   disabled,
   emphasizeParty,
+  endorsementPoints,
+  endorsedByMe,
 }: {
   cand: CandRow;
   card: CandidateCardFields | undefined;
@@ -138,6 +142,8 @@ function CandidateCard({
   electionId: string;
   disabled: boolean;
   emphasizeParty: boolean;
+  endorsementPoints: number;
+  endorsedByMe: boolean;
 }) {
   const badges = (
     <>
@@ -169,17 +175,43 @@ function CandidateCard({
         </p>
       ) : null}
       {mode !== "none" ? (
-        <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
-          <input type="hidden" name="election_id" value={electionId} />
-          <input type="hidden" name="candidate_id" value={cand.id} />
-          <SubmitButton
-            disabled={disabled}
-            variant={selected ? "selected" : "ghost"}
-            pendingLabel={selected ? "Unvoting…" : "Voting…"}
-          >
-            {selected ? "Unvote" : "Vote"}
-          </SubmitButton>
-        </form>
+        <div className="space-y-2">
+          <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
+            <input type="hidden" name="election_id" value={electionId} />
+            <input type="hidden" name="candidate_id" value={cand.id} />
+            <SubmitButton
+              disabled={disabled}
+              variant={selected ? "selected" : "ghost"}
+              pendingLabel={selected ? "Unvoting…" : "Voting…"}
+            >
+              {selected ? "Unvote" : "Vote"}
+            </SubmitButton>
+          </form>
+          {mode === "general" ? (
+            endorsementPoints > 0 ? (
+              endorsedByMe ? (
+                <form action={withdrawCampaignEndorsement}>
+                  <input type="hidden" name="election_id" value={electionId} />
+                  <SubmitButton variant="ghost" pendingLabel="Withdrawing…">
+                    Withdraw endorsement
+                  </SubmitButton>
+                </form>
+              ) : (
+                <form action={submitCampaignEndorsement}>
+                  <input type="hidden" name="election_id" value={electionId} />
+                  <input type="hidden" name="candidate_id" value={cand.id} />
+                  <SubmitButton variant="ghost" pendingLabel="Endorsing…">
+                    Endorse ({endorsementPoints} pts)
+                  </SubmitButton>
+                </form>
+              )
+            ) : (
+              <p className="text-[10px] text-[var(--psc-muted)]">
+                Endorsements require an eligible office role.
+              </p>
+            )
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -468,6 +500,8 @@ function PartyGroupedCandidates({
   voteDisabled,
   emptyMessage,
   emphasizeParty,
+  myEndorsedCandidateId,
+  myEndorsementPoints,
 }: {
   candidates: CandRow[];
   card: Record<string, CandidateCardFields>;
@@ -487,6 +521,8 @@ function PartyGroupedCandidates({
   voteDisabled: boolean;
   emptyMessage: string;
   emphasizeParty: boolean;
+  myEndorsedCandidateId: string | null;
+  myEndorsementPoints: number;
 }) {
   if (!candidates.length) {
     return (
@@ -612,6 +648,8 @@ function PartyGroupedCandidates({
                       electionId={electionId}
                       disabled={!mayVoteHere}
                       emphasizeParty={emphasizeParty}
+                      endorsementPoints={myEndorsementPoints}
+                      endorsedByMe={myEndorsedCandidateId === c.id}
                     />
                   </li>
                 );
@@ -633,6 +671,8 @@ export function ElectionDetail({
   generalTally,
   myPrimaryCandidateId,
   myGeneralCandidateId,
+  myEndorsedCandidateId,
+  myEndorsementPoints,
   profileParty,
   userId,
   isAdmin,
@@ -654,6 +694,8 @@ export function ElectionDetail({
   generalTally: Record<string, number>;
   myPrimaryCandidateId: string | null;
   myGeneralCandidateId: string | null;
+  myEndorsedCandidateId: string | null;
+  myEndorsementPoints: number;
   profileParty: string | null;
   filingBlockReason: string | null;
   userId: string;
@@ -911,6 +953,8 @@ export function ElectionDetail({
               voteDisabled
               emptyMessage="No one has filed yet. Be the first — if you're eligible."
               emphasizeParty={false}
+              myEndorsedCandidateId={null}
+              myEndorsementPoints={0}
             />
           </div>
         </section>
@@ -1000,6 +1044,8 @@ export function ElectionDetail({
             voteDisabled={!primaryOpen || !profileParty}
             emptyMessage="No one filed for this race."
             emphasizeParty
+            myEndorsedCandidateId={null}
+            myEndorsementPoints={0}
           />
         </section>
       ) : null}
@@ -1062,6 +1108,8 @@ export function ElectionDetail({
             voteDisabled={!generalOpen}
             emptyMessage="No candidates on the general ballot."
             emphasizeParty
+            myEndorsedCandidateId={myEndorsedCandidateId}
+            myEndorsementPoints={myEndorsementPoints}
           />
         </section>
       ) : null}
@@ -1096,6 +1144,8 @@ export function ElectionDetail({
             voteDisabled
             emptyMessage="No candidates for this race."
             emphasizeParty
+            myEndorsedCandidateId={null}
+            myEndorsementPoints={0}
           />
         </section>
       ) : null}

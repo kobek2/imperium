@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
 import type { DirectoryHolder } from "@/lib/directory-types";
 import { getIsAdmin } from "@/lib/is-admin";
@@ -108,7 +108,7 @@ const TABS: DirectoryTabConfig[] = [
 ];
 
 export default async function DirectoryPage() {
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -117,9 +117,6 @@ export default async function DirectoryPage() {
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const [{ data: grants }, { data: profiles }, { data: lawBills }, pres, isAdmin] = await Promise.all([

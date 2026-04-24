@@ -70,12 +70,14 @@ export function endorsementPointsForRoles(roleKeys: string[]): number {
     president_pro_tempore: G.senator + bonus,
     senate_majority_leader: G.senator + bonus,
     senate_minority_leader: G.senator + bonus,
-    senate_majority_whip: G.senator + bonus,
-    senate_minority_whip: G.senator + bonus,
+    // Whips count as chamber members for endorsement weight; they do not get
+    // the extra leadership bonus.
+    senate_majority_whip: G.senator,
+    senate_minority_whip: G.senator,
     house_majority_leader: G.representative + bonus,
     house_minority_leader: G.representative + bonus,
-    house_majority_whip: G.representative + bonus,
-    house_minority_whip: G.representative + bonus,
+    house_majority_whip: G.representative,
+    house_minority_whip: G.representative,
   };
   let max = 0;
   for (const k of roleKeys) {

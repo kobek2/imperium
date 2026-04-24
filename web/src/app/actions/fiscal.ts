@@ -13,6 +13,7 @@ import { isActivePresidentialRunningMate } from "@/lib/presidential-running-mate
 import { htmlToPlainText, sanitizeBillHtml } from "@/lib/sanitize-bill-html";
 import { getStaffAccess } from "@/lib/staff-access";
 import { isPresident } from "@/lib/president";
+import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 
 function revalidateFiscal() {
   revalidatePath("/economy");
@@ -127,19 +128,71 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   };
 }
 
-function isMissingBillTimerColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("leadership_deadline_at") || m.includes("chamber_vote_deadline_at");
+export async function startAppropriationClockIfPresidentSeated(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
+  if (error) return { ok: false, message: error.message };
+  revalidateFiscal();
+  revalidatePath("/congress");
+  return { ok: true, message: "Appropriations clock check complete." };
 }
 
-function isMissingContentHtmlColumn(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("content_html") || m.includes("schema cache");
+export async function payFiscalTax(formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const amount = Number(String(formData.get("amount") ?? "").trim());
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, message: "Enter a valid payment amount." };
+  }
+  const { data, error } = await supabase.rpc("fiscal_pay_tax", { p_amount: amount });
+  if (error) return { ok: false, message: error.message };
+  revalidateFiscal();
+  revalidatePath("/economy");
+  const paid = Number((data as { paid?: number } | null)?.paid ?? 0);
+  const remaining = Number((data as { remaining?: number } | null)?.remaining ?? 0);
+  return {
+    ok: true,
+    message: `Tax payment recorded: $${paid.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Remaining balance: $${remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`,
+  };
 }
 
-function isMissingAppropriationsColumns(message: string | undefined) {
-  const m = (message ?? "").toLowerCase();
-  return m.includes("is_federal_appropriations") || m.includes("linked_fiscal_year_id");
+export async function treasuryIssueTaxWarnings(scope: "due_soon" | "delinquent" | "all"): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fiscal_issue_tax_warning", { p_scope: scope });
+  if (error) return { ok: false, message: error.message };
+  revalidateFiscal();
+  revalidatePath("/cabinet/treasury");
+  const warned = Number((data as { warned?: number } | null)?.warned ?? 0);
+  return { ok: true, message: `Issued ${warned.toLocaleString()} tax warning(s).` };
+}
+
+export async function treasuryApplyTaxPenalties(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("fiscal_apply_tax_penalties");
+  if (error) return { ok: false, message: error.message };
+  revalidateFiscal();
+  revalidatePath("/cabinet/treasury");
+  const updated = Number((data as { updated?: number } | null)?.updated ?? 0);
+  return { ok: true, message: `Penalty processing updated ${updated.toLocaleString()} account(s).` };
+}
+
+export async function adminUpdateFiscalConfig(input: {
+  appropriationWindowHours?: number;
+  taxDueDaysAfterClose?: number;
+  taxPenaltyDailyRate?: number;
+  taxWarningLeadDays?: number;
+}): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("fiscal_admin_update_config", {
+    p_appropriation_window_hours:
+      input.appropriationWindowHours != null ? Number(input.appropriationWindowHours) : null,
+    p_tax_due_days_after_close: input.taxDueDaysAfterClose != null ? Number(input.taxDueDaysAfterClose) : null,
+    p_tax_penalty_daily_rate: input.taxPenaltyDailyRate != null ? Number(input.taxPenaltyDailyRate) : null,
+    p_tax_warning_lead_days: input.taxWarningLeadDays != null ? Number(input.taxWarningLeadDays) : null,
+  });
+  if (error) return { ok: false, message: error.message };
+  revalidateFiscal();
+  revalidatePath("/admin/economy/overview");
+  return { ok: true, message: "Fiscal settings updated." };
 }
 
 /**
@@ -245,7 +298,10 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     .select("id")
     .maybeSingle();
 
-  if (error && isMissingBillTimerColumn(error.message)) {
+  if (
+    error &&
+    dbErrorHintsMissingColumn(error.message, ["leadership_deadline_at", "chamber_vote_deadline_at"])
+  ) {
     const retry = await supabase
       .from("bills")
       .insert({
@@ -264,7 +320,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     error = retry.error;
   }
 
-  if (error && isMissingContentHtmlColumn(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, ["content_html", "schema cache"])) {
     const retry = await supabase
       .from("bills")
       .insert({
@@ -282,7 +338,10 @@ export async function fileFederalBudgetAppropriationsBill(input: {
       .maybeSingle();
     inserted = retry.data;
     error = retry.error;
-    if (error && isMissingBillTimerColumn(error.message)) {
+    if (
+      error &&
+      dbErrorHintsMissingColumn(error.message, ["leadership_deadline_at", "chamber_vote_deadline_at"])
+    ) {
       const retry2 = await supabase
         .from("bills")
         .insert({
@@ -301,7 +360,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     }
   }
 
-  if (error && isMissingAppropriationsColumns(error.message)) {
+  if (error && dbErrorHintsMissingColumn(error.message, ["is_federal_appropriations", "linked_fiscal_year_id"])) {
     const retry = await supabase
       .from("bills")
       .insert({

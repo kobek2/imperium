@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { tryCreateClient } from "@/lib/supabase/server";
+import { getServerAuth } from "@/lib/supabase/server";
 import { PartyLeadershipForms } from "./party-leadership-forms";
 
 const VALID = new Set(["democrat", "republican"]);
@@ -31,12 +31,9 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
   const partyKey = raw.toLowerCase();
   if (!VALID.has(partyKey)) notFound();
 
-  const supabase = await tryCreateClient();
+  const { supabase, user } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const [{ data: officers }, { data: boardRows }, { data: org }, { data: members }, { data: proposals }, { data: viewerProfile }] =
