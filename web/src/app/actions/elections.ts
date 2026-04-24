@@ -959,6 +959,25 @@ const RALLY_POINTS = 0.5;
 const RALLY_WINDOW_MS = 3 * 60 * 60 * 1000;
 const RALLY_LIMIT_PER_WINDOW = 10;
 
+/** After primaries, only nominee tickets may earn state-targeted campaign points. */
+async function assertPresidentNomineeCanCampaign(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  electionId: string,
+  candidateId: string,
+  actionLabel: string,
+): Promise<void> {
+  const { data: rows } = await supabase
+    .from("election_candidates")
+    .select("id, primary_winner")
+    .eq("election_id", electionId);
+  const hasPrimaryWinners = (rows ?? []).some((r) => r.primary_winner);
+  if (!hasPrimaryWinners) return;
+  const mine = rows?.find((r) => r.id === candidateId);
+  if (!mine?.primary_winner) {
+    throw new Error(`Only presidential nominees on the general ballot can ${actionLabel}.`);
+  }
+}
+
 export async function submitCampaignSpeech(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const {
@@ -977,27 +996,17 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
 
   const { data: election } = await supabase
     .from("elections")
-    .select(
-      "phase, office, state, district_code, general_closes_at, primary_closes_at, leadership_role",
-    )
+    .select("phase, office, state, district_code, general_closes_at, leadership_role")
     .eq("id", election_id)
     .maybeSingle();
   if (!election) throw new Error("Election not found.");
   if (election.leadership_role) {
     throw new Error("Speeches and rallies don't apply to leadership races — they're decided by plain plurality.");
   }
-  if (election.office === "president") {
-    if (election.phase !== "primary" && election.phase !== "general") {
-      throw new Error("Presidential campaign speeches are only open during the primary or general.");
-    }
-  } else if (election.phase !== "general") {
-    throw new Error("General election is not open.");
+  if (election.phase !== "general") {
+    throw new Error("Speeches and rallies are only open during the general election.");
   }
-  if (election.phase === "primary") {
-    if (!election.primary_closes_at || new Date() > new Date(election.primary_closes_at)) {
-      throw new Error("Primary has ended.");
-    }
-  } else if (new Date() > new Date(election.general_closes_at)) {
+  if (new Date() > new Date(election.general_closes_at)) {
     throw new Error("General election is closed.");
   }
 
@@ -1023,6 +1032,9 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
     candidate = c ?? null;
   }
   if (!candidate) throw new Error("Only candidates in this race can submit speeches.");
+  if (election.office === "president") {
+    await assertPresidentNomineeCanCampaign(supabase, election_id, candidate.id, "deliver speeches");
+  }
 
   // Speech targeting:
   //   house   -> auto-attributed to the district (and state) of the race.
@@ -1070,27 +1082,17 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
 
   const { data: election } = await supabase
     .from("elections")
-    .select(
-      "phase, office, state, district_code, general_closes_at, primary_closes_at, leadership_role",
-    )
+    .select("phase, office, state, district_code, general_closes_at, leadership_role")
     .eq("id", election_id)
     .maybeSingle();
   if (!election) throw new Error("Election not found.");
   if (election.leadership_role) {
     throw new Error("Speeches and rallies don't apply to leadership races — they're decided by plain plurality.");
   }
-  if (election.office === "president") {
-    if (election.phase !== "primary" && election.phase !== "general") {
-      throw new Error("Presidential rallies are only open during the primary or general.");
-    }
-  } else if (election.phase !== "general") {
-    throw new Error("General election is not open.");
+  if (election.phase !== "general") {
+    throw new Error("Speeches and rallies are only open during the general election.");
   }
-  if (election.phase === "primary") {
-    if (!election.primary_closes_at || new Date() > new Date(election.primary_closes_at)) {
-      throw new Error("Primary has ended.");
-    }
-  } else if (new Date() > new Date(election.general_closes_at)) {
+  if (new Date() > new Date(election.general_closes_at)) {
     throw new Error("General election is closed.");
   }
 
@@ -1116,6 +1118,9 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     candidate = c ?? null;
   }
   if (!candidate) throw new Error("Only candidates in this race can rally.");
+  if (election.office === "president") {
+    await assertPresidentNomineeCanCampaign(supabase, election_id, candidate.id, "hold rallies");
+  }
 
   const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
   const { count } = await supabase

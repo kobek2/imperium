@@ -108,7 +108,7 @@ type VoteMode = "none" | "primary" | "general";
 /**
  * A single candidate tile. We show a single percentage — either their primary vote share or
  * their blended general score — instead of the old "Primary: 8 · General: 10 · Speeches: 3…"
- * list. Campaign-activity rollups live in the candidate's own <CampaignPanel/> section.
+ * list. Campaign-activity rollups (general only for president) live in <CampaignPanel/>.
  */
 function CandidateCard({
   cand,
@@ -978,9 +978,9 @@ export function ElectionDetail({
             {election.office === "president" ? (
               <p className="mt-2 text-xs text-[var(--psc-muted)]">
                 Presidential tickets: pick a running mate (same party) with their Discord user id.
-                They campaign on your ticket and may cast a Senate tie-breaker only while this primary
-                is open — they cannot file bills, act as president, or vote on ordinary Senate floor
-                votes during that time.
+                Speeches and rallies unlock in the general election; during the primary they may cast
+                a Senate tie-breaker only while this primary is open — they cannot file bills, act as
+                president, or vote on ordinary Senate floor votes during that time.
               </p>
             ) : null}
           </div>
@@ -1009,21 +1009,6 @@ export function ElectionDetail({
                 </p>
               ) : null}
             </form>
-          ) : null}
-          {election.office === "president" && !isLeadership && myTicketRow && primaryOpen ? (
-            <CampaignPanel
-              election={election}
-              myCandidate={myTicketRow}
-              userId={userId}
-              myRalliesInWindow={myRalliesInWindow}
-              myRallyLimit={10}
-              myRallyWindowHours={3}
-              myNextRallyAt={myNextRallyAt}
-              speechCount={speechCountBy[myTicketRow.id] ?? 0}
-              rallyCount={rallyCountBy[myTicketRow.id] ?? 0}
-              states={states}
-              partisanLean={partisanLean}
-            />
           ) : null}
           <PartyGroupedCandidates
             candidates={candidates}
