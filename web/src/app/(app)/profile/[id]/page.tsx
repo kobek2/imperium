@@ -58,7 +58,7 @@ export default async function ProfilePage({
     supabase
       .from("profiles")
       .select(
-        "id, character_name, discord_username, party, bio, face_claim_url, residence_state, home_district_code, office_role, former_positions",
+        "id, character_name, discord_username, party, bio, face_claim_url, residence_state, home_district_code, office_role, former_positions, approval_rating, approval_history",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -199,6 +199,46 @@ export default async function ProfilePage({
               </ul>
             </div>
           ) : null}
+
+          <div className="space-y-2 rounded border border-[var(--psc-border)] bg-white p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
+              Political approval
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="h-3 flex-1 overflow-hidden rounded-full bg-[var(--psc-border)]">
+                <div
+                  className="h-full rounded-full bg-[var(--psc-accent)]"
+                  style={{ width: `${Math.round(Number((profile as { approval_rating?: number }).approval_rating ?? 50))}%` }}
+                />
+              </div>
+              <span className="font-mono text-lg font-semibold text-[var(--psc-ink)]">
+                {Math.round(Number((profile as { approval_rating?: number }).approval_rating ?? 50))}
+              </span>
+            </div>
+            {Array.isArray((profile as { approval_history?: unknown }).approval_history) &&
+            ((profile as { approval_history: unknown[] }).approval_history as unknown[]).length > 0 ? (
+              <ul className="mt-2 space-y-1 text-xs">
+                {((profile as { approval_history: Array<{ delta?: number; reason?: string }> }).approval_history)
+                  .slice(-5)
+                  .reverse()
+                  .map((e, i) => (
+                    <li key={i} className="flex justify-between gap-2 text-[var(--psc-muted)]">
+                      <span className="min-w-0 flex-1 truncate">{e.reason ?? "—"}</span>
+                      <span
+                        className={
+                          Number(e.delta) >= 0 ? "font-mono font-semibold text-green-700" : "font-mono font-semibold text-red-700"
+                        }
+                      >
+                        {Number(e.delta) >= 0 ? "+" : ""}
+                        {e.delta}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)]">No approval history yet.</p>
+            )}
+          </div>
 
           {profile.bio?.trim() ? (
             <div className="space-y-1">

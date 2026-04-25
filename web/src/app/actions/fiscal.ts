@@ -14,6 +14,7 @@ import { htmlToPlainText, sanitizeBillHtml } from "@/lib/sanitize-bill-html";
 import { getStaffAccess } from "@/lib/staff-access";
 import { isPresident } from "@/lib/president";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
+import { processYearEndParticipationApproval } from "@/lib/approval-ratings";
 
 function revalidateFiscal() {
   revalidatePath("/economy");
@@ -114,6 +115,7 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
 
   const { data, error } = await supabase.rpc("fiscal_close_year");
   if (error) return { ok: false, message: error.message };
+  const yearEndApproval = await processYearEndParticipationApproval(supabase);
   revalidateFiscal();
   const d = data as {
     total_tax_collected?: number;
@@ -124,7 +126,7 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   const spend = d?.total_spending ?? 0;
   return {
     ok: true,
-    message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Submit a budget for the new year to unfreeze the economy.`,
+    message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
   };
 }
 
@@ -241,7 +243,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     .eq("is_federal_appropriations", true)
     .limit(40);
   if (pendErr) return { ok: false, message: pendErr.message };
-  const terminal = new Set(["dead", "vetoed"]);
+    const terminal = new Set(["dead", "vetoed", "failed"]);
   const hasOpenPipeline = (pendingAppRows ?? []).some(
     (r) => !terminal.has(String((r as { status?: string }).status ?? "")),
   );

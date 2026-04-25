@@ -5,7 +5,7 @@ import { BillVoteCountdown } from "@/components/bill-vote-countdown";
 import { SubmitButton } from "@/components/submit-button";
 import { billStatusDisplay } from "@/lib/bill-display-status";
 
-export type VoteKind = "yea" | "nay" | "abstain";
+export type VoteKind = "yea" | "nay" | "abstain" | "present";
 export type BillVote = {
   bill_id: string;
   voter_id: string;
@@ -34,7 +34,7 @@ export type BillForCard = {
   vp_tie_break_pending?: boolean | null;
 };
 
-const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain"] as const;
+const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain", "present"] as const;
 
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
@@ -90,6 +90,17 @@ const VOTE_META: Record<VoteKind, {
       "flex-1 border border-amber-600 bg-white px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-amber-900 transition hover:bg-amber-50",
     badge: "bg-amber-100 text-amber-900 border border-amber-300",
   },
+  present: {
+    label: "Present",
+    short: "P",
+    bar: "bg-slate-400",
+    text: "text-slate-900",
+    activeBtn:
+      "flex-1 border border-slate-600 bg-slate-500 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm",
+    idleBtn:
+      "flex-1 border border-slate-600 bg-white px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-900 transition hover:bg-slate-50",
+    badge: "bg-slate-100 text-slate-900 border border-slate-300",
+  },
 };
 
 function TallyBar({ counts }: { counts: Record<VoteKind, number> }) {
@@ -118,8 +129,12 @@ function TallyBar({ counts }: { counts: Record<VoteKind, number> }) {
 }
 
 function countsFor(votes: BillVote[]): Record<VoteKind, number> {
-  const c: Record<VoteKind, number> = { yea: 0, nay: 0, abstain: 0 };
-  for (const v of votes) c[v.vote]++;
+  const c: Record<VoteKind, number> = { yea: 0, nay: 0, abstain: 0, present: 0 };
+  for (const v of votes) {
+    if (v.vote === "yea" || v.vote === "nay" || v.vote === "abstain" || v.vote === "present") {
+      c[v.vote]++;
+    }
+  }
   return c;
 }
 
@@ -130,11 +145,11 @@ function RollCall({
   votes: BillVote[];
   voterById: Map<string, VoterProfile>;
 }) {
-  const grouped: Record<VoteKind, BillVote[]> = { yea: [], nay: [], abstain: [] };
+  const grouped: Record<VoteKind, BillVote[]> = { yea: [], nay: [], abstain: [], present: [] };
   for (const v of votes) grouped[v.vote].push(v);
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {VOTE_ORDER.map((k) => {
         const list = grouped[k];
         const meta = VOTE_META[k];

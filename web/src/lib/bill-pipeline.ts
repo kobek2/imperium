@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { processVoteApproval } from "@/lib/approval-ratings";
 import { countChamberVotingMembers } from "@/lib/congress-composition";
 import type { BillChamber } from "@/lib/bill-types";
 
@@ -120,44 +121,48 @@ async function tallySenateYeasNays(
   return { yea, nay };
 }
 
-async function advanceSenateBillAfterPass(
+/** After a successful floor vote: route to other chamber review or Oval. */
+async function transitionAfterChamberPass(
   supabase: SupabaseClient,
   bill: { id: string; originating_chamber: string },
+  floorChamber: BillChamber,
 ): Promise<void> {
-  if (bill.originating_chamber === "senate") {
-    let { error } = await supabase
-      .from("bills")
-      .update({
-        status: "house_floor",
-        chamber_vote_deadline_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        vp_tie_break_pending: false,
-      })
-      .eq("id", bill.id);
-    if (error && isMissingVpTieColumn(error.message)) {
-      const retry = await supabase
-        .from("bills")
-        .update({
-          status: "house_floor",
-          chamber_vote_deadline_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .eq("id", bill.id);
-      error = retry.error;
-    }
-    if (error) throw new Error(error.message);
-  } else {
-    let { error } = await supabase
-      .from("bills")
-      .update({ status: "oval", chamber_vote_deadline_at: null, vp_tie_break_pending: false })
-      .eq("id", bill.id);
-    if (error && isMissingVpTieColumn(error.message)) {
-      const retry = await supabase
-        .from("bills")
-        .update({ status: "oval", chamber_vote_deadline_at: null })
-        .eq("id", bill.id);
-      error = retry.error;
-    }
-    if (error) throw new Error(error.message);
+  const orig = bill.originating_chamber as BillChamber;
+  const nextOther = { status: "other_chamber_review" as const, chamber_vote_deadline_at: null, vp_tie_break_pending: false };
+  const nextOval = { status: "oval" as const, chamber_vote_deadline_at: null, vp_tie_break_pending: false };
+
+  const patch =
+    floorChamber === "house"
+      ? orig === "house"
+        ? nextOther
+        : nextOval
+      : orig === "senate"
+        ? nextOther
+        : nextOval;
+
+  let { error } = await supabase.from("bills").update(patch).eq("id", bill.id);
+  if (error && isMissingVpTieColumn(error.message)) {
+    const { vp_tie_break_pending: _v, ...withoutVp } = patch;
+    const retry = await supabase.from("bills").update(withoutVp).eq("id", bill.id);
+    error = retry.error;
   }
+  if (error) throw new Error(error.message);
+}
+
+async function setBillFailed(supabase: SupabaseClient, billId: string, chamber: BillChamber): Promise<void> {
+  await processVoteApproval(supabase, billId, chamber, false);
+  let { error } = await supabase
+    .from("bills")
+    .update({ status: "failed", chamber_vote_deadline_at: null, vp_tie_break_pending: false })
+    .eq("id", billId);
+  if (error && isMissingVpTieColumn(error.message)) {
+    const retry = await supabase
+      .from("bills")
+      .update({ status: "failed", chamber_vote_deadline_at: null })
+      .eq("id", billId);
+    error = retry.error;
+  }
+  if (error) console.warn("[setBillFailed]", billId, error.message);
 }
 
 /** After the VP / running mate casts, close out a tied Senate floor if yea and nay now differ. */
@@ -180,23 +185,13 @@ export async function resolveSenateAfterTiebreakVote(
   if (yea === nay) return;
 
   if (yea < nay) {
-    let { error } = await supabase
-      .from("bills")
-      .update({ status: "dead", chamber_vote_deadline_at: null, vp_tie_break_pending: false })
-      .eq("id", billId);
-    if (error && isMissingVpTieColumn(error.message)) {
-      const retry = await supabase
-        .from("bills")
-        .update({ status: "dead", chamber_vote_deadline_at: null })
-        .eq("id", billId);
-      error = retry.error;
-    }
-    if (error) console.warn("[resolveSenateAfterTiebreakVote]", error.message);
+    await setBillFailed(supabase, billId, "senate");
     return;
   }
 
+  await processVoteApproval(supabase, billId, "senate", true);
   try {
-    await advanceSenateBillAfterPass(supabase, bill);
+    await transitionAfterChamberPass(supabase, bill, "senate");
   } catch (e) {
     console.warn("[resolveSenateAfterTiebreakVote] advance:", e);
   }
@@ -215,8 +210,6 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
 
   if (hopperStaleRes.error) {
     if (isMissingBillTimerColumn(hopperStaleRes.error.message)) {
-      // Older databases without the timer columns can't process deadlines here; the
-      // bills table's pre-timer migration handled this differently. Skip silently.
       return;
     }
     console.warn("[processBillDeadlines] hopperStale:", hopperStaleRes.error.message);
@@ -238,22 +231,14 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
   for (const bill of houseFloor ?? []) {
     const pass = await tallyChamberPass(supabase, bill.id, "house");
     if (!pass) {
-      await supabase.from("bills").update({ status: "dead", chamber_vote_deadline_at: null }).eq("id", bill.id);
+      await setBillFailed(supabase, bill.id, "house");
       continue;
     }
-    if (bill.originating_chamber === "house") {
-      await supabase
-        .from("bills")
-        .update({
-          status: "senate_floor",
-          chamber_vote_deadline_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .eq("id", bill.id);
-    } else {
-      await supabase
-        .from("bills")
-        .update({ status: "oval", chamber_vote_deadline_at: null })
-        .eq("id", bill.id);
+    await processVoteApproval(supabase, bill.id, "house", true);
+    try {
+      await transitionAfterChamberPass(supabase, bill, "house");
+    } catch (e) {
+      console.warn("[processBillDeadlines] house advance:", e);
     }
   }
 
@@ -296,10 +281,15 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
 
         const pass = await tallyChamberPass(supabase, bill.id, "senate");
         if (!pass) {
-          await supabase.from("bills").update({ status: "dead", chamber_vote_deadline_at: null }).eq("id", bill.id);
+          await setBillFailed(supabase, bill.id, "senate");
           continue;
         }
-        await advanceSenateBillAfterPass(supabase, bill);
+        await processVoteApproval(supabase, bill.id, "senate", true);
+        try {
+          await transitionAfterChamberPass(supabase, bill, "senate");
+        } catch (e) {
+          console.warn("[processBillDeadlines] senate advance legacy:", e);
+        }
       }
       return;
     }
@@ -335,22 +325,16 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
 
     const { yea, nay } = await tallySenateYeasNays(supabase, bill.id);
     if (yea > nay) {
-      await advanceSenateBillAfterPass(supabase, bill);
+      await processVoteApproval(supabase, bill.id, "senate", true);
+      try {
+        await transitionAfterChamberPass(supabase, bill, "senate");
+      } catch (e) {
+        console.warn("[processBillDeadlines] senate advance:", e);
+      }
       continue;
     }
     if (nay > yea) {
-      let { error } = await supabase
-        .from("bills")
-        .update({ status: "dead", chamber_vote_deadline_at: null })
-        .eq("id", bill.id);
-      if (error && isMissingVpTieColumn(error.message)) {
-        const retry = await supabase
-          .from("bills")
-          .update({ status: "dead", chamber_vote_deadline_at: null })
-          .eq("id", bill.id);
-        error = retry.error;
-      }
-      if (error) console.warn("[processBillDeadlines] senate dead:", error.message);
+      await setBillFailed(supabase, bill.id, "senate");
       continue;
     }
 
@@ -361,7 +345,7 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
     if (tieErr && isMissingVpTieColumn(tieErr.message)) {
       const retry = await supabase
         .from("bills")
-        .update({ status: "dead", chamber_vote_deadline_at: null })
+        .update({ status: "failed", chamber_vote_deadline_at: null })
         .eq("id", bill.id);
       tieErr = retry.error;
     }
@@ -369,11 +353,6 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
   }
 }
 
-/**
- * When a floor clock is still running but the outcome is already determined (majority clinched or
- * every seat has voted), advance the bill immediately so it reaches the other chamber (or the Oval)
- * without waiting for the countdown. Matches {@link processBillDeadlines} final dispositions.
- */
 export async function tryClinchFloorVoteAfterBallotChange(
   supabase: SupabaseClient,
   billId: string,
@@ -398,19 +377,14 @@ export async function tryClinchFloorVoteAfterBallotChange(
     const outcome = classifyFloorMajority({ yea, nay, cast, chamberSize: M, chamber: "house" });
     if (outcome === "pending") return;
     if (outcome === "fail" || outcome === "vp_tie") {
-      await supabase.from("bills").update({ status: "dead", chamber_vote_deadline_at: null }).eq("id", billId);
+      await setBillFailed(supabase, billId, "house");
       return;
     }
-    if (bill.originating_chamber === "house") {
-      await supabase
-        .from("bills")
-        .update({
-          status: "senate_floor",
-          chamber_vote_deadline_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .eq("id", billId);
-    } else {
-      await supabase.from("bills").update({ status: "oval", chamber_vote_deadline_at: null }).eq("id", billId);
+    await processVoteApproval(supabase, billId, "house", true);
+    try {
+      await transitionAfterChamberPass(supabase, bill, "house");
+    } catch (e) {
+      console.warn("[tryClinchFloorVoteAfterBallotChange] house advance:", e);
     }
     return;
   }
@@ -456,7 +430,7 @@ export async function tryClinchFloorVoteAfterBallotChange(
       .update({ vp_tie_break_pending: true, chamber_vote_deadline_at: null })
       .eq("id", billId);
     if (tieErr && isMissingVpTieColumn(tieErr.message)) {
-      const retry = await supabase.from("bills").update({ status: "dead", chamber_vote_deadline_at: null }).eq("id", billId);
+      const retry = await supabase.from("bills").update({ status: "failed", chamber_vote_deadline_at: null }).eq("id", billId);
       tieErr = retry.error;
     }
     if (tieErr) console.warn("[tryClinchFloorVoteAfterBallotChange] senate tie:", tieErr.message);
@@ -464,23 +438,13 @@ export async function tryClinchFloorVoteAfterBallotChange(
   }
 
   if (outcome === "fail") {
-    let { error } = await supabase
-      .from("bills")
-      .update({ status: "dead", chamber_vote_deadline_at: null })
-      .eq("id", billId);
-    if (error && isMissingVpTieColumn(error.message)) {
-      const retry = await supabase
-        .from("bills")
-        .update({ status: "dead", chamber_vote_deadline_at: null })
-        .eq("id", billId);
-      error = retry.error;
-    }
-    if (error) console.warn("[tryClinchFloorVoteAfterBallotChange] senate dead:", error.message);
+    await setBillFailed(supabase, billId, "senate");
     return;
   }
 
+  await processVoteApproval(supabase, billId, "senate", true);
   try {
-    await advanceSenateBillAfterPass(supabase, bill);
+    await transitionAfterChamberPass(supabase, bill, "senate");
   } catch (e) {
     console.warn("[tryClinchFloorVoteAfterBallotChange] advance:", e);
   }

@@ -3,6 +3,12 @@ export function billStatusDisplay(status: string): string {
   switch (status) {
     case "submitted":
       return "Submitted — leadership review";
+    case "debate":
+      return "Debate — floor vote not open";
+    case "other_chamber_review":
+      return "Other chamber — leadership review";
+    case "other_chamber_debate":
+      return "Other chamber — debate";
     case "on_docket":
       return "On docket — voting not open";
     case "house_floor":
@@ -23,6 +29,8 @@ export function billStatusDisplay(status: string): string {
       return "Failed (vetoed)";
     case "dead":
       return "Failed";
+    case "failed":
+      return "Failed (floor vote)";
     default:
       return status.replaceAll("_", " ");
   }

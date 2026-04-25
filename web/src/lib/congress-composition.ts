@@ -165,3 +165,18 @@ export async function countChamberVotingMembers(
   if (!snap) return 0;
   return chamber === "house" ? snap.house.total : snap.senate.total;
 }
+
+/** User ids with a chamber seat (representative / senator), for participation checks. */
+export async function fetchChamberMemberUserIds(
+  supabase: SupabaseClient,
+  chamber: BillChamber,
+): Promise<Set<string>> {
+  const [{ data: grants }, { data: profiles }] = await Promise.all([
+    supabase.from("government_role_grants").select("user_id, role_key"),
+    supabase.from("profiles").select("id, office_role"),
+  ]);
+  const gRows = (grants ?? []) as { user_id: string; role_key: string }[];
+  const pRows = (profiles ?? []) as { id: string; office_role: string | null }[];
+  const memberRole = chamber === "house" ? "representative" : "senator";
+  return collectChamberMemberIds(gRows, pRows, memberRole);
+}

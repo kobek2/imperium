@@ -50,6 +50,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     { href: "/congress", label: "Congress" },
     { href: "/oval", label: "Oval Office" },
     { href: "/directory", label: "Directory" },
+    { href: "/policy", label: "Policy" },
   ];
 
   return (

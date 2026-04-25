@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
 import {
   isActivePresidentialRunningMate,
   userCanBreakSenateTie,
@@ -23,6 +24,9 @@ export function filterBillsForHouseDocket(bills: BillForCard[]): BillForCard[] {
   return bills.filter((b) => {
     if (b.status === "house_floor") return true;
     if (b.status === "senate_floor") return false;
+    if (b.status === "other_chamber_review" || b.status === "other_chamber_debate") {
+      return receivingChamberForOrigination(b.originating_chamber) === "house";
+    }
     return b.originating_chamber === "house";
   });
 }
@@ -32,6 +36,9 @@ export function filterBillsForSenateDocket(bills: BillForCard[]): BillForCard[] 
   return bills.filter((b) => {
     if (b.status === "senate_floor") return true;
     if (b.status === "house_floor") return false;
+    if (b.status === "other_chamber_review" || b.status === "other_chamber_debate") {
+      return receivingChamberForOrigination(b.originating_chamber) === "senate";
+    }
     return b.originating_chamber === "senate";
   });
 }
@@ -52,6 +59,7 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
         "id, title, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
       .neq("status", "dead")
+      .neq("status", "failed")
       .order("created_at", { ascending: false }),
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     isActivePresidentialRunningMate(supabase, userId),

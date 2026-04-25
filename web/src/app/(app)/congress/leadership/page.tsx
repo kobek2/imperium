@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
-import { leadershipOpenFloorVote, leadershipReviewBill } from "@/app/actions/bills";
+import {
+  leadershipOpenFloorVote,
+  leadershipReviewBill,
+  otherChamberLeadershipReviewBill,
+} from "@/app/actions/bills";
 import { SubmitButton } from "@/components/submit-button";
 import { BillBody } from "@/components/bill-body";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
 import { canAcceptRejectHopperForChamber } from "@/lib/role-capabilities";
 
 function fmt(ts: string | null) {
@@ -59,6 +64,9 @@ export default async function LeadershipPage() {
 
   let submitted: BillRow[] = [];
   let onDocket: BillRow[] = [];
+  let inDebate: BillRow[] = [];
+  let otherChamberReview: BillRow[] = [];
+  let otherChamberDebate: BillRow[] = [];
   let schemaWarning: string | null = null;
 
   {
@@ -71,6 +79,21 @@ export default async function LeadershipPage() {
       .from("bills")
       .select(selectCols)
       .eq("status", "on_docket")
+      .order("created_at", { ascending: true });
+    const deb = await supabase
+      .from("bills")
+      .select(selectCols)
+      .eq("status", "debate")
+      .order("created_at", { ascending: true });
+    const ocr = await supabase
+      .from("bills")
+      .select(selectCols)
+      .eq("status", "other_chamber_review")
+      .order("created_at", { ascending: true });
+    const ocd = await supabase
+      .from("bills")
+      .select(selectCols)
+      .eq("status", "other_chamber_debate")
       .order("created_at", { ascending: true });
 
     if (sub.error || dock.error) {
@@ -87,10 +110,18 @@ export default async function LeadershipPage() {
     } else {
       submitted = (sub.data ?? []) as BillRow[];
       onDocket = (dock.data ?? []) as BillRow[];
+      if (!deb.error) inDebate = (deb.data ?? []) as BillRow[];
+      if (!ocr.error) otherChamberReview = (ocr.data ?? []) as BillRow[];
+      if (!ocd.error) otherChamberDebate = (ocd.data ?? []) as BillRow[];
     }
   }
 
-  const hasQueue = submitted.length > 0 || onDocket.length > 0;
+  const hasQueue =
+    submitted.length > 0 ||
+    onDocket.length > 0 ||
+    inDebate.length > 0 ||
+    otherChamberReview.length > 0 ||
+    otherChamberDebate.length > 0;
 
   return (
     <div className="space-y-8">
@@ -101,9 +132,9 @@ export default async function LeadershipPage() {
         <h1 className="text-3xl font-semibold">Leadership</h1>
         <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
           <strong className="text-[var(--psc-ink)]">Review</strong> newly filed bills, then{" "}
-          <strong className="text-[var(--psc-ink)]">place them on the docket</strong>. When you are ready,{" "}
-          <strong className="text-[var(--psc-ink)]">open the floor vote</strong> and choose how long voting
-          stays open. The <strong className="text-[var(--psc-ink)]">Speaker</strong> acts for House bills; the{" "}
+          <strong className="text-[var(--psc-ink)]">move them into debate</strong>. After debate (and any
+          amendments), <strong className="text-[var(--psc-ink)]">open the floor vote</strong>. The{" "}
+          <strong className="text-[var(--psc-ink)]">Speaker</strong> acts for House bills; the{" "}
           <strong className="text-[var(--psc-ink)]">Senate Majority Leader</strong> acts for Senate bills.
         </p>
       </header>
@@ -151,7 +182,7 @@ export default async function LeadershipPage() {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">1 · Leadership review</h2>
           <p className="text-xs text-[var(--psc-muted)]">
-            Accept to move a bill onto the chamber docket (not yet in voting). Reject to drop it.
+            Accept to move a bill into the debate phase. Reject to drop it.
           </p>
           <ul className="space-y-6">
             {submitted.map((bill) => {
@@ -182,7 +213,7 @@ export default async function LeadershipPage() {
                           pendingLabel="Accepting…"
                           className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
                         >
-                          Accept → docket
+                          Accept → debate
                         </SubmitButton>
                       </form>
                       <form action={leadershipReviewBill}>
@@ -271,6 +302,154 @@ export default async function LeadershipPage() {
                       {bill.originating_chamber === "house"
                         ? "Only the Speaker may open a House floor vote."
                         : "Only the Senate Majority Leader may open a Senate floor vote."}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {inDebate.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">3 · Debate — push to vote</h2>
+          <p className="text-xs text-[var(--psc-muted)]">
+            Resolve amendments on the bill page, then open a 24-hour floor vote when ready.
+          </p>
+          <ul className="space-y-6">
+            {inDebate.map((bill) => {
+              const canAct =
+                (bill.originating_chamber === "house" && canActHouse) ||
+                (bill.originating_chamber === "senate" && canActSenate);
+              return (
+                <li
+                  key={bill.id}
+                  className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
+                >
+                  <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
+                    {bill.originating_chamber === "house" ? "House" : "Senate"} · Debate
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">
+                      {bill.title}
+                    </Link>
+                  </h3>
+                  <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+                  {canAct ? (
+                    <form action={leadershipOpenFloorVote} className="mt-4 flex flex-wrap items-end gap-3">
+                      <input type="hidden" name="bill_id" value={bill.id} />
+                      <input type="hidden" name="duration_preset" value="24" />
+                      <SubmitButton
+                        pendingLabel="Opening…"
+                        className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:brightness-110"
+                      >
+                        Push to vote (24h)
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <p className="mt-4 text-xs text-[var(--psc-muted)]">
+                      Only the originating chamber&apos;s leadership may open this vote.
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {otherChamberReview.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Other chamber review</h2>
+          <p className="text-xs text-[var(--psc-muted)]">
+            After the first chamber passes, the receiving chamber&apos;s leadership must accept or reject.
+          </p>
+          <ul className="space-y-6">
+            {otherChamberReview.map((bill) => {
+              const recv = receivingChamberForOrigination(bill.originating_chamber);
+              const canAct =
+                (recv === "house" && canActHouse) || (recv === "senate" && canActSenate);
+              return (
+                <li
+                  key={bill.id}
+                  className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
+                >
+                  <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
+                    {recv === "house" ? "House" : "Senate"} receives · Review
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">
+                      {bill.title}
+                    </Link>
+                  </h3>
+                  <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+                  {canAct ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <form action={otherChamberLeadershipReviewBill}>
+                        <input type="hidden" name="bill_id" value={bill.id} />
+                        <input type="hidden" name="decision" value="accept" />
+                        <SubmitButton className="border border-green-900 bg-green-950 px-4 py-2 text-xs font-semibold uppercase text-white">
+                          Accept → debate
+                        </SubmitButton>
+                      </form>
+                      <form action={otherChamberLeadershipReviewBill}>
+                        <input type="hidden" name="bill_id" value={bill.id} />
+                        <input type="hidden" name="decision" value="reject" />
+                        <SubmitButton className="border border-red-800 bg-red-950 px-4 py-2 text-xs font-semibold uppercase text-white">
+                          Reject
+                        </SubmitButton>
+                      </form>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-xs text-[var(--psc-muted)]">
+                      Only the receiving chamber&apos;s leadership may act here.
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {otherChamberDebate.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Other chamber debate</h2>
+          <p className="text-xs text-[var(--psc-muted)]">
+            Amendments may be filed on the bill page. When ready, the receiving chamber&apos;s leadership opens a
+            24-hour vote.
+          </p>
+          <ul className="space-y-6">
+            {otherChamberDebate.map((bill) => {
+              const recv = receivingChamberForOrigination(bill.originating_chamber);
+              const canAct =
+                (recv === "house" && canActHouse) || (recv === "senate" && canActSenate);
+              return (
+                <li
+                  key={bill.id}
+                  className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
+                >
+                  <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
+                    {recv === "house" ? "House" : "Senate"} · Debate
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">
+                      {bill.title}
+                    </Link>
+                  </h3>
+                  <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+                  {canAct ? (
+                    <form action={leadershipOpenFloorVote} className="mt-4 flex flex-wrap items-end gap-3">
+                      <input type="hidden" name="bill_id" value={bill.id} />
+                      <input type="hidden" name="duration_preset" value="24" />
+                      <SubmitButton className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:brightness-110">
+                        Push to vote (24h)
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <p className="mt-4 text-xs text-[var(--psc-muted)]">
+                      Only the receiving chamber&apos;s leadership may open this vote.
                     </p>
                   )}
                 </li>

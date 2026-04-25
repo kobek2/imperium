@@ -68,7 +68,7 @@ export function sanitizeBillHtml(dirty: string): string {
       },
     },
     allowedClasses: {
-      pre: true,
+      pre: ["*"],
     },
   });
 }

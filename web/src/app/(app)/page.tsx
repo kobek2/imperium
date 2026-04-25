@@ -22,10 +22,6 @@ export default async function HomePage() {
       if (!profile?.party) {
         redirect("/character");
       }
-      const pt = String(profile.party).trim().toLowerCase();
-      if (pt === "democrat" || pt === "republican") {
-        redirect(`/parties/${pt}`);
-      }
       const [m, s] = await Promise.all([
         fetchBriefingMoments(supabase, user.id),
         fetchHomeCareerStats(supabase, user.id),
