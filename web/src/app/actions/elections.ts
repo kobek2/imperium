@@ -1068,7 +1068,15 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
     p_target_state: election.office === "president" ? target_state : null,
     p_qty: qty,
   });
-  throwIfPostgrestError(error);
+  if (error) {
+    const msg = error.message ?? "Unknown database error.";
+    if (election.office === "president" && msg.toLowerCase().includes("not your presidential ticket")) {
+      throw new Error(
+        `You can campaign for this ticket only if you're the candidate/running mate or have endorsed this candidate. If you already endorsed them, run migration supabase/migrations/20260472800000_presidential_endorser_campaign_permissions.sql.`,
+      );
+    }
+    throwIfPostgrestError(error);
+  }
 
   revalidatePath("/economy");
   revalidatePath("/elections");
@@ -1165,7 +1173,20 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
     target_state: stateForSpeech,
     target_district: districtForSpeech,
   });
-  throwIfPostgrestError(error);
+  if (error) {
+    const msg = error.message ?? "Unknown database error.";
+    if (
+      election.office === "president" &&
+      (error.code === "42501" ||
+        msg.toLowerCase().includes("not authorized") ||
+        msg.toLowerCase().includes("permission denied"))
+    ) {
+      throw new Error(
+        `Could not submit speech for this ticket: ${msg}. If you've endorsed this candidate, run migration supabase/migrations/20260472800000_presidential_endorser_campaign_permissions.sql.`,
+      );
+    }
+    throwIfPostgrestError(error);
+  }
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
 }
@@ -1281,6 +1302,16 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
   const { error } = await supabase.from("campaign_rallies").insert(rows);
   if (error) {
     const msg = error.message;
+    if (
+      election.office === "president" &&
+      (error.code === "42501" ||
+        msg.toLowerCase().includes("not authorized") ||
+        msg.toLowerCase().includes("permission denied"))
+    ) {
+      throw new Error(
+        `Could not submit rally for this ticket: ${msg}. If you've endorsed this candidate, run migration supabase/migrations/20260472800000_presidential_endorser_campaign_permissions.sql.`,
+      );
+    }
     if (msg.includes("campaign_rallies") || msg.toLowerCase().includes("schema cache")) {
       throw new Error(
         `${msg} Fix: Supabase → SQL Editor → open and run the whole file supabase/migrations/20260421000000_ensure_campaign_events.sql from this repo (creates campaign_rallies + policies + NOTIFY reload). If \`supabase db push\` works on your machine, run that instead. Still stuck? Run supabase/migrations/20260421100000_pgrst_reload_schema.sql or Dashboard → Settings → API → reload schema.`,

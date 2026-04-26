@@ -6,7 +6,6 @@ import {
   castPrimaryVote,
   fileCandidacy,
   setPresidentialRunningMate,
-  submitCampaignAd,
   submitCampaignEndorsement,
   withdrawCampaignEndorsement,
 } from "@/app/actions/elections";
@@ -15,6 +14,7 @@ import { districtLeanBonus } from "@/lib/fec";
 import type { LeadershipRole } from "@/lib/leadership";
 import { RallyForm } from "./rally-form";
 import { SpeechForm } from "./speech-form";
+import { CampaignAdForm } from "./campaign-ad-form";
 import { WithdrawFilingForm } from "./withdraw-filing-form";
 
 type ElectionRow = {
@@ -486,56 +486,12 @@ function CampaignPanel({
           states={states}
         />
       </div>
-      <form action={submitCampaignAd} className="grid gap-2 border-t border-[var(--psc-border)] pt-4">
-        <input type="hidden" name="election_id" value={election.id} />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <p className="text-[var(--psc-muted)]">
-            Spend one campaign ad from inventory for <strong className="text-[var(--psc-ink)]">+1 point</strong>.
-            {election.office === "president"
-              ? " Presidential ads must target a state."
-              : " House and Senate ads auto-apply to this race."}
-          </p>
-          <span className="font-mono text-[var(--psc-ink)]">Ads in inventory: {adsInventory}</span>
-        </div>
-        {election.office === "president" ? (
-          <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
-            Target state
-            <select
-              name="target_state"
-              required
-              className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
-              defaultValue=""
-            >
-              <option value="" disabled>
-                Pick a state...
-              </option>
-              {states.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.code} — {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
-          How many ads
-          <input
-            name="qty"
-            type="number"
-            min={1}
-            max={Math.max(1, adsInventory)}
-            defaultValue={1}
-            className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
-          />
-        </label>
-        <SubmitButton
-          disabled={adsInventory < 1}
-          pendingLabel="Applying ad…"
-          className="w-full rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60 sm:w-auto"
-        >
-          Use campaign ad (+1 pt)
-        </SubmitButton>
-      </form>
+      <CampaignAdForm
+        electionId={election.id}
+        office={election.office}
+        adsInventory={adsInventory}
+        states={states}
+      />
     </section>
   );
 }
