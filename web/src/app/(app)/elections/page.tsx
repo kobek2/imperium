@@ -68,13 +68,28 @@ export default async function ElectionsPage() {
   const activeIds = active.map((e) => e.id);
   const countsById: Record<string, number> = {};
   if (activeIds.length) {
+    const phaseById = new Map(active.map((e) => [e.id, e.phase]));
     const { data: candRows } = await supabase
       .from("election_candidates")
-      .select("election_id")
+      .select("election_id, primary_winner")
       .in("election_id", activeIds);
-    for (const row of candRows ?? []) {
-      const id = row.election_id as string;
-      countsById[id] = (countsById[id] ?? 0) + 1;
+
+    const allById: Record<string, number> = {};
+    const winnersById: Record<string, number> = {};
+    for (const row of (candRows ?? []) as Array<{ election_id: string; primary_winner: boolean | null }>) {
+      const id = row.election_id;
+      allById[id] = (allById[id] ?? 0) + 1;
+      if (row.primary_winner) {
+        winnersById[id] = (winnersById[id] ?? 0) + 1;
+      }
+    }
+
+    for (const id of activeIds) {
+      const phase = phaseById.get(id);
+      const winnerCount = winnersById[id] ?? 0;
+      const allCount = allById[id] ?? 0;
+      countsById[id] =
+        (phase === "general" || phase === "closed") && winnerCount > 0 ? winnerCount : allCount;
     }
   }
 

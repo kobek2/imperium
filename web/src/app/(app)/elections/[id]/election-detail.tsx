@@ -127,6 +127,7 @@ function CandidateCard({
   emphasizeParty,
   endorsementPoints,
   endorsedByMe,
+  electionOffice,
 }: {
   cand: CandRow;
   card: CandidateCardFields | undefined;
@@ -145,6 +146,7 @@ function CandidateCard({
   emphasizeParty: boolean;
   endorsementPoints: number;
   endorsedByMe: boolean;
+  electionOffice: string;
 }) {
   const badges = (
     <>
@@ -189,7 +191,7 @@ function CandidateCard({
             </SubmitButton>
           </form>
           {mode === "general" ? (
-            endorsementPoints > 0 ? (
+            endorsementPoints > 0 || electionOffice === "president" ? (
               endorsedByMe ? (
                 <form action={withdrawCampaignEndorsement}>
                   <input type="hidden" name="election_id" value={electionId} />
@@ -202,7 +204,9 @@ function CandidateCard({
                   <input type="hidden" name="election_id" value={electionId} />
                   <input type="hidden" name="candidate_id" value={cand.id} />
                   <SubmitButton variant="ghost" pendingLabel="Endorsing…">
-                    Endorse ({endorsementPoints} pts)
+                    {electionOffice === "president"
+                      ? `Endorse${endorsementPoints > 0 ? ` (${endorsementPoints} pts)` : ""}`
+                      : `Endorse (${endorsementPoints} pts)`}
                   </SubmitButton>
                 </form>
               )
@@ -379,6 +383,7 @@ function SpreadBar({
 function CampaignPanel({
   election,
   myCandidate,
+  isVolunteer,
   userId,
   myRalliesInWindow,
   myRallyLimit,
@@ -392,6 +397,7 @@ function CampaignPanel({
 }: {
   election: ElectionRow;
   myCandidate: CandRow;
+  isVolunteer: boolean;
   userId: string;
   myRalliesInWindow: number;
   myRallyLimit: number;
@@ -417,10 +423,18 @@ function CampaignPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-[var(--psc-ink)]">
-            {isRunningMate ? "Your campaign (running mate)" : "Your campaign"}
+            {isVolunteer
+              ? "Campaign with your endorsed candidate"
+              : isRunningMate
+                ? "Your campaign (running mate)"
+                : "Your campaign"}
           </h2>
           <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
-            {isRunningMate ? "Co-campaigning on this ticket · " : null}
+            {isVolunteer
+              ? "Volunteer campaigning on your endorsed ticket · "
+              : isRunningMate
+                ? "Co-campaigning on this ticket · "
+                : null}
             Running as{" "}
             <span
               className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${meta.pill}`}
@@ -536,6 +550,7 @@ type ShareMode = "none" | "primary" | "general";
 
 function PartyGroupedCandidates({
   candidates,
+  electionOffice,
   card,
   nameBy,
   winnerUserId,
@@ -557,6 +572,7 @@ function PartyGroupedCandidates({
   myEndorsementPoints,
 }: {
   candidates: CandRow[];
+  electionOffice: string;
   card: Record<string, CandidateCardFields>;
   nameBy: Record<string, string>;
   winnerUserId: string | null;
@@ -703,6 +719,7 @@ function PartyGroupedCandidates({
                       emphasizeParty={emphasizeParty}
                       endorsementPoints={myEndorsementPoints}
                       endorsedByMe={myEndorsedCandidateId === c.id}
+                      electionOffice={electionOffice}
                     />
                   </li>
                 );
@@ -786,7 +803,16 @@ export function ElectionDetail({
   const myTicketRow = candidates.find(
     (c) => c.user_id === userId || c.running_mate_user_id === userId,
   );
-  const campaignRow = election.office === "president" ? myTicketRow : myRow;
+  const myEndorsedRow =
+    election.office === "president" && myEndorsedCandidateId
+      ? candidates.find((c) => c.id === myEndorsedCandidateId) ?? null
+      : null;
+  const campaignRow = election.office === "president" ? myTicketRow ?? myEndorsedRow : myRow;
+  const isVolunteerCampaigner =
+    election.office === "president" &&
+    !!campaignRow &&
+    !myTicketRow &&
+    myEndorsedCandidateId === campaignRow.id;
   const canFileCandidacy = filingBlockReason === null;
   const hasPrimaryWinners = candidates.some((c) => c.primary_winner);
   const generalCandidates = hasPrimaryWinners
@@ -991,6 +1017,7 @@ export function ElectionDetail({
             </div>
             <PartyGroupedCandidates
               candidates={candidates}
+              electionOffice={election.office}
               card={candidateCardByUserId}
               nameBy={nameBy}
               winnerUserId={election.winner_user_id}
@@ -1067,6 +1094,7 @@ export function ElectionDetail({
           ) : null}
           <PartyGroupedCandidates
             candidates={candidates}
+            electionOffice={election.office}
             card={candidateCardByUserId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}
@@ -1100,10 +1128,13 @@ export function ElectionDetail({
               candidateCardByUserId={candidateCardByUserId}
             />
           ) : null}
-          {!isLeadership && campaignRow && campaignRow.primary_winner ? (
+          {!isLeadership &&
+          campaignRow &&
+          (campaignRow.primary_winner || !hasPrimaryWinners) ? (
             <CampaignPanel
               election={election}
               myCandidate={campaignRow}
+              isVolunteer={isVolunteerCampaigner}
               userId={userId}
               myRalliesInWindow={myRalliesInWindow}
               myRallyLimit={10}
@@ -1115,6 +1146,34 @@ export function ElectionDetail({
               partisanLean={partisanLean}
               adsInventory={adsInventory}
             />
+          ) : null}
+          {election.office === "president" && myRow && generalOpen ? (
+            <form
+              action={setPresidentialRunningMate}
+              className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-4"
+            >
+              <input type="hidden" name="election_id" value={election.id} />
+              <p className="text-xs font-semibold text-[var(--psc-ink)]">
+                Running mate (allowed until general closes)
+              </p>
+              <input
+                name="running_mate_discord"
+                type="text"
+                placeholder="Discord user id (numeric)"
+                className="w-full max-w-md rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+              />
+              <SubmitButton
+                pendingLabel="Saving…"
+                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white"
+              >
+                Save running mate
+              </SubmitButton>
+              {myRow.running_mate_name ? (
+                <p className="text-xs text-[var(--psc-muted)]">
+                  Current: <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
+                </p>
+              ) : null}
+            </form>
           ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <h2 className="text-lg font-semibold">
@@ -1134,6 +1193,7 @@ export function ElectionDetail({
           </div>
           <PartyGroupedCandidates
             candidates={generalCandidates}
+            electionOffice={election.office}
             card={candidateCardByUserId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}
@@ -1172,6 +1232,7 @@ export function ElectionDetail({
           </h3>
           <PartyGroupedCandidates
             candidates={candidates}
+            electionOffice={election.office}
             card={candidateCardByUserId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}

@@ -110,6 +110,18 @@ export async function pickPrimaryWinners(supabase: SupabaseClient, election_id: 
       .eq("id", c.id);
     throwIfPostgrestError(error);
   }
+
+  // Once nominees are selected, remove non-winners from this race so every downstream
+  // view/query (dashboard counts, map/tote, finalization) sees the true general ballot.
+  const loserIds = candList.filter((c) => !winnerIds.has(c.id)).map((c) => c.id);
+  if (loserIds.length) {
+    const { error: delErr } = await supabase
+      .from("election_candidates")
+      .delete()
+      .in("id", loserIds)
+      .eq("election_id", election_id);
+    throwIfPostgrestError(delErr);
+  }
 }
 
 /**

@@ -295,6 +295,11 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                           <div className="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--psc-muted)]">
                             <span>pts {s.points_with_lean.toFixed(1)}</span>
                             <span>votes {s.votes}</span>
+                            <span>campaign {(s.points_share * 100).toFixed(1)}%</span>
+                            <span>vote share {(s.votes_share * 100).toFixed(1)}%</span>
+                            <span>
+                              score {(s.points_share * 60).toFixed(1)} + {(s.votes_share * 40).toFixed(1)}
+                            </span>
                           </div>
                         </div>
                       );
@@ -305,6 +310,11 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                   No campaign activity or votes yet. Lean: {pviLabel(activeHover.pvi)}.
                 </div>
               )}
+              {hoverResult ? (
+                <p className="pt-1 text-[10px] text-[var(--psc-muted)]">
+                  State projection formula: 60% campaign share + 40% in-state vote share.
+                </p>
+              ) : null}
             </div>
           )}
         </div>

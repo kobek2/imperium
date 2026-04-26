@@ -272,7 +272,10 @@ export default async function ElectionDetailPage({
     election.office === "president"
       ? candList.find(
           (c) => c.user_id === user.id || (c as { running_mate_user_id?: string | null }).running_mate_user_id === user.id,
-        )
+        ) ??
+        (myEndorsement?.candidate_id
+          ? candList.find((c) => c.id === myEndorsement.candidate_id)
+          : undefined)
       : candList.find((c) => c.user_id === user.id);
   if (myCand) {
     // Server-only rate-limit anchor; not render-purity sensitive.

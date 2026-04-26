@@ -718,7 +718,7 @@ export async function setPresidentialRunningMate(formData: FormData): Promise<vo
 
   const { data: election } = await supabase
     .from("elections")
-    .select("office, phase, primary_closes_at, filing_closes_at")
+    .select("office, phase, primary_closes_at, filing_closes_at, general_closes_at")
     .eq("id", election_id)
     .maybeSingle();
   if (!election || election.office !== "president") {
@@ -733,8 +733,12 @@ export async function setPresidentialRunningMate(formData: FormData): Promise<vo
     if (!election.primary_closes_at || now > new Date(election.primary_closes_at)) {
       throw new Error("Primary has closed for this race.");
     }
+  } else if (election.phase === "general") {
+    if (now > new Date(election.general_closes_at)) {
+      throw new Error("General election has closed for this race.");
+    }
   } else {
-    throw new Error("You can only set a running mate during filing or primary.");
+    throw new Error("You can only set a running mate during filing, primary, or general.");
   }
 
   const { data: row } = await supabase
@@ -978,6 +982,24 @@ async function assertPresidentNomineeCanCampaign(
   }
 }
 
+async function resolvePresidentialCampaignCandidate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  electionId: string,
+  userId: string,
+): Promise<{ id: string; via: "ticket" | "endorsement" } | null> {
+  const ticket = await resolvePresidentTicketCandidate(supabase, electionId, userId);
+  if (ticket) return { id: ticket.id, via: "ticket" };
+
+  const { data: endorsement } = await supabase
+    .from("campaign_endorsements")
+    .select("candidate_id")
+    .eq("election_id", electionId)
+    .eq("endorser_user_id", userId)
+    .maybeSingle();
+  if (!endorsement?.candidate_id) return null;
+  return { id: endorsement.candidate_id, via: "endorsement" };
+}
+
 export async function submitCampaignAd(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const {
@@ -1009,14 +1031,17 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
 
   let candidate: { id: string } | null = null;
   if (election.office === "president") {
-    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
-    if (!tid) {
-      throw new Error("Only presidential candidates and their running mates can spend campaign ads.");
+    const campaignTarget = await resolvePresidentialCampaignCandidate(supabase, election_id, user.id);
+    if (!campaignTarget) {
+      throw new Error(
+        "To campaign in this presidential race, join a ticket or endorse a candidate first.",
+      );
     }
     const { data: c } = await supabase
       .from("election_candidates")
       .select("id")
-      .eq("id", tid.id)
+      .eq("id", campaignTarget.id)
+      .eq("election_id", election_id)
       .maybeSingle();
     candidate = c ?? null;
   } else {
@@ -1085,14 +1110,17 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
 
   let candidate: { id: string } | null = null;
   if (election.office === "president") {
-    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
-    if (!tid) {
-      throw new Error("Only presidential candidates and their running mates can submit speeches.");
+    const campaignTarget = await resolvePresidentialCampaignCandidate(supabase, election_id, user.id);
+    if (!campaignTarget) {
+      throw new Error(
+        "To campaign in this presidential race, join a ticket or endorse a candidate first.",
+      );
     }
     const { data: c } = await supabase
       .from("election_candidates")
       .select("id")
-      .eq("id", tid.id)
+      .eq("id", campaignTarget.id)
+      .eq("election_id", election_id)
       .maybeSingle();
     candidate = c ?? null;
   } else {
@@ -1173,14 +1201,17 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
 
   let candidate: { id: string } | null = null;
   if (election.office === "president") {
-    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
-    if (!tid) {
-      throw new Error("Only presidential candidates and their running mates can rally.");
+    const campaignTarget = await resolvePresidentialCampaignCandidate(supabase, election_id, user.id);
+    if (!campaignTarget) {
+      throw new Error(
+        "To campaign in this presidential race, join a ticket or endorse a candidate first.",
+      );
     }
     const { data: c } = await supabase
       .from("election_candidates")
       .select("id")
-      .eq("id", tid.id)
+      .eq("id", campaignTarget.id)
+      .eq("election_id", election_id)
       .maybeSingle();
     candidate = c ?? null;
   } else {
@@ -1286,7 +1317,9 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
     .maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   const points = endorsementPointsForRoles(roleKeys);
-  if (points <= 0) throw new Error("Only current members/leaders can endorse in this system.");
+  if (points <= 0 && election.office !== "president") {
+    throw new Error("Only current members/leaders can endorse in this system.");
+  }
 
   const role_key =
     roleKeys.find((k) =>
@@ -1326,7 +1359,7 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
       candidate_id,
       endorser_user_id: user.id,
       role_key,
-      points,
+      points: election.office === "president" ? Math.max(0, points) : points,
     },
     { onConflict: "election_id,endorser_user_id" },
   );
@@ -1358,7 +1391,19 @@ export async function withdrawCampaignEndorsement(formData: FormData): Promise<v
     .delete()
     .eq("election_id", election_id)
     .eq("endorser_user_id", user.id);
-  throwIfPostgrestError(error);
+  if (error) {
+    const msg = error.message ?? "Unknown database error.";
+    if (
+      error.code === "42501" ||
+      msg.toLowerCase().includes("not authorized") ||
+      msg.toLowerCase().includes("permission denied")
+    ) {
+      throw new Error(
+        `Could not withdraw endorsement: ${msg}. Your database likely needs migration supabase/migrations/20260472700000_campaign_endorsements_delete_self.sql.`,
+      );
+    }
+    throwIfPostgrestError(error);
+  }
 
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
