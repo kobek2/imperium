@@ -88,6 +88,7 @@ export default async function ElectionDetailPage({
     isAdmin,
     partisanLean,
     winnerName,
+    { data: adInventoryRow },
   ] = await Promise.all([
     supabase.from("primary_votes").select("candidate_id").eq("election_id", id),
     supabase.from("general_votes").select("candidate_id").eq("election_id", id),
@@ -147,6 +148,12 @@ export default async function ElectionDetailPage({
         .maybeSingle();
       return data?.character_name ?? null;
     })(),
+    supabase
+      .from("economy_inventory")
+      .select("quantity")
+      .eq("user_id", user.id)
+      .eq("sku", "campaign_ad")
+      .maybeSingle(),
   ]);
 
   const effectiveRoleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
@@ -253,6 +260,7 @@ export default async function ElectionDetailPage({
     const cid = row.candidate_id as string;
     rallyCountBy[cid] = (rallyCountBy[cid] ?? 0) + 1;
   }
+  const adsInventory = Number(adInventoryRow?.quantity ?? 0);
 
   // Per-user rally rate-limit window: 10 rallies / 3 hours. This is one tiny follow-up query;
   // it only runs if the user is actually a candidate in this race.
@@ -368,6 +376,7 @@ export default async function ElectionDetailPage({
         myNextRallyAt={myNextRallyAt}
         states={states}
         leadershipMeta={leadershipMeta}
+        adsInventory={adsInventory}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

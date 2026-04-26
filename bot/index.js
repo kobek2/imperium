@@ -11,6 +11,7 @@
  * 1. Listen to Supabase Realtime on `elections` / `bills` or poll REST for changes.
  * 2. When `winner_user_id` is set, map office → Discord role id and guild.members.edit.
  * 3. Post embeds to configured announcement channels.
+ * // TODO: Discord webhook — notify #floor-session channel (bill floor opens, debate milestones, policy updates).
  */
 
 require("dotenv").config();

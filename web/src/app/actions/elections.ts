@@ -978,6 +978,76 @@ async function assertPresidentNomineeCanCampaign(
   }
 }
 
+export async function submitCampaignAd(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const election_id = String(formData.get("election_id") ?? "").trim();
+  const target_state = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
+  if (!election_id) throw new Error("Missing election id.");
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select("phase, office, general_closes_at, leadership_role")
+    .eq("id", election_id)
+    .maybeSingle();
+  if (!election) throw new Error("Election not found.");
+  if (election.leadership_role) {
+    throw new Error("Campaign ads don't apply to leadership races.");
+  }
+  if (election.phase !== "general") {
+    throw new Error("Campaign ads can only be used during the general election.");
+  }
+  if (new Date() > new Date(election.general_closes_at)) {
+    throw new Error("General election is closed.");
+  }
+
+  let candidate: { id: string } | null = null;
+  if (election.office === "president") {
+    const tid = await resolvePresidentTicketCandidate(supabase, election_id, user.id);
+    if (!tid) {
+      throw new Error("Only presidential candidates and their running mates can spend campaign ads.");
+    }
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("id", tid.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  } else {
+    const { data: c } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("election_id", election_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    candidate = c ?? null;
+  }
+  if (!candidate) throw new Error("Only candidates in this race can spend campaign ads.");
+
+  if (election.office === "president") {
+    await assertPresidentNomineeCanCampaign(supabase, election_id, candidate.id, "spend campaign ads");
+    if (!target_state || target_state.length !== 2) {
+      throw new Error("Presidential campaign ads must specify a valid two-letter target state.");
+    }
+  }
+
+  const { error } = await supabase.rpc("economy_use_campaign_ad", {
+    p_election: election_id,
+    p_candidate: candidate.id,
+    p_target_state: election.office === "president" ? target_state : null,
+  });
+  throwIfPostgrestError(error);
+
+  revalidatePath("/economy");
+  revalidatePath("/elections");
+  revalidatePath(`/elections/${election_id}`);
+  revalidatePath(`/admin/elections/${election_id}`);
+}
+
 export async function submitCampaignSpeech(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const {
@@ -1190,7 +1260,7 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, general_closes_at")
+    .select("phase, general_closes_at, office")
     .eq("id", election_id)
     .maybeSingle();
   if (!election || election.phase !== "general") throw new Error("General election is not open.");
@@ -1225,11 +1295,17 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
 
   const { data: candidate } = await supabase
     .from("election_candidates")
-    .select("id")
+    .select("id, user_id, running_mate_user_id")
     .eq("id", candidate_id)
     .eq("election_id", election_id)
     .maybeSingle();
   if (!candidate) throw new Error("Candidate not found in this race.");
+  if (candidate.user_id === user.id) {
+    throw new Error("You cannot endorse yourself.");
+  }
+  if (election.office === "president" && candidate.running_mate_user_id === user.id) {
+    throw new Error("You cannot endorse your own presidential ticket.");
+  }
 
   const { error } = await supabase.from("campaign_endorsements").upsert(
     {

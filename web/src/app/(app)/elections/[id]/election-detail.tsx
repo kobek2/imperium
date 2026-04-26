@@ -6,6 +6,7 @@ import {
   castPrimaryVote,
   fileCandidacy,
   setPresidentialRunningMate,
+  submitCampaignAd,
   submitCampaignEndorsement,
   withdrawCampaignEndorsement,
 } from "@/app/actions/elections";
@@ -387,6 +388,7 @@ function CampaignPanel({
   rallyCount,
   states,
   partisanLean,
+  adsInventory,
 }: {
   election: ElectionRow;
   myCandidate: CandRow;
@@ -399,6 +401,7 @@ function CampaignPanel({
   rallyCount: number;
   states: Array<{ code: string; name: string }>;
   partisanLean: number;
+  adsInventory: number;
 }) {
   const isRunningMate = myCandidate.user_id !== userId;
   const meta = partyMeta(myCandidate.party);
@@ -469,6 +472,45 @@ function CampaignPanel({
           states={states}
         />
       </div>
+      <form action={submitCampaignAd} className="grid gap-2 border-t border-[var(--psc-border)] pt-4">
+        <input type="hidden" name="election_id" value={election.id} />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p className="text-[var(--psc-muted)]">
+            Spend one campaign ad from inventory for <strong className="text-[var(--psc-ink)]">+1 point</strong>.
+            {election.office === "president"
+              ? " Presidential ads must target a state."
+              : " House and Senate ads auto-apply to this race."}
+          </p>
+          <span className="font-mono text-[var(--psc-ink)]">Ads in inventory: {adsInventory}</span>
+        </div>
+        {election.office === "president" ? (
+          <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
+            Target state
+            <select
+              name="target_state"
+              required
+              className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Pick a state...
+              </option>
+              {states.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.code} — {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <SubmitButton
+          disabled={adsInventory < 1}
+          pendingLabel="Applying ad…"
+          className="w-full rounded-lg border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60 sm:w-auto"
+        >
+          Use campaign ad (+1 pt)
+        </SubmitButton>
+      </form>
     </section>
   );
 }
@@ -685,6 +727,7 @@ export function ElectionDetail({
   states,
   filingBlockReason,
   leadershipMeta,
+  adsInventory,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -708,6 +751,7 @@ export function ElectionDetail({
   myNextRallyAt: string | null;
   states: Array<{ code: string; name: string }>;
   leadershipMeta: LeadershipMeta | null;
+  adsInventory: number;
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -1038,11 +1082,13 @@ export function ElectionDetail({
       {/* GENERAL PHASE */}
       {election.phase === "general" ? (
         <section className="space-y-4">
-          <SpreadBar
-            scores={generalScores}
-            nameBy={nameBy}
-            candidateCardByUserId={candidateCardByUserId}
-          />
+          {election.office !== "president" ? (
+            <SpreadBar
+              scores={generalScores}
+              nameBy={nameBy}
+              candidateCardByUserId={candidateCardByUserId}
+            />
+          ) : null}
           {!isLeadership && campaignRow && campaignRow.primary_winner ? (
             <CampaignPanel
               election={election}
@@ -1056,6 +1102,7 @@ export function ElectionDetail({
               rallyCount={rallyCountBy[campaignRow.id] ?? 0}
               states={states}
               partisanLean={partisanLean}
+              adsInventory={adsInventory}
             />
           ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
@@ -1102,11 +1149,13 @@ export function ElectionDetail({
       {/* CLOSED PHASE (final roster) */}
       {election.phase === "closed" ? (
         <section className="space-y-3">
-          <SpreadBar
-            scores={generalScores}
-            nameBy={nameBy}
-            candidateCardByUserId={candidateCardByUserId}
-          />
+          {election.office !== "president" ? (
+            <SpreadBar
+              scores={generalScores}
+              nameBy={nameBy}
+              candidateCardByUserId={candidateCardByUserId}
+            />
+          ) : null}
           <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
             Final roster
           </h3>

@@ -9,7 +9,6 @@ import {
   depositPartyTreasury,
   transferToPlayer,
   upgradePac,
-  applyCampaignAdFromInventory,
 } from "@/app/actions/economy";
 import { payFiscalTax } from "@/app/actions/fiscal";
 import {
@@ -25,8 +24,6 @@ type WalletRow = { balance: number; last_collected_at: string };
 type PacRow = { level: number } | null;
 type InvRow = { sku: string; quantity: number } | null;
 type LedgerRow = { id: string; wallet_user_id: string; delta: number; kind: string; detail: unknown; created_at: string };
-type Candidacy = { candidate_id: string; election_id: string; label: string };
-
 type FlashSection = "balance" | "pac" | "ads" | "payments";
 
 const INCOME_COOLDOWN_MS = 60 * 60 * 1000;
@@ -86,7 +83,6 @@ export function EconomyDashboard({
   pac,
   inventory,
   recentLedger,
-  myCandidacies,
   viewerId,
   treasuryPartyKey,
   economyFrozen,
@@ -100,7 +96,6 @@ export function EconomyDashboard({
   pac: PacRow;
   inventory: InvRow;
   recentLedger: LedgerRow[];
-  myCandidacies: Candidacy[];
   viewerId: string;
   treasuryPartyKey: "democrat" | "republican" | null;
   economyFrozen: boolean;
@@ -350,37 +345,9 @@ export function EconomyDashboard({
           </button>
         </form>
 
-        {myCandidacies.length ? (
-          <form
-            className="grid gap-2 border-t border-[var(--psc-border)] pt-4 text-sm"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget);
-              run("ads", "use", () => applyCampaignAdFromInventory(fd));
-            }}
-          >
-            <label className="grid gap-1 font-semibold">
-              Spend 1 ad on a race
-              <select name="candidacy" required className="border px-2 py-2 font-normal">
-                <option value="">Select your candidacy…</option>
-                {myCandidacies.map((c) => (
-                  <option key={c.candidate_id} value={`${c.election_id}__${c.candidate_id}`}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="submit"
-              disabled={pending || ads < 1 || freezeDisabled}
-              className="justify-self-start rounded border border-[var(--psc-border)] px-4 py-2 text-xs font-semibold uppercase disabled:opacity-60"
-            >
-              Use ad (+{CAMPAIGN_AD_POINTS} pt)
-            </button>
-          </form>
-        ) : (
-          <p className="text-xs text-[var(--psc-muted)]">File for an active race to spend ads here.</p>
-        )}
+        <p className="border-t border-[var(--psc-border)] pt-4 text-xs text-[var(--psc-muted)]">
+          Ad usage has moved to each race&apos;s <strong className="text-[var(--psc-ink)]">general-election campaigning panel</strong>.
+        </p>
       </section>
 
       <section

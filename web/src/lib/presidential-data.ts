@@ -52,6 +52,7 @@ export async function loadPresidentialBundle(
     votesRes,
     speechesRes,
     ralliesRes,
+    adsRes,
     endorsementsRes,
     statesRes,
   ] = await Promise.all([
@@ -69,6 +70,10 @@ export async function loadPresidentialBundle(
       .eq("election_id", election_id),
     supabase
       .from("campaign_rallies")
+      .select("candidate_id, target_state, points")
+      .eq("election_id", election_id),
+    supabase
+      .from("campaign_ads")
       .select("candidate_id, target_state, points")
       .eq("election_id", election_id),
     supabase
@@ -188,7 +193,17 @@ export async function loadPresidentialBundle(
     };
   });
 
-  const events: PresCampaignEvent[] = [...speeches, ...rallies, ...endorsements];
+  const ads = ((adsRes.data ?? []) as Array<{
+    candidate_id: string;
+    target_state: string | null;
+    points: number | null;
+  }>).map((a) => ({
+    candidate_id: a.candidate_id,
+    target_state: a.target_state ? a.target_state.toUpperCase() : null,
+    points: Number(a.points ?? 0),
+  }));
+
+  const events: PresCampaignEvent[] = [...speeches, ...rallies, ...ads, ...endorsements];
 
   return { candidates, states, votes, events };
 }
