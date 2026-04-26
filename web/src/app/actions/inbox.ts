@@ -17,4 +17,5 @@ export async function markInboxItemRead(formData: FormData): Promise<void> {
   const { error } = await supabase.rpc("inbox_mark_read", { p_id: id });
   throwIfPostgrestError(error);
   revalidatePath("/");
+  revalidatePath("/inbox");
 }

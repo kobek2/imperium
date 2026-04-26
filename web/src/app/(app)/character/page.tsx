@@ -1,8 +1,14 @@
 import { redirect } from "next/navigation";
+import { RecentAuthoredBillsPanel } from "@/components/recent-authored-bills-panel";
 import { getServerAuth } from "@/lib/supabase/server";
 import { pickDiscordUsername } from "@/lib/discord-username";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
+import {
+  fetchRecentAuthoredBillsWithSubjectVotes,
+  type AuthorBillVote,
+  type RecentAuthoredBill,
+} from "@/lib/profile-recent-bills";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { PersonnelEditShell } from "./personnel-edit-shell";
 import type { PersonnelProfile } from "./personnel-record";
@@ -59,11 +65,24 @@ export default async function CharacterPage() {
 
   const setupMode = !isProfileOnboardingComplete(profile);
 
+  const recentAuthored: { bills: RecentAuthoredBill[]; votes: AuthorBillVote[] } = setupMode
+    ? { bills: [], votes: [] }
+    : await fetchRecentAuthoredBillsWithSubjectVotes(supabase, user.id, 5);
+
   return (
-    <PersonnelEditShell
-      primaryTitle={primaryTitle}
-      profile={personnelProfile}
-      setupMode={setupMode}
-    />
+    <div className="space-y-10">
+      <PersonnelEditShell
+        primaryTitle={primaryTitle}
+        profile={personnelProfile}
+        setupMode={setupMode}
+      />
+      {!setupMode ? (
+        <RecentAuthoredBillsPanel
+          bills={recentAuthored.bills}
+          votes={recentAuthored.votes}
+          caption="Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
+        />
+      ) : null}
+    </div>
   );
 }

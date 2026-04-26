@@ -116,10 +116,12 @@ export function EconomyDashboard({
 }) {
   const router = useRouter();
   const [flash, setFlash] = useState<{ message: string; ok: boolean; section: FlashSection } | null>(null);
-  const [adQty, setAdQty] = useState(1);
+  const [adQtyInput, setAdQtyInput] = useState("1");
   const [pending, start] = useTransition();
   const balance = wallet?.balance ?? 0;
   const ads = inventory?.sku === "campaign_ad" ? inventory.quantity : 0;
+  const adQtyParsed = Number(adQtyInput);
+  const adQty = Number.isFinite(adQtyParsed) ? Math.max(0, Math.floor(adQtyParsed)) : 0;
   const adLineTotal = adQty * CAMPAIGN_AD_UNIT_PRICE;
   const collectGate = useIncomeCollectGate(wallet?.last_collected_at);
 
@@ -318,13 +320,19 @@ export function EconomyDashboard({
                 name="qty"
                 type="number"
                 min={1}
-                max={99}
-                value={adQty}
+                  max={5000}
+                  value={adQtyInput}
                 onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (!Number.isFinite(n)) setAdQty(1);
-                  else setAdQty(Math.min(99, Math.max(1, Math.floor(n))));
+                  setAdQtyInput(e.target.value);
                 }}
+                  onBlur={() => {
+                    const n = Number(adQtyInput);
+                    if (!Number.isFinite(n) || n < 1) {
+                      setAdQtyInput("1");
+                      return;
+                    }
+                    setAdQtyInput(String(Math.min(5000, Math.floor(n))));
+                  }}
                 className="mt-2 w-full border border-[var(--psc-border)] bg-white px-3 py-2.5 text-center font-mono text-lg font-semibold tabular-nums text-[var(--psc-ink)] outline-none ring-[var(--psc-accent)] focus:ring-2"
               />
             </div>

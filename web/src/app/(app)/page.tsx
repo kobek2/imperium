@@ -5,6 +5,9 @@ import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { fetchHomeCareerStats } from "@/lib/home-career-stats";
 import { getServerAuth } from "@/lib/supabase/server";
 
+/** Home shows this many rows; we fetch one extra to detect a fuller inbox. */
+const INBOX_HOME_PREVIEW = 5;
+
 export default async function HomePage() {
   // Redirect first-time users to the character setup screen. We do this here (not in a layout)
   // so /character itself isn't caught in a loop, and so unauthenticated visitors to / still see
@@ -23,7 +26,7 @@ export default async function HomePage() {
         redirect("/character");
       }
       const [m, s] = await Promise.all([
-        fetchBriefingMoments(supabase, user.id),
+        fetchBriefingMoments(supabase, user.id, INBOX_HOME_PREVIEW + 1),
         fetchHomeCareerStats(supabase, user.id),
       ]);
       moments = m;
@@ -31,13 +34,21 @@ export default async function HomePage() {
     }
   }
 
+  const inboxPreview = moments.slice(0, INBOX_HOME_PREVIEW);
+  const inboxHasMore = moments.length > INBOX_HOME_PREVIEW;
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
       </header>
 
-      <BriefingInbox moments={moments} />
+      <BriefingInbox
+        moments={inboxPreview}
+        heading="Your inbox (latest)"
+        viewAllHref={inboxHasMore ? "/inbox" : undefined}
+        viewAllLabel="Open full inbox →"
+      />
 
       {careerStats ? <HomeCareerStats stats={careerStats} /> : null}
     </div>

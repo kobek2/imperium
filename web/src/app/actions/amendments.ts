@@ -11,7 +11,7 @@ import {
 } from "@/lib/role-capabilities";
 import {
   escapeHtmlPlain,
-  htmlToPlainText,
+  htmlToPlainTextPreserveBreaks,
   legacyMdToEditorHtml,
   sanitizeBillHtml,
 } from "@/lib/sanitize-bill-html";
@@ -38,7 +38,7 @@ export async function proposeBillAmendment(formData: FormData): Promise<void> {
   const description = String(formData.get("description") ?? "").trim();
   const rawHtml = String(formData.get("amended_content_html") ?? "").trim();
   const content_html = rawHtml ? sanitizeBillHtml(rawHtml) : "";
-  const amended_text = htmlToPlainText(content_html);
+  const amended_text = htmlToPlainTextPreserveBreaks(content_html);
 
   if (!title || !description || !amended_text) {
     throw new Error("Title, description, and amended bill text are required.");

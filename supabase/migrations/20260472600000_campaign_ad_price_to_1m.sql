@@ -9,7 +9,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   unit_price numeric := 50000;
-  q int := greatest(1, least(coalesce(p_qty, 1), 99));
+  q int := greatest(1, least(coalesce(p_qty, 1), 5000));
   total numeric := unit_price * q;
   w record;
   new_bal numeric;

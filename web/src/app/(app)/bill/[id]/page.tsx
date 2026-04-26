@@ -44,6 +44,17 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
 
   if (!bill) notFound();
 
+  const { data: authorProfile } = await supabase
+    .from("profiles")
+    .select("id, character_name, discord_username")
+    .eq("id", bill.author_id)
+    .maybeSingle();
+
+  const authorDisplay =
+    authorProfile?.character_name?.trim() ||
+    authorProfile?.discord_username?.trim() ||
+    "Member";
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("office_role, party")
@@ -152,6 +163,12 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
           </strong>
           {" · "}
           Filed {fmt(bill.created_at)}
+        </p>
+        <p className="text-sm text-[var(--psc-muted)]">
+          Proposed by{" "}
+          <Link href={`/profile/${bill.author_id}`} className="font-semibold text-[var(--psc-ink)] hover:underline">
+            {authorDisplay}
+          </Link>
         </p>
         {(bill as { policy_tags?: unknown }).policy_tags ? (
           <p className="text-xs text-[var(--psc-muted)]">

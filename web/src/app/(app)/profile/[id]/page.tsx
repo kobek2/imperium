@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { RecentAuthoredBillsPanel } from "@/components/recent-authored-bills-panel";
 import { profileImageSrc } from "@/components/profile-card";
+import { fetchRecentAuthoredBillsWithSubjectVotes } from "@/lib/profile-recent-bills";
 import { getServerAuth } from "@/lib/supabase/server";
 
 function partyMeta(party: string | null | undefined) {
@@ -54,7 +56,7 @@ export default async function ProfilePage({
   // tidy role-history list below the banner), and any bills this user authored that made
   // it into law. Dead / vetoed / in-flight bills are intentionally excluded — the profile
   // only shows shipped legislation.
-  const [{ data: profile }, { data: grantRows }, { data: lawBills }] = await Promise.all([
+  const [{ data: profile }, { data: grantRows }, { data: lawBills }, recentAuthored] = await Promise.all([
     supabase
       .from("profiles")
       .select(
@@ -73,6 +75,7 @@ export default async function ProfilePage({
       .eq("author_id", id)
       .eq("status", "law")
       .order("signed_at", { ascending: false, nullsFirst: false }),
+    fetchRecentAuthoredBillsWithSubjectVotes(supabase, id, 5),
   ]);
 
   if (!profile) notFound();
@@ -286,6 +289,16 @@ export default async function ProfilePage({
           </ul>
         </section>
       ) : null}
+
+      <RecentAuthoredBillsPanel
+        bills={recentAuthored.bills}
+        votes={recentAuthored.votes}
+        caption={
+          isSelf
+            ? "Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
+            : "Five most recently filed bills and this member’s House/Senate floor votes on each (when recorded)."
+        }
+      />
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">

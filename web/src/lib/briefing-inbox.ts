@@ -27,13 +27,21 @@ function accentForKind(kind: string): BriefingMoment["accent"] {
   return "win";
 }
 
-export async function fetchBriefingMoments(supabase: SupabaseClient, userId: string): Promise<BriefingMoment[]> {
+/** Default cap for `/inbox` and other full-list callers. */
+export const INBOX_FULL_PAGE_LIMIT = 100;
+
+export async function fetchBriefingMoments(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = INBOX_FULL_PAGE_LIMIT,
+): Promise<BriefingMoment[]> {
+  const cap = Math.min(Math.max(1, limit), 500);
   const { data, error } = await supabase
     .from("inbox_items")
     .select("id, kind, title, body, href, read_at, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(40);
+    .limit(cap);
 
   if (error) {
     // Table missing until migration is applied — avoid breaking the home page.

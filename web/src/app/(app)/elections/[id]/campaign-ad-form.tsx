@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { submitCampaignAd } from "@/app/actions/elections";
 
@@ -17,7 +17,7 @@ async function campaignAdAction(
 ): Promise<{ error: string | null; ok: boolean; spent: number }> {
   try {
     const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
-    const qty = Math.max(1, Math.min(99, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
+    const qty = Math.max(1, Math.min(5000, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
     await submitCampaignAd(formData);
     return { error: null, ok: true, spent: qty };
   } catch (err) {
@@ -45,8 +45,6 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
     ok: false,
     spent: 0,
   });
-  const [qty, setQty] = useState(1);
-
   return (
     <form action={formAction} className="grid gap-2 border-t border-[var(--psc-border)] pt-4">
       <input type="hidden" name="election_id" value={electionId} />
@@ -85,16 +83,8 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
           name="qty"
           type="number"
           min={1}
-          max={Math.max(1, adsInventory)}
-          value={qty}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (!Number.isFinite(n)) {
-              setQty(1);
-              return;
-            }
-            setQty(Math.min(Math.max(1, Math.floor(n)), Math.max(1, adsInventory)));
-          }}
+          max={Math.max(1, Math.min(5000, adsInventory))}
+          defaultValue={1}
           className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
         />
       </label>

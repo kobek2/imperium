@@ -56,7 +56,7 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
     supabase
       .from("bills")
       .select(
-        "id, title, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
+        "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
       .neq("status", "dead")
       .neq("status", "failed")
@@ -78,7 +78,8 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
     votes = (rawVotes ?? []) as BillVote[];
   }
 
-  const voterIds = Array.from(new Set(votes.map((v) => v.voter_id)));
+  const authorIds = billList.map((b) => b.author_id).filter(Boolean);
+  const voterIds = Array.from(new Set([...votes.map((v) => v.voter_id), ...authorIds]));
   const voterById = new Map<string, VoterProfile>();
   if (voterIds.length) {
     const { data: voterProfiles } = await supabase

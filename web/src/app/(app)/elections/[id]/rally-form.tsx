@@ -83,7 +83,6 @@ export function RallyForm({
 
   /** Controlled so the presidential target state survives server-action re-renders. */
   const [targetState, setTargetState] = useState("");
-  const [qty, setQty] = useState(1);
 
   // Live countdown for the "next rally unlocks in…" label.
   const [now, setNow] = useState(() => Date.now());
@@ -205,15 +204,7 @@ export function RallyForm({
           type="number"
           min={1}
           max={Math.max(1, remaining)}
-          value={qty}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (!Number.isFinite(n)) {
-              setQty(1);
-              return;
-            }
-            setQty(Math.min(Math.max(1, Math.floor(n)), Math.max(1, remaining)));
-          }}
+          defaultValue={1}
           className="w-full max-w-xs border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
         />
       </label>

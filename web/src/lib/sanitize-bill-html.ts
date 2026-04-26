@@ -24,6 +24,26 @@ export function htmlToPlainText(html: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Converts editor HTML into plain text while preserving meaningful line breaks between
+ * blocks/lists. Useful for amendment snapshots where we need human-readable fallback text.
+ */
+export function htmlToPlainTextPreserveBreaks(html: string): string {
+  const blockBreaks = html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|h2|h3|h4|li|blockquote|pre|tr|div)\s*>/gi, "\n")
+    .replace(/<\/\s*(ul|ol|table|thead|tbody)\s*>/gi, "\n\n");
+  const t = sanitizeHtml(blockBreaks, {
+    allowedTags: [],
+    allowedAttributes: {},
+  });
+  return t
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Sanitize rich text from the bill editor before persisting or rendering. */
 export function sanitizeBillHtml(dirty: string): string {
   return sanitizeHtml(dirty, {

@@ -1010,7 +1010,7 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
   const election_id = String(formData.get("election_id") ?? "").trim();
   const target_state = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
   const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
-  const qty = Math.max(1, Math.min(99, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
+  const qty = Math.max(1, Math.min(5000, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
   if (!election_id) throw new Error("Missing election id.");
 
   const { data: election } = await supabase

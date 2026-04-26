@@ -34,7 +34,7 @@ export default async function OvalPage() {
   const { data: desk } = await supabase
     .from("bills")
     .select(
-      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at",
+      "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
     )
     .eq("status", "oval")
     .order("created_at", { ascending: false });
@@ -51,7 +51,8 @@ export default async function OvalPage() {
     deskVotes = (rawVotes ?? []) as BillVote[];
   }
 
-  const voterIds = Array.from(new Set(deskVotes.map((v) => v.voter_id)));
+  const authorIds = deskList.map((b) => b.author_id).filter(Boolean);
+  const voterIds = Array.from(new Set([...deskVotes.map((v) => v.voter_id), ...authorIds]));
   const voterById = new Map<string, VoterProfile>();
   if (voterIds.length) {
     const { data: voterProfiles } = await supabase

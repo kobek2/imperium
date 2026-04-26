@@ -43,6 +43,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
 
   const links = [
     { href: "/", label: "Home" },
+    ...(user ? [{ href: "/inbox", label: "Inbox" } as const] : []),
     { href: "/character", label: "Character" },
     { href: "/economy", label: "Economy" },
     { href: partyNavHref, label: "Party" },

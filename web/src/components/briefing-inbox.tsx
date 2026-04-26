@@ -41,12 +41,23 @@ function formatWhen(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-export function BriefingInbox({ moments }: { moments: BriefingMoment[] }) {
+export function BriefingInbox({
+  moments,
+  heading = "Your inbox",
+  viewAllHref,
+  viewAllLabel = "View all mail →",
+}: {
+  moments: BriefingMoment[];
+  heading?: string;
+  /** When set, a footer row links to the full inbox (e.g. home preview capped at five). */
+  viewAllHref?: string;
+  viewAllLabel?: string;
+}) {
   if (!moments.length) {
     return (
       <section className="overflow-hidden rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-sm">
         <div className="border-b border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-5 py-4">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Your inbox</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">{heading}</h2>
         </div>
         <div className="px-5 py-10 text-center">
           <p className="text-sm text-[var(--psc-muted)]">Nothing in your inbox yet.</p>
@@ -58,7 +69,7 @@ export function BriefingInbox({ moments }: { moments: BriefingMoment[] }) {
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-sm">
       <div className="border-b border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-5 py-4">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Your inbox</h2>
+        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">{heading}</h2>
       </div>
       <ul className="divide-y divide-[var(--psc-border)]">
         {moments.map((m) => {
@@ -103,6 +114,16 @@ export function BriefingInbox({ moments }: { moments: BriefingMoment[] }) {
           );
         })}
       </ul>
+      {viewAllHref ? (
+        <div className="border-t border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_3%,transparent)] px-5 py-3 text-center">
+          <Link
+            href={viewAllHref}
+            className="text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+          >
+            {viewAllLabel}
+          </Link>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -22,6 +22,7 @@ export type VoterProfile = {
 export type BillForCard = {
   id: string;
   title: string;
+  author_id: string;
   /** Rich HTML from the bill editor when present. */
   content_html?: string | null;
   /** Markdown / plain (legacy bills, nominations). */
@@ -323,6 +324,19 @@ export function BillCard({
             <span className="font-semibold text-[var(--psc-ink)]">
               {bill.originating_chamber === "house" ? "House" : "Senate"}
             </span>
+            {(() => {
+              const sponsor = voterById.get(bill.author_id);
+              const label = sponsor?.character_name?.trim() || "Member";
+              return (
+                <>
+                  {" · "}
+                  <span className="text-[var(--psc-muted)]">Proposed by </span>
+                  <Link href={`/profile/${bill.author_id}`} className="font-semibold text-[var(--psc-ink)] hover:underline">
+                    {label}
+                  </Link>
+                </>
+              );
+            })()}
           </p>
           {bill.status === "submitted" && bill.leadership_deadline_at ? (
             <p className="mt-1 text-xs font-semibold text-amber-900">

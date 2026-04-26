@@ -114,7 +114,7 @@ declare
   use_district text;
   w record;
   new_bal numeric;
-  qty int := greatest(1, least(coalesce(p_qty, 1), 99));
+  qty int := greatest(1, least(coalesce(p_qty, 1), 5000));
   endorsed_ticket boolean := false;
 begin
   if v_uid is null then raise exception 'Not authenticated'; end if;
