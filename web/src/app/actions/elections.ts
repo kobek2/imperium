@@ -987,6 +987,8 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
 
   const election_id = String(formData.get("election_id") ?? "").trim();
   const target_state = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
+  const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
+  const qty = Math.max(1, Math.min(99, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
   if (!election_id) throw new Error("Missing election id.");
 
   const { data: election } = await supabase
@@ -1039,6 +1041,7 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
     p_election: election_id,
     p_candidate: candidate.id,
     p_target_state: election.office === "president" ? target_state : null,
+    p_qty: qty,
   });
   throwIfPostgrestError(error);
 
@@ -1149,6 +1152,8 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
   const election_id = String(formData.get("election_id"));
   const target_state = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
   const target_district = String(formData.get("target_district") ?? "").trim().toUpperCase() || null;
+  const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
+  const qty = Math.max(1, Math.min(50, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
 
   const { data: election } = await supabase
     .from("elections")
@@ -1199,9 +1204,16 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     .eq("election_id", election_id)
     .eq("candidate_id", candidate.id)
     .gte("created_at", windowStart);
-  if ((count ?? 0) >= RALLY_LIMIT_PER_WINDOW) {
+  const usedInWindow = count ?? 0;
+  const remainingInWindow = Math.max(0, RALLY_LIMIT_PER_WINDOW - usedInWindow);
+  if (remainingInWindow < 1) {
     throw new Error(
       `Rally cap reached: ${RALLY_LIMIT_PER_WINDOW} rallies per 3-hour window. Try again later.`,
+    );
+  }
+  if (qty > remainingInWindow) {
+    throw new Error(
+      `You can only spend ${remainingInWindow} more ${remainingInWindow === 1 ? "rally" : "rallies"} this 3-hour window.`,
     );
   }
 
@@ -1227,14 +1239,15 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     rallyDistrict = null;
   }
 
-  const { error } = await supabase.from("campaign_rallies").insert({
+  const rows = Array.from({ length: qty }, () => ({
     election_id,
     candidate_id: candidate.id,
     actor_id: user.id,
     target_state: rallyState,
     target_district: rallyDistrict,
     points: RALLY_POINTS,
-  });
+  }));
+  const { error } = await supabase.from("campaign_rallies").insert(rows);
   if (error) {
     const msg = error.message;
     if (msg.includes("campaign_rallies") || msg.toLowerCase().includes("schema cache")) {

@@ -19,15 +19,17 @@ type Props = {
 // Server-action wrapper that returns a client-friendly { error, ok } instead of throwing so the
 // Next.js error overlay never fires when the user just hits the rate limit.
 async function rallyAction(
-  _prev: { error: string | null; ok: boolean },
+  _prev: { error: string | null; ok: boolean; spent: number },
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean }> {
+): Promise<{ error: string | null; ok: boolean; spent: number }> {
   try {
+    const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
+    const qty = Math.max(1, Math.min(50, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
     await submitCampaignRally(formData);
-    return { error: null, ok: true };
+    return { error: null, ok: true, spent: qty };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false };
+    return { error: msg, ok: false, spent: 0 };
   }
 }
 
@@ -46,7 +48,7 @@ function RallyButton({
       disabled={isDisabled}
       className="w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
     >
-      {pending ? "Holding rally…" : label}
+      {pending ? "Applying rallies…" : label}
     </button>
   );
 }
@@ -76,10 +78,12 @@ export function RallyForm({
   const [result, formAction] = useActionState(rallyAction, {
     error: null,
     ok: false,
+    spent: 0,
   });
 
   /** Controlled so the presidential target state survives server-action re-renders. */
   const [targetState, setTargetState] = useState("");
+  const [qty, setQty] = useState(1);
 
   // Live countdown for the "next rally unlocks in…" label.
   const [now, setNow] = useState(() => Date.now());
@@ -194,13 +198,32 @@ export function RallyForm({
       {office === "senate" && state ? (
         <input type="hidden" name="target_state" value={state} />
       ) : null}
+      <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
+        How many rallies
+        <input
+          name="qty"
+          type="number"
+          min={1}
+          max={Math.max(1, remaining)}
+          value={qty}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) {
+              setQty(1);
+              return;
+            }
+            setQty(Math.min(Math.max(1, Math.floor(n)), Math.max(1, remaining)));
+          }}
+          className="w-full max-w-xs border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
+        />
+      </label>
 
       <RallyButton
         disabled={atCap}
         label={
           atCap
             ? "Cap reached — try again later"
-            : `Hold rally (+0.5 pts · ${remaining} left)`
+            : `Apply rallies (+0.5 each · ${remaining} left)`
         }
       />
 
@@ -211,7 +234,9 @@ export function RallyForm({
       ) : null}
       {result.ok ? (
         <p className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          Rally recorded. +0.5 pts added to your total.
+          {result.spent === 1
+            ? "Rally recorded. +0.5 pts added to your total."
+            : `${result.spent} rallies recorded. +${(result.spent * 0.5).toFixed(1)} pts added to your total.`}
         </p>
       ) : null}
     </form>

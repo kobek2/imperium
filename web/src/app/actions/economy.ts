@@ -133,6 +133,7 @@ export async function applyCampaignAdFromInventory(formData: FormData): Promise<
   const { error } = await supabase.rpc("economy_use_campaign_ad", {
     p_election: electionId,
     p_candidate: candidateId,
+    p_qty: 1,
   });
   if (error) return { ok: false, message: error.message };
   revalidateEconomy();

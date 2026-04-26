@@ -503,6 +503,17 @@ function CampaignPanel({
             </select>
           </label>
         ) : null}
+        <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
+          How many ads
+          <input
+            name="qty"
+            type="number"
+            min={1}
+            max={Math.max(1, adsInventory)}
+            defaultValue={1}
+            className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
+          />
+        </label>
         <SubmitButton
           disabled={adsInventory < 1}
           pendingLabel="Applying ad…"
