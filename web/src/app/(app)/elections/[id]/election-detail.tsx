@@ -59,6 +59,14 @@ type CandidateCardFields = {
   bio: string | null;
 };
 
+type SpeechFeedItem = {
+  candidateId: string;
+  authorId: string;
+  content: string;
+  targetState: string | null;
+  createdAt: string;
+};
+
 type PartyKey = "democrat" | "republican" | "independent";
 const PARTY_ORDER: PartyKey[] = ["democrat", "republican", "independent"];
 
@@ -712,6 +720,7 @@ export function ElectionDetail({
   filingBlockReason,
   leadershipMeta,
   adsInventory,
+  speechFeed,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -736,6 +745,7 @@ export function ElectionDetail({
   states: Array<{ code: string; name: string }>;
   leadershipMeta: LeadershipMeta | null;
   adsInventory: number;
+  speechFeed: SpeechFeedItem[];
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -808,6 +818,7 @@ export function ElectionDetail({
     : (election.district_code ?? election.state ?? "United States");
 
   const meta = partyMeta(profileParty ?? "");
+  const candidateById = new Map(candidates.map((c) => [c.id, c]));
 
   return (
     <div className="space-y-8">
@@ -1170,6 +1181,47 @@ export function ElectionDetail({
             myEndorsedCandidateId={myEndorsedCandidateId}
             myEndorsementPoints={myEndorsementPoints}
           />
+          {speechFeed.length ? (
+            <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                  Campaign speech feed
+                </h3>
+                <span className="text-xs text-[var(--psc-muted)]">
+                  Latest {speechFeed.length} speeches
+                </span>
+              </div>
+              <ul className="max-h-[26rem] space-y-3 overflow-y-auto pr-1">
+                {speechFeed.map((speech, idx) => {
+                  const target = candidateById.get(speech.candidateId);
+                  const targetName = target
+                    ? displayName(candidateCardByUserId[target.user_id], target.user_id, nameBy)
+                    : speech.candidateId.slice(0, 8);
+                  const authorName =
+                    candidateCardByUserId[speech.authorId]?.character_name?.trim() ||
+                    nameBy[speech.authorId]?.trim() ||
+                    speech.authorId.slice(0, 8);
+                  return (
+                    <li
+                      key={`${speech.createdAt}:${speech.authorId}:${idx}`}
+                      className="space-y-1 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-3"
+                    >
+                      <p className="text-[11px] text-[var(--psc-muted)]">
+                        <span className="font-semibold text-[var(--psc-ink)]">{authorName}</span>{" "}
+                        speaking for{" "}
+                        <span className="font-semibold text-[var(--psc-ink)]">{targetName}</span>
+                        {speech.targetState ? ` · ${speech.targetState}` : ""} ·{" "}
+                        {new Date(speech.createdAt).toLocaleString()}
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm text-[var(--psc-ink)]">
+                        {speech.content}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
         </section>
       ) : null}
 

@@ -293,7 +293,8 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                             {(s.score * 100).toFixed(1)}%
                           </div>
                           <div className="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--psc-muted)]">
-                            <span>pts {s.points_with_lean.toFixed(1)}</span>
+                            <span>raw pts {s.points.toFixed(1)}</span>
+                            <span>leaned pts {s.points_with_lean.toFixed(1)}</span>
                             <span>votes {s.votes}</span>
                             <span>campaign {(s.points_share * 100).toFixed(1)}%</span>
                             <span>vote share {(s.votes_share * 100).toFixed(1)}%</span>
@@ -312,7 +313,7 @@ export function PresidentialMap({ states, result, candidates }: Props) {
               )}
               {hoverResult ? (
                 <p className="pt-1 text-[10px] text-[var(--psc-muted)]">
-                  State projection formula: 60% campaign share + 40% in-state vote share.
+                  State projection formula: 60% campaign share + 40% in-state vote share. Campaign share uses leaned points (raw points + state PVI lean, floored at 0).
                 </p>
               ) : null}
             </div>

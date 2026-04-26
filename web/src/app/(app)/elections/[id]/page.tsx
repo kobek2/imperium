@@ -116,7 +116,12 @@ export default async function ElectionDetailPage({
       .eq("id", user.id)
       .maybeSingle(),
     loadActiveCandidacySlots(supabase, user.id),
-    supabase.from("campaign_speeches").select("candidate_id").eq("election_id", id),
+    supabase
+      .from("campaign_speeches")
+      .select("candidate_id, author_id, content, target_state, created_at")
+      .eq("election_id", id)
+      .order("created_at", { ascending: false })
+      .limit(100),
     supabase.from("campaign_rallies").select("candidate_id").eq("election_id", id),
     getStatesCached(supabase),
     getStaffMayAccessElectionsConsole(),
@@ -212,11 +217,14 @@ export default async function ElectionDetailPage({
     bio: string | null;
   };
   let profiles: ProfileCardRow[] = [];
-  if (candList.length) {
+  if (candList.length || (speechRows?.length ?? 0) > 0) {
     const profileIds = new Set<string>();
     for (const c of candList) {
       profileIds.add(c.user_id as string);
       if (c.running_mate_user_id) profileIds.add(c.running_mate_user_id as string);
+    }
+    for (const s of (speechRows ?? []) as Array<{ author_id: string }>) {
+      profileIds.add(s.author_id);
     }
     const { data: p } = await supabase
       .from("profiles")
@@ -255,6 +263,19 @@ export default async function ElectionDetailPage({
     const cid = row.candidate_id as string;
     speechCountBy[cid] = (speechCountBy[cid] ?? 0) + 1;
   }
+  const speechRowsForFeed = ((speechRows ?? []) as Array<{
+    candidate_id: string;
+    author_id: string;
+    content: string;
+    target_state: string | null;
+    created_at: string;
+  }>).map((s) => ({
+    candidateId: s.candidate_id,
+    authorId: s.author_id,
+    content: s.content,
+    targetState: s.target_state ? String(s.target_state).toUpperCase() : null,
+    createdAt: s.created_at,
+  }));
   const rallyCountBy: Record<string, number> = {};
   for (const row of rallyRows ?? []) {
     const cid = row.candidate_id as string;
@@ -380,6 +401,7 @@ export default async function ElectionDetailPage({
         states={states}
         leadershipMeta={leadershipMeta}
         adsInventory={adsInventory}
+        speechFeed={speechRowsForFeed}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">
