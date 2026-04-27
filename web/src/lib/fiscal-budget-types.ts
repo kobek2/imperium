@@ -2,6 +2,8 @@ export type FiscalTaxBracketRow = { ceiling: number | null; rate: number };
 export type FiscalLineItemRow = {
   key: string;
   label: string;
+  /** Persistent anchor before GDP indexing; used to avoid compounding re-inflation. */
+  base_minimum?: number;
   minimum: number;
   allocated: number;
 };

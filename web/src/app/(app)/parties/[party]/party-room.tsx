@@ -44,14 +44,6 @@ function formatWhen(iso: string | null): string {
   });
 }
 
-/** `YYYY-MM-DD` RP open date from Postgres `date`. */
-function formatRpOpenDate(ymd: string | null): string {
-  if (!ymd) return "—";
-  const d = new Date(`${ymd}T12:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return ymd;
-  return d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-}
-
 function partyBarSegmentClass(partyKey: string, i: number) {
   const dem = ["bg-blue-900", "bg-blue-700", "bg-blue-500", "bg-blue-400"];
   const rep = ["bg-red-900", "bg-red-700", "bg-red-500", "bg-red-400"];
@@ -191,10 +183,6 @@ export function PartyRoom({
   partyKey,
   treasury,
   leadershipPhase,
-  leadershipElectionEndsAt,
-  nextLeadershipOpensOnRp,
-  leadershipOpenOverdue,
-  lastLeadershipCompletedAt,
   officers,
   nameById,
   voteRows,
@@ -210,10 +198,6 @@ export function PartyRoom({
   partyKey: string;
   treasury: number;
   leadershipPhase: string;
-  leadershipElectionEndsAt: string | null;
-  nextLeadershipOpensOnRp: string | null;
-  leadershipOpenOverdue: boolean;
-  lastLeadershipCompletedAt: string | null;
   officers: OfficerRow[];
   nameById: Record<string, string | null | undefined>;
   voteRows: Array<{ office: string; candidate_id: string }>;
@@ -253,42 +237,6 @@ export function PartyRoom({
         <p className="mt-1 font-mono text-2xl font-semibold text-[var(--psc-ink)]">
           ${treasury.toLocaleString(undefined, { maximumFractionDigits: 0 })}
         </p>
-      </section>
-
-      <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Leadership cycle</h2>
-        {leadershipOpenOverdue ? (
-          <p className="mt-2 rounded border border-amber-700/40 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-            That RP open date has passed but the phase is still Idle. Refresh this page once to run the leadership
-            scheduler, or ask an admin if it does not advance.
-          </p>
-        ) : null}
-        <dl className="mt-4 grid gap-2 text-sm md:grid-cols-2">
-          <div>
-            <dt className="font-semibold text-[var(--psc-ink)]">Current phase</dt>
-            <dd className="capitalize text-[var(--psc-muted)]">
-              {leadershipPhase === "open" ? "Election open" : leadershipPhase}
-            </dd>
-          </div>
-          {leadershipPhase === "open" ? (
-            <div>
-              <dt className="font-semibold text-[var(--psc-ink)]">Election closes</dt>
-              <dd className="text-[var(--psc-muted)]">{formatWhen(leadershipElectionEndsAt)}</dd>
-            </div>
-          ) : null}
-          {leadershipPhase === "idle" ? (
-            <div>
-              <dt className="font-semibold text-[var(--psc-ink)]">Next election may open (RP date)</dt>
-              <dd className="text-[var(--psc-muted)]">{formatRpOpenDate(nextLeadershipOpensOnRp)}</dd>
-            </div>
-          ) : null}
-          {lastLeadershipCompletedAt ? (
-            <div>
-              <dt className="font-semibold text-[var(--psc-ink)]">Last cycle completed</dt>
-              <dd className="text-[var(--psc-muted)]">{formatWhen(lastLeadershipCompletedAt)}</dd>
-            </div>
-          ) : null}
-        </dl>
       </section>
 
       <section className="space-y-6">

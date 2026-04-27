@@ -193,10 +193,6 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
         partyKey={partyKey}
         treasury={Number(org?.treasury_balance ?? 0)}
         leadershipPhase={leadershipPhase}
-        leadershipElectionEndsAt={(org?.leadership_filing_ends_at as string | null) ?? null}
-        nextLeadershipOpensOnRp={nextOpensRp}
-        leadershipOpenOverdue={leadershipOpenOverdue}
-        lastLeadershipCompletedAt={(org?.last_leadership_cycle_completed_at as string | null) ?? null}
         officers={(officers ?? []) as Array<{ party_key: string; office: string; user_id: string | null; since: string }>}
         nameById={Object.fromEntries(nameMap)}
         voteRows={(votes ?? []) as Array<{ office: string; candidate_id: string }>}

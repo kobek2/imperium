@@ -32,7 +32,26 @@ function normalizeLineItemsForSave(lineItems: FiscalLineItemRow[]): FiscalLineIt
   return lineItems.map((row) => ({
     ...row,
     label: lineItemDefaultLabel(row.key),
+    base_minimum:
+      row.base_minimum != null && Number.isFinite(Number(row.base_minimum))
+        ? Number(row.base_minimum)
+        : Number(row.minimum),
   }));
+}
+
+async function syncDraftLineMinimaToServerInflation(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<{ ratio_applied?: number } | null> {
+  const { data, error } = await supabase.rpc("fiscal_apply_server_gdp_inflation_to_line_minima");
+  if (error) {
+    // Older DBs may not have this RPC yet; don't block save/file.
+    const m = (error.message ?? "").toLowerCase();
+    if (m.includes("fiscal_apply_server_gdp_inflation_to_line_minima") || m.includes("schema cache")) {
+      return null;
+    }
+    throw new Error(error.message);
+  }
+  return (data as { ratio_applied?: number } | null) ?? null;
 }
 
 export type { FiscalLineItemRow, FiscalTaxBracketRow } from "@/lib/fiscal-budget-types";
@@ -59,11 +78,16 @@ export async function saveFiscalBudgetDraft(input: {
     p_metrics: input.metrics ?? {},
   });
   if (error) return { ok: false, message: error.message };
+  const sync = await syncDraftLineMinimaToServerInflation(supabase);
   revalidateFiscal();
-  return { ok: true, message: "Budget draft saved." };
+  const ratioNote =
+    sync?.ratio_applied != null
+      ? ` Line minima auto-indexed to server GDP ratio ${Number(sync.ratio_applied).toFixed(3)}.`
+      : "";
+  return { ok: true, message: `Budget draft saved.${ratioNote}` };
 }
 
-/** Scales each draft line item minimum (and raises allocated if needed) by server GDP vs FY opening, capped at +15%. */
+/** Reindexes draft line minima to the server GDP ratio (wallet sum ÷ FY opening). */
 export async function applyServerGdpInflationToLineMinima(): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
   const {
@@ -263,11 +287,29 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     p_metrics: {},
   });
   if (saveErr) return { ok: false, message: saveErr.message };
+  await syncDraftLineMinimaToServerInflation(supabase);
+
+  const { data: refreshedBudget } = await supabase
+    .from("federal_budgets")
+    .select("line_items")
+    .eq("fiscal_year_id", input.fiscalYearId)
+    .maybeSingle();
+  const billLines = Array.isArray((refreshedBudget as { line_items?: unknown } | null)?.line_items)
+    ? normalizeLineItemsForSave(
+        ((refreshedBudget as { line_items: unknown[] }).line_items ?? []).map((row) => ({
+          key: String((row as { key?: unknown }).key ?? ""),
+          label: String((row as { label?: unknown }).label ?? ""),
+          base_minimum: Number((row as { base_minimum?: unknown }).base_minimum ?? Number((row as { minimum?: unknown }).minimum ?? 0)),
+          minimum: Number((row as { minimum?: unknown }).minimum ?? 0),
+          allocated: Number((row as { allocated?: unknown }).allocated ?? 0),
+        })),
+      )
+    : normalizedLines;
 
   const rawHtml = buildFederalAppropriationsBillHtml({
     yearLabel: input.yearLabel,
     taxBrackets: input.taxBrackets,
-    lineItems: normalizedLines,
+    lineItems: billLines,
   });
   const content_html = sanitizeBillHtml(rawHtml);
   const content_md = htmlToPlainText(content_html);

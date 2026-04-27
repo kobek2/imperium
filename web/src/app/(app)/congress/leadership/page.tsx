@@ -125,7 +125,10 @@ export default async function LeadershipPage() {
 
   return (
     <div className="space-y-8">
-      <Link href="/congress" className="text-sm font-semibold text-[var(--psc-accent)] underline">
+      <Link
+        href="/congress"
+        className="inline-flex items-center rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-1.5 text-sm font-semibold text-[var(--psc-ink)] shadow-sm hover:bg-[var(--psc-canvas)]"
+      >
         ← Congress overview
       </Link>
       <header>

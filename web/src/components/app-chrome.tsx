@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ProfileQuickDock } from "@/components/profile-quick-dock";
+import { ProfileQuickDock } from "./profile-quick-dock";
 import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
 import { getStaffAccess } from "@/lib/staff-access";
@@ -56,7 +56,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       <header className="border-b border-[var(--psc-border)] bg-[var(--psc-panel)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <Link href="/" className="text-lg font-semibold tracking-tight">
+            <Link href="/imperium" className="text-lg font-semibold tracking-tight">
               Imperium
             </Link>
           </div>

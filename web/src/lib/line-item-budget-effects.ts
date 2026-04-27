@@ -1,5 +1,6 @@
 /** Surplus over minimum spend → “improvement tiers” for linked national metrics (display). */
 const SURPLUS_PER_TIER = 500_000;
+const MAX_GDP_INDEX_RATIO = 4;
 
 export function surplusAboveMinimum(allocated: number, minimum: number): number {
   const a = Number(allocated) || 0;
@@ -59,4 +60,12 @@ export function lineItemDefaultLabel(key: string): string {
     .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ""))
     .filter(Boolean)
     .join(" ");
+}
+
+/** Wallet-sum index versus fiscal-year opening GDP (non-decreasing, capped). */
+export function computeServerGdpIndexRatio(walletTotal: number, gdpOpeningTotal: number | null): number {
+  const w = Number(walletTotal);
+  const g = Number(gdpOpeningTotal ?? 0);
+  if (!Number.isFinite(w) || !Number.isFinite(g) || g <= 0) return 1;
+  return Math.max(1, Math.min(w / g, MAX_GDP_INDEX_RATIO));
 }

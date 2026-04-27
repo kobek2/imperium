@@ -105,7 +105,7 @@ export function PersonnelRecord({
             Former positions (RP)
           </dt>
           <dd className="mt-1 whitespace-pre-wrap text-[var(--psc-ink)]">
-            {displayFormerPositionsRp(profile.former_positions, profile.party, profile.residence_state)}
+            {displayFormerPositionsRp(profile.former_positions) || "—"}
           </dd>
         </div>
       </dl>

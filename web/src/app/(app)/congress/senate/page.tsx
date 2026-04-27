@@ -42,8 +42,11 @@ export default async function CongressSenatePage() {
 
   return (
     <div className="space-y-10">
-      <p className="text-sm text-[var(--psc-muted)]">
-        <Link href="/congress" className="font-semibold text-[var(--psc-accent)] underline">
+      <p>
+        <Link
+          href="/congress"
+          className="inline-flex items-center rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-1.5 text-sm font-semibold text-[var(--psc-ink)] shadow-sm hover:bg-[var(--psc-canvas)]"
+        >
           ← Congress overview
         </Link>
       </p>

@@ -27,6 +27,9 @@ import {
   scorePresidentialBundle,
 } from "@/lib/presidential-data";
 
+/** Always refetch election + map from Supabase; avoids stale RSC after env or DB changes. */
+export const dynamic = "force-dynamic";
+
 // Module-level promise cache for the (static) US states list. The rows never change during
 // the life of a Vercel build/lambda, so we reuse the first successful fetch for subsequent
 // requests instead of hitting Postgres on every page view.

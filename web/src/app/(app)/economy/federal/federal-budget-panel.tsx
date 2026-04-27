@@ -15,7 +15,13 @@ import { NavRouteButton } from "@/components/nav-route-button";
 import { NationalMetricsDisplay } from "@/components/national-metrics-display";
 import { buildFederalAppropriationsBillHtml } from "@/lib/build-federal-appropriations-bill-html";
 import { buildBracketAnalytics } from "@/lib/load-fiscal-tax-analytics";
-import { budgetSurplusTiers, lineItemDefaultLabel, lineItemFocus, surplusAboveMinimum } from "@/lib/line-item-budget-effects";
+import {
+  budgetSurplusTiers,
+  computeServerGdpIndexRatio,
+  lineItemDefaultLabel,
+  lineItemFocus,
+  surplusAboveMinimum,
+} from "@/lib/line-item-budget-effects";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { computeMarginalIncomeTax, type FiscalTaxBracket } from "@/lib/fiscal-tax";
 import { computeBudgetInfluencedNationalMetrics } from "@/lib/national-metrics-from-budget";
@@ -105,6 +111,7 @@ export function FederalBudgetPanel({
       return raw.map((row) => ({
         key: String((row as { key?: unknown }).key ?? ""),
         label: String((row as { label?: unknown }).label ?? ""),
+        base_minimum: Number((row as { base_minimum?: unknown }).base_minimum ?? (row as { minimum?: unknown }).minimum ?? 0),
         minimum: Number((row as { minimum?: unknown }).minimum ?? 0),
         allocated: Number((row as { allocated?: unknown }).allocated ?? 0),
       }));
@@ -140,6 +147,10 @@ export function FederalBudgetPanel({
 
   const gdpGrowthSinceStart =
     gdpOpeningTotal != null ? walletTotal - gdpOpeningTotal : null;
+  const gdpIndexRatio = useMemo(
+    () => computeServerGdpIndexRatio(walletTotal, gdpOpeningTotal),
+    [walletTotal, gdpOpeningTotal],
+  );
 
   const totalAllocated = useMemo(() => lines.reduce((s, l) => s + (Number.isFinite(l.allocated) ? l.allocated : 0), 0), [lines]);
 
@@ -411,7 +422,8 @@ export function FederalBudgetPanel({
                             }}
                             onChange={(e) => {
                               const next = [...lines];
-                              next[i] = { ...next[i]!, minimum: Number(e.target.value) };
+                              const minimum = Number(e.target.value);
+                              next[i] = { ...next[i]!, minimum, base_minimum: minimum };
                               setLines(next);
                             }}
                           />
@@ -516,6 +528,17 @@ export function FederalBudgetPanel({
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${treasuryBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </dd>
+                </div>
+                <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                    Server GDP index ratio
+                  </dt>
+                  <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
+                    {gdpIndexRatio.toFixed(3)}x
+                  </dd>
+                  <dd className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
+                    Wallet sum / FY opening GDP (auto-applied to line minima on save/file).
                   </dd>
                 </div>
               </dl>
@@ -649,7 +672,7 @@ export function FederalBudgetPanel({
               <button
                 type="button"
                 disabled={pending || !canEdit}
-                title="Raises each line minimum by wallet GDP vs FY opening (capped at +15%). Allocations bump up if they were below the new floor."
+                title="Syncs line minima to server GDP index (wallet sum / FY opening GDP), preserving base minima to avoid compounding."
                 className="rounded border border-emerald-800/40 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 disabled:opacity-50"
                 onClick={() => run(() => applyServerGdpInflationToLineMinima())}
               >

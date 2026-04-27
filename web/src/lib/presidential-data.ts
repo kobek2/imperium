@@ -6,6 +6,7 @@
  * so the admin-certified winner and the live map agree on the math.
  */
 
+import { createClient as createServiceSupabaseClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   scorePresidentialElection,
@@ -39,6 +40,54 @@ function looksLikeMissingEvColumn(message: string | null | undefined): boolean {
 }
 
 /**
+ * Presidential scoring must match raw Postgres. When `SUPABASE_SERVICE_ROLE_KEY` is set
+ * (server only — never NEXT_PUBLIC_*), read the bundle with the service client so RLS /
+ * JWT presentation cannot return empty `campaign_ads` while SQL in the dashboard shows rows.
+ */
+function readerForPresidentialBundle(userClient: SupabaseClient): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/+$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!url || !key) return userClient;
+  return createServiceSupabaseClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
+/** PostgREST default max rows per request (Supabase dashboard can raise it; we paginate instead). */
+const REST_PAGE_SIZE = 1000;
+
+type PagedElectionTable =
+  | "general_votes"
+  | "campaign_speeches"
+  | "campaign_rallies"
+  | "campaign_ads"
+  | "campaign_endorsements";
+
+async function fetchAllRowsForElection(
+  db: SupabaseClient,
+  table: PagedElectionTable,
+  selectColumns: string,
+  election_id: string,
+): Promise<{ data: unknown[] | null; error: { message: string } | null }> {
+  const out: unknown[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await db
+      .from(table)
+      .select(selectColumns)
+      .eq("election_id", election_id)
+      .order("created_at", { ascending: true })
+      .range(from, from + REST_PAGE_SIZE - 1);
+    if (error) return { data: null, error };
+    const batch = data ?? [];
+    out.push(...batch);
+    if (batch.length < REST_PAGE_SIZE) break;
+    from += REST_PAGE_SIZE;
+  }
+  return { data: out, error: null };
+}
+
+/**
  * Fetch the bits needed to score a presidential election. Safe to call even if the
  * `states.electoral_votes` migration hasn't been run yet — we fall back to the hard-coded
  * map in `@/lib/electoral-votes` so the page still renders.
@@ -47,6 +96,7 @@ export async function loadPresidentialBundle(
   supabase: SupabaseClient,
   election_id: string,
 ): Promise<PresidentialDataBundle> {
+  const db = readerForPresidentialBundle(supabase);
   const [
     candidatesRes,
     votesRes,
@@ -56,41 +106,60 @@ export async function loadPresidentialBundle(
     endorsementsRes,
     statesRes,
   ] = await Promise.all([
-    supabase
+    db
       .from("election_candidates")
       .select("id, user_id, party, primary_winner, created_at")
       .eq("election_id", election_id),
-    supabase
-      .from("general_votes")
-      .select("candidate_id, voter_state")
-      .eq("election_id", election_id),
-    supabase
-      .from("campaign_speeches")
-      .select("candidate_id, target_state, points")
-      .eq("election_id", election_id),
-    supabase
-      .from("campaign_rallies")
-      .select("candidate_id, target_state, points")
-      .eq("election_id", election_id),
-    supabase
-      .from("campaign_ads")
-      .select("candidate_id, target_state, points")
-      .eq("election_id", election_id),
-    supabase
-      .from("campaign_endorsements")
-      .select("candidate_id, endorser_user_id, role_key, points")
-      .eq("election_id", election_id),
-    supabase
+    fetchAllRowsForElection(db, "general_votes", "candidate_id, voter_state", election_id),
+    fetchAllRowsForElection(db, "campaign_speeches", "candidate_id, target_state, points", election_id),
+    fetchAllRowsForElection(db, "campaign_rallies", "candidate_id, target_state, points", election_id),
+    fetchAllRowsForElection(db, "campaign_ads", "candidate_id, target_state, points", election_id),
+    fetchAllRowsForElection(
+      db,
+      "campaign_endorsements",
+      "candidate_id, endorser_user_id, role_key, points",
+      election_id,
+    ),
+    db
       .from("states")
       .select("code, name, pvi, electoral_votes")
       .order("code"),
   ]);
 
+  for (const [label, res] of [
+    ["election_candidates", candidatesRes],
+    ["general_votes", votesRes],
+    ["campaign_speeches", speechesRes],
+    ["campaign_rallies", ralliesRes],
+    ["campaign_ads", adsRes],
+    ["campaign_endorsements", endorsementsRes],
+  ] as const) {
+    if (res.error) {
+      console.warn(`[loadPresidentialBundle] ${label} (${election_id}):`, res.error.message);
+    }
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    const svc = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+    const n = adsRes.data?.length ?? 0;
+    const err = adsRes.error?.message ?? "";
+    console.info(
+      `[loadPresidentialBundle] ${election_id} reader=${svc ? "service_role" : "user_jwt_only"} campaign_ads_rows=${n}${err ? ` error=${err}` : ""}`,
+    );
+  }
+
+  /** Normalize DB `char(n)` / text so state keys match cartogram codes (e.g. "MN"). */
+  function normalizeStateCode(raw: string | null | undefined): string | null {
+    if (raw == null || raw === "") return null;
+    const t = String(raw).trim().toUpperCase();
+    return t.length ? t : null;
+  }
+
   let statesData = statesRes.data as
     | Array<{ code: string; name: string; pvi: number | null; electoral_votes?: number | null }>
     | null;
   if (statesRes.error && looksLikeMissingEvColumn(statesRes.error.message)) {
-    const retry = await supabase
+    const retry = await db
       .from("states")
       .select("code, name, pvi")
       .order("code");
@@ -136,7 +205,7 @@ export async function loadPresidentialBundle(
     voter_state: string | null;
   }>).map((v) => ({
     candidate_id: v.candidate_id,
-    voter_state: v.voter_state ? v.voter_state.toUpperCase() : null,
+    voter_state: normalizeStateCode(v.voter_state),
   }));
 
   const speeches = ((speechesRes.data ?? []) as Array<{
@@ -145,7 +214,7 @@ export async function loadPresidentialBundle(
     points: number | null;
   }>).map((s) => ({
     candidate_id: s.candidate_id,
-    target_state: s.target_state ? s.target_state.toUpperCase() : null,
+    target_state: normalizeStateCode(s.target_state),
     points: Number(s.points ?? 0),
   }));
   const rallies = ((ralliesRes.data ?? []) as Array<{
@@ -154,7 +223,7 @@ export async function loadPresidentialBundle(
     points: number | null;
   }>).map((r) => ({
     candidate_id: r.candidate_id,
-    target_state: r.target_state ? r.target_state.toUpperCase() : null,
+    target_state: normalizeStateCode(r.target_state),
     points: Number(r.points ?? 0),
   }));
   const endorsementsRaw = (endorsementsRes.data ?? []) as Array<{
@@ -167,7 +236,7 @@ export async function loadPresidentialBundle(
   const endorserIds = [...new Set(endorsementsRaw.map((e) => e.endorser_user_id))];
   const endorserStateById = new Map<string, string | null>();
   if (endorserIds.length > 0) {
-    const { data: endorserProfiles } = await supabase
+    const { data: endorserProfiles } = await db
       .from("profiles")
       .select("id, residence_state, home_district_code")
       .in("id", endorserIds);
@@ -199,9 +268,21 @@ export async function loadPresidentialBundle(
     points: number | null;
   }>).map((a) => ({
     candidate_id: a.candidate_id,
-    target_state: a.target_state ? a.target_state.toUpperCase() : null,
+    target_state: normalizeStateCode(a.target_state),
     points: Number(a.points ?? 0),
   }));
+
+  const scoredCandidateIds = new Set(candidates.map((c) => c.id));
+  const orphanAdPts = ads
+    .filter((a) => !scoredCandidateIds.has(a.candidate_id))
+    .reduce((s, a) => s + a.points, 0);
+  if (orphanAdPts > 0) {
+    const orphanIds = [...new Set(ads.filter((a) => !scoredCandidateIds.has(a.candidate_id)).map((a) => a.candidate_id))];
+    console.warn(
+      `[loadPresidentialBundle] ${orphanAdPts} campaign ad point(s) use candidate_id not on the general ballot (nominee filter). ` +
+        `They are ignored by the electoral map. Orphan candidate_id(s): ${orphanIds.slice(0, 6).join(", ")}`,
+    );
+  }
 
   const events: PresCampaignEvent[] = [...speeches, ...rallies, ...ads, ...endorsements];
 

@@ -144,7 +144,7 @@ export default async function ProfilePage({
 
   const roleKeysForTitle = await fetchEffectiveRoleKeys(supabase, id, profile);
   const primaryGovernmentTitle = titleCaseEachWord(formatPrimaryGovernmentTitle(roleKeysForTitle));
-  const formerPositionsDisplay = displayFormerPositionsRp(profile.former_positions, profile.party, profile.residence_state);
+  const formerPositionsDisplay = displayFormerPositionsRp(profile.former_positions);
 
   return (
     <div className="space-y-6">
@@ -269,7 +269,9 @@ export default async function ProfilePage({
             <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
               Former positions (RP)
             </p>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--psc-muted)]">{formerPositionsDisplay}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--psc-muted)]">
+              {formerPositionsDisplay || "—"}
+            </p>
           </div>
         </div>
       </article>
