@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getServerAuth } from "@/lib/supabase/server";
-import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { fetchCongressOverviewSnapshot } from "@/lib/congress-composition";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { getServerAuth } from "@/lib/supabase/server";
 import { ChamberHemicycle } from "./chamber-hemicycle";
 import { CongressLeadersPanel } from "./congress-leaders-panel";
+
+/** Small button-styled links (server component — use `Link`, not client `NavRouteButton`). */
+const congressActionBtn =
+  "inline-flex shrink-0 items-center justify-center rounded-md border border-[var(--psc-border)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--psc-ink)] shadow-sm no-underline transition hover:bg-[var(--psc-canvas)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)] active:translate-y-px";
+
+const congressActionBtnPrimary =
+  "inline-flex shrink-0 items-center justify-center rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_14%,white)] px-3 py-1.5 text-xs font-bold text-[var(--psc-ink)] shadow-sm no-underline transition hover:bg-[color-mix(in_srgb,var(--psc-accent)_22%,white)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)] active:translate-y-px";
 
 export default async function CongressOverviewPage() {
   const { supabase, user } = await getServerAuth();
@@ -78,10 +85,7 @@ export default async function CongressOverviewPage() {
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Leadership review</h2>
-            <Link
-              href="/congress/leadership"
-              className="text-xs font-semibold text-[var(--psc-accent)] underline"
-            >
+            <Link href="/congress/leadership" className={congressActionBtnPrimary}>
               Open leadership desk →
             </Link>
           </div>
@@ -107,7 +111,7 @@ export default async function CongressOverviewPage() {
                 </div>
                 <Link
                   href={b.originating_chamber === "house" ? "/congress/house" : "/congress/senate"}
-                  className="shrink-0 text-xs font-semibold text-[var(--psc-accent)] underline"
+                  className={congressActionBtn}
                 >
                   Chamber tab →
                 </Link>
@@ -121,7 +125,7 @@ export default async function CongressOverviewPage() {
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold text-[var(--psc-ink)]">On leadership docket</h2>
-            <Link href="/congress/leadership" className="text-xs font-semibold text-[var(--psc-accent)] underline">
+            <Link href="/congress/leadership" className={congressActionBtnPrimary}>
               Open voting →
             </Link>
           </div>
@@ -142,7 +146,7 @@ export default async function CongressOverviewPage() {
                     {b.originating_chamber === "house" ? "House" : "Senate"}
                   </p>
                 </div>
-                <Link href={`/bill/${b.id}`} className="shrink-0 text-xs font-semibold text-[var(--psc-accent)] underline">
+                <Link href={`/bill/${b.id}`} className={congressActionBtn}>
                   Bill page →
                 </Link>
               </li>
@@ -164,10 +168,7 @@ export default async function CongressOverviewPage() {
                   House · closes {new Date(s.closes_at).toLocaleString()}
                 </span>
                 {isRep ? (
-                  <Link
-                    href={`/congress/leadership/session/${s.id}`}
-                    className="font-semibold text-[var(--psc-accent)] underline"
-                  >
+                  <Link href={`/congress/leadership/session/${s.id}`} className={congressActionBtnPrimary}>
                     House ballot →
                   </Link>
                 ) : (
@@ -181,10 +182,7 @@ export default async function CongressOverviewPage() {
                   Senate · closes {new Date(s.closes_at).toLocaleString()}
                 </span>
                 {isSen ? (
-                  <Link
-                    href={`/congress/leadership/session/${s.id}`}
-                    className="font-semibold text-[var(--psc-accent)] underline"
-                  >
+                  <Link href={`/congress/leadership/session/${s.id}`} className={congressActionBtnPrimary}>
                     Senate ballot →
                   </Link>
                 ) : (

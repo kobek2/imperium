@@ -1,3 +1,5 @@
+import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
+
 export type PersonnelProfile = {
   character_name: string | null;
   date_of_birth: string | null;
@@ -103,7 +105,7 @@ export function PersonnelRecord({
             Former positions (RP)
           </dt>
           <dd className="mt-1 whitespace-pre-wrap text-[var(--psc-ink)]">
-            {profile.former_positions?.trim() ? profile.former_positions : "—"}
+            {displayFormerPositionsRp(profile.former_positions, profile.party, profile.residence_state)}
           </dd>
         </div>
       </dl>

@@ -16,6 +16,9 @@ import {
   CAMPAIGN_AD_UNIT_PRICE,
   ECONOMY_MAX_OFFLINE_HOURS,
   PAC_LEVEL_1_COST,
+  PAC_LEVEL_2_UPGRADE_COST,
+  PAC_LEVEL_3_UPGRADE_COST,
+  PAC_HOURLY_BY_LEVEL,
 } from "@/lib/economy-config";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { EconomyBlackjack } from "./economy-blackjack";
@@ -59,8 +62,10 @@ function formatCollectWait(ms: number): string {
 }
 
 function useIncomeCollectGate(lastCollectedAtIso: string | undefined) {
-  const [now, setNow] = useState(() => Date.now());
+  /** `null` until after mount so SSR and the first client paint match (no Date.now() split). */
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -69,6 +74,12 @@ function useIncomeCollectGate(lastCollectedAtIso: string | undefined) {
     if (!lastCollectedAtIso) return { ready: true, line: null as string | null };
     const eligibleAt = new Date(lastCollectedAtIso).getTime() + INCOME_COOLDOWN_MS;
     if (Number.isNaN(eligibleAt)) return { ready: true, line: null };
+    if (now === null) {
+      return {
+        ready: false,
+        line: "Preparing collection timer…",
+      };
+    }
     const remaining = eligibleAt - now;
     if (remaining <= 0) return { ready: true, line: "Income is ready to collect." };
     return {
@@ -124,6 +135,11 @@ export function EconomyDashboard({
   const adQty = Number.isFinite(adQtyParsed) ? Math.max(0, Math.floor(adQtyParsed)) : 0;
   const adLineTotal = adQty * CAMPAIGN_AD_UNIT_PRICE;
   const collectGate = useIncomeCollectGate(wallet?.last_collected_at);
+  const currentPacHourly = pac ? PAC_HOURLY_BY_LEVEL[pac.level as 1 | 2 | 3] ?? 0 : 0;
+  const nextPacLevel = pac && pac.level < 3 ? ((pac.level + 1) as 2 | 3) : null;
+  const nextPacHourly = nextPacLevel ? PAC_HOURLY_BY_LEVEL[nextPacLevel] : null;
+  const nextPacUpgradeCost =
+    pac?.level === 1 ? PAC_LEVEL_2_UPGRADE_COST : pac?.level === 2 ? PAC_LEVEL_3_UPGRADE_COST : null;
 
   function run(section: FlashSection, label: string, fn: () => Promise<{ ok: boolean; message: string }>) {
     start(async () => {
@@ -450,9 +466,32 @@ export function EconomyDashboard({
         {sectionFlash(flash, "pac")}
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">PAC</h2>
         {pac ? (
-          <p className="text-sm font-semibold text-[var(--psc-ink)]">
-            Your PAC is level <span className="font-mono">{pac.level}</span>.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-[var(--psc-ink)]">
+              Your PAC is level <span className="font-mono">{pac.level}</span>.
+            </p>
+            <p className="text-xs text-[var(--psc-muted)]">
+              Current PAC hourly income:{" "}
+              <span className="font-mono font-semibold text-[var(--psc-ink)]">
+                ${currentPacHourly.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+            </p>
+            {nextPacLevel && nextPacHourly && nextPacUpgradeCost ? (
+              <p className="text-xs text-[var(--psc-muted)]">
+                Next level (<span className="font-mono">{nextPacLevel}</span>) costs{" "}
+                <span className="font-mono font-semibold text-[var(--psc-ink)]">
+                  ${nextPacUpgradeCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </span>{" "}
+                and raises hourly income to{" "}
+                <span className="font-mono font-semibold text-[var(--psc-ink)]">
+                  ${nextPacHourly.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </span>
+                .
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)]">You are at max PAC level.</p>
+            )}
+          </div>
         ) : (
           <button
             type="button"

@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { treasuryApplyTaxPenalties, treasuryIssueTaxWarnings } from "@/app/actions/fiscal";
+import { canAccessCabinetHub } from "@/lib/cabinet-hub";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 import { TreasuryTools } from "./treasury-tools";
@@ -14,13 +16,7 @@ export default async function TreasuryCabinetPage() {
     .eq("id", user.id)
     .maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const canAccess =
-    roleKeys.includes("secretary_of_treasury") ||
-    roleKeys.includes("president") ||
-    roleKeys.includes("admin") ||
-    roleKeys.includes("staff_super");
-
-  if (!canAccess) redirect("/");
+  if (!canAccessCabinetHub(roleKeys)) redirect("/");
 
   const [{ data: dashboard }, { data: activeFy }, { data: accounts }] = await Promise.all([
     supabase.rpc("fiscal_treasury_dashboard"),
@@ -63,9 +59,14 @@ export default async function TreasuryCabinetPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
-        <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Treasury operations</h1>
+      <header className="space-y-2">
+        <Link href="/cabinet" className="text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline">
+          ← Cabinet departments
+        </Link>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
+          <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Treasury operations</h1>
+        </div>
       </header>
       <TreasuryTools
         summary={(dashboard as Record<string, unknown> | null) ?? {}}

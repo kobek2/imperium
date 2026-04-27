@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
@@ -292,17 +291,6 @@ export default async function DirectoryPage() {
     <div className="space-y-10">
       <DirectoryHashScroll />
       <DirectoryMetricsEntry showFederalBudget={pres || isAdmin} />
-      <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
-        <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Public standing</h2>
-        <p className="mt-1 text-xs text-[var(--psc-muted)]">
-          View approval rankings and recent momentum outside the main navigation tabs.
-        </p>
-        <p className="mt-2 text-sm">
-          <Link href="/leaderboard" className="font-semibold text-[var(--psc-accent)] underline">
-            Open approval leaderboard →
-          </Link>
-        </p>
-      </section>
       <HierarchyTabs tabs={tabs} />
     </div>
   );

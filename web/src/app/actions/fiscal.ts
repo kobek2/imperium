@@ -162,6 +162,7 @@ export async function treasuryIssueTaxWarnings(scope: "due_soon" | "delinquent" 
   const { data, error } = await supabase.rpc("fiscal_issue_tax_warning", { p_scope: scope });
   if (error) return { ok: false, message: error.message };
   revalidateFiscal();
+  revalidatePath("/cabinet");
   revalidatePath("/cabinet/treasury");
   const warned = Number((data as { warned?: number } | null)?.warned ?? 0);
   return { ok: true, message: `Issued ${warned.toLocaleString()} tax warning(s).` };
@@ -172,6 +173,7 @@ export async function treasuryApplyTaxPenalties(): Promise<{ ok: boolean; messag
   const { data, error } = await supabase.rpc("fiscal_apply_tax_penalties");
   if (error) return { ok: false, message: error.message };
   revalidateFiscal();
+  revalidatePath("/cabinet");
   revalidatePath("/cabinet/treasury");
   const updated = Number((data as { updated?: number } | null)?.updated ?? 0);
   return { ok: true, message: `Penalty processing updated ${updated.toLocaleString()} account(s).` };

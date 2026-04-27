@@ -23,6 +23,8 @@ function kindEyebrow(kind: BriefingMoment["kind"]) {
       return "Legislation";
     case "party_leadership":
       return "Party";
+    case "executive_order":
+      return "Executive order";
     default:
       return "Update";
   }
@@ -61,6 +63,16 @@ export function BriefingInbox({
         </div>
         <div className="px-5 py-10 text-center">
           <p className="text-sm text-[var(--psc-muted)]">Nothing in your inbox yet.</p>
+          {viewAllHref ? (
+            <p className="mt-4">
+              <Link
+                href={viewAllHref}
+                className="text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+              >
+                {viewAllLabel}
+              </Link>
+            </p>
+          ) : null}
         </div>
       </section>
     );

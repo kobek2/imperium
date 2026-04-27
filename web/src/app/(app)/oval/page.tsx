@@ -7,6 +7,7 @@ import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canActAsPresident } from "@/lib/role-capabilities";
 import { BillCard, type BillVote, type VoterProfile } from "../congress/bill-card";
+import { ExecutiveOrdersPanel } from "./executive-orders-panel";
 
 export default async function OvalPage() {
   const { supabase, user } = await getServerAuth();
@@ -24,7 +25,7 @@ export default async function OvalPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("office_role")
+    .select("office_role, presidential_signature")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -69,6 +70,22 @@ export default async function OvalPage() {
     votesByBill.set(v.bill_id, list);
   }
 
+  let recentExecutiveOrders: Array<{ id: string; title: string; created_at: string }> = [];
+  if (president) {
+    const { data: eoRows, error: eoErr } = await supabase
+      .from("executive_orders")
+      .select("id, title, created_at")
+      .eq("issued_by", user.id)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    if (!eoErr && eoRows) {
+      recentExecutiveOrders = eoRows as Array<{ id: string; title: string; created_at: string }>;
+    }
+  }
+
+  const presidentialSignature =
+    (profile as { presidential_signature?: string | null } | null)?.presidential_signature ?? null;
+
   return (
     <div className="space-y-10">
       <header>
@@ -88,6 +105,10 @@ export default async function OvalPage() {
           <code className="font-mono">profiles.office_role</code>.
         </p>
       )}
+
+      {president ? (
+        <ExecutiveOrdersPanel signature={presidentialSignature} recent={recentExecutiveOrders} />
+      ) : null}
 
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">Awaiting signature</h2>

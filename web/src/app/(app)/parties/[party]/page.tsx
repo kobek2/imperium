@@ -164,14 +164,24 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
   const partyTitle =
     partyKey === "democrat" ? "Democratic Party" : partyKey === "republican" ? "Republican Party" : "Independent";
 
+  const leadershipButtonClass =
+    partyKey === "democrat"
+      ? "border-blue-800 bg-blue-600 text-white shadow-md hover:bg-blue-700"
+      : partyKey === "republican"
+        ? "border-red-800 bg-red-600 text-white shadow-md hover:bg-red-700"
+        : "border-[var(--psc-seal)] bg-[var(--psc-seal)] text-white shadow-md hover:opacity-95";
+
   return (
     <div className="space-y-6">
-      <nav className="flex flex-wrap gap-4 text-sm">
-        <Link href="/parties" className="font-semibold text-[var(--psc-accent)] underline">
+      <nav className="flex flex-wrap items-center gap-3 text-sm">
+        <Link href="/parties" className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline">
           ← All parties
         </Link>
         {showLeadershipDashboardLink ? (
-          <Link href={`/parties/${partyKey}/leadership`} className="font-semibold text-[var(--psc-accent)] underline">
+          <Link
+            href={`/parties/${partyKey}/leadership`}
+            className={`ml-auto inline-flex items-center justify-center rounded-md border-2 px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)] active:translate-y-px ${leadershipButtonClass}`}
+          >
             Leadership dashboard
           </Link>
         ) : null}

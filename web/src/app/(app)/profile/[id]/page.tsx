@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { RecentAuthoredBillsPanel } from "@/components/recent-authored-bills-panel";
 import { profileImageSrc } from "@/components/profile-card";
+import { formatPrimaryGovernmentTitle, titleCaseEachWord } from "@/lib/government-role-display";
 import { fetchRecentAuthoredBillsWithSubjectVotes } from "@/lib/profile-recent-bills";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
 import { getServerAuth } from "@/lib/supabase/server";
 
 function partyMeta(party: string | null | undefined) {
@@ -139,6 +142,10 @@ export default async function ProfilePage({
 
   const isSelf = user.id === id;
 
+  const roleKeysForTitle = await fetchEffectiveRoleKeys(supabase, id, profile);
+  const primaryGovernmentTitle = titleCaseEachWord(formatPrimaryGovernmentTitle(roleKeysForTitle));
+  const formerPositionsDisplay = displayFormerPositionsRp(profile.former_positions, profile.party, profile.residence_state);
+
   return (
     <div className="space-y-6">
       <Link href="/directory" className="text-sm font-semibold text-[var(--psc-accent)]">
@@ -174,6 +181,10 @@ export default async function ProfilePage({
                 Edit character →
               </Link>
             ) : null}
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">Current position</p>
+            <p className="text-xl font-semibold tracking-tight text-[var(--psc-ink)] md:text-2xl">{primaryGovernmentTitle}</p>
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-[var(--psc-ink)] md:text-5xl">{name}</h1>
           {profile.discord_username ? (
@@ -254,16 +265,12 @@ export default async function ProfilePage({
             </div>
           ) : null}
 
-          {profile.former_positions?.trim() ? (
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
-                Former positions
-              </p>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--psc-muted)]">
-                {profile.former_positions}
-              </p>
-            </div>
-          ) : null}
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
+              Former positions (RP)
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--psc-muted)]">{formerPositionsDisplay}</p>
+          </div>
         </div>
       </article>
 

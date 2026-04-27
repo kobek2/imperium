@@ -5,7 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * bill status changes, or party officer seats change (see migration `20260450000000_inbox_items_true_inbox.sql`).
  * That is a "true" inbox: durable, deduped, and ready for read/unread later.
  */
-export type BriefingMomentKind = "election_win" | "bill_milestone" | "party_leadership" | "whip_instruction";
+export type BriefingMomentKind =
+  | "election_win"
+  | "bill_milestone"
+  | "party_leadership"
+  | "whip_instruction"
+  | "executive_order";
 
 export type BriefingMoment = {
   id: string;
@@ -23,6 +28,7 @@ function accentForKind(kind: string): BriefingMoment["accent"] {
   if (kind === "election_win") return "win";
   if (kind === "bill_milestone") return "legislation";
   if (kind === "whip_instruction") return "legislation";
+  if (kind === "executive_order") return "legislation";
   if (kind === "party_leadership") return "party";
   return "win";
 }

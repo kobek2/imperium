@@ -22,6 +22,16 @@ const ROLE_ORDER: { key: string; label: string }[] = [
   { key: "citizen", label: "Citizen" },
 ];
 
+/** Title-case each whitespace-delimited word (for profile headlines). */
+export function titleCaseEachWord(input: string): string {
+  const t = input.trim();
+  if (!t) return t;
+  return t
+    .split(/\s+/)
+    .map((w) => (w.length ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+
 export function formatPrimaryGovernmentTitle(roleKeys: string[]): string {
   const set = new Set(roleKeys);
   if (set.has("admin") && roleKeys.length === 1) {

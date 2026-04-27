@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Suspense } from "react";
-import { AppChromeRpCorner } from "@/components/app-chrome-rp-corner";
+import { ProfileQuickDock } from "@/components/profile-quick-dock";
+import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -10,7 +10,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
 
   let partyNavHref = "/parties";
   let showStaffLink = false;
-  let canPersistSimHeal = false;
   let showCabinetLink = false;
 
   if (supabase && user) {
@@ -31,7 +30,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       profileRow ? { office_role: profileRow.office_role ?? null } : null,
     );
     showStaffLink = staffAccess?.canAccessPanel ?? false;
-    canPersistSimHeal = staffAccess?.hasFullStaff ?? false;
     const { data: grantRows } = await supabase.from("government_role_grants").select("role_key").eq("user_id", user.id);
     const roleSet = new Set<string>([
       ...(grantRows ?? []).map((r) => String((r as { role_key?: string }).role_key ?? "")),
@@ -43,7 +41,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
 
   const links = [
     { href: "/", label: "Home" },
-    ...(user ? [{ href: "/inbox", label: "Inbox" } as const] : []),
     { href: "/character", label: "Character" },
     { href: "/economy", label: "Economy" },
     { href: partyNavHref, label: "Party" },
@@ -91,7 +88,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
             ) : null}
             {showCabinetLink ? (
               <Link
-                href="/cabinet/treasury"
+                href="/cabinet"
                 className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
               >
                 Cabinet
@@ -117,9 +114,10 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       </header>
       <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
       {user ? (
-        <Suspense fallback={null}>
-          <AppChromeRpCorner canPersistSimHeal={canPersistSimHeal} />
-        </Suspense>
+        <>
+          <WorldChatDock />
+          <ProfileQuickDock />
+        </>
       ) : null}
     </div>
   );
