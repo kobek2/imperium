@@ -67,6 +67,14 @@ type SpeechFeedItem = {
   createdAt: string;
 };
 
+type AdSpendFeedItem = {
+  actorId: string;
+  candidateId: string;
+  targetState: string | null;
+  points: number;
+  createdAt: string;
+};
+
 type PartyKey = "democrat" | "republican" | "independent";
 const PARTY_ORDER: PartyKey[] = ["democrat", "republican", "independent"];
 
@@ -110,6 +118,65 @@ function partyMeta(p: string) {
 function displayName(card: CandidateCardFields | undefined, userId: string, nameBy: Record<string, string>) {
   const n = card?.character_name?.trim() || nameBy[userId]?.trim();
   return n || userId.slice(0, 8);
+}
+
+function AdSpendFeedSection({
+  adSpendFeed,
+  candidateById,
+  candidateCardByUserId,
+  nameBy,
+  listKeyPrefix,
+}: {
+  adSpendFeed: AdSpendFeedItem[];
+  candidateById: Map<string, CandRow>;
+  candidateCardByUserId: Record<string, CandidateCardFields>;
+  nameBy: Record<string, string>;
+  listKeyPrefix: string;
+}) {
+  if (!adSpendFeed.length) return null;
+  return (
+    <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+          Campaign ads spent
+        </h3>
+        <span className="text-xs text-[var(--psc-muted)]">
+          Latest {adSpendFeed.length} spend{adSpendFeed.length === 1 ? "" : "s"} (bulk combined)
+        </span>
+      </div>
+      <ul className="max-h-[20rem] space-y-2 overflow-y-auto pr-1 text-sm">
+        {adSpendFeed.map((ad, idx) => {
+          const cand = candidateById.get(ad.candidateId);
+          const candName = cand
+            ? displayName(candidateCardByUserId[cand.user_id], cand.user_id, nameBy)
+            : ad.candidateId.slice(0, 8);
+          const actorName =
+            candidateCardByUserId[ad.actorId]?.character_name?.trim() ||
+            nameBy[ad.actorId]?.trim() ||
+            ad.actorId.slice(0, 8);
+          const loc = ad.targetState ? ` · ${ad.targetState}` : "";
+          const ptLabel = ad.points === 1 ? "1 pt" : `${ad.points} pts`;
+          return (
+            <li
+              key={`${listKeyPrefix}-${ad.createdAt}:${ad.actorId}:${ad.candidateId}:${idx}`}
+              className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 px-3 py-2 text-[var(--psc-ink)]"
+            >
+              <p className="text-[11px] leading-relaxed text-[var(--psc-muted)]">
+                <span className="font-semibold text-[var(--psc-ink)]">{actorName}</span>
+                {" · "}
+                <span className="font-mono">{ptLabel}</span>
+                {" for "}
+                <span className="font-semibold text-[var(--psc-ink)]">{candName}</span>
+                {loc}
+                {" · "}
+                {new Date(ad.createdAt).toLocaleString()}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 type VoteMode = "none" | "primary" | "general";
@@ -721,6 +788,7 @@ export function ElectionDetail({
   leadershipMeta,
   adsInventory,
   speechFeed,
+  adSpendFeed,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -746,6 +814,7 @@ export function ElectionDetail({
   leadershipMeta: LeadershipMeta | null;
   adsInventory: number;
   speechFeed: SpeechFeedItem[];
+  adSpendFeed: AdSpendFeedItem[];
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -1222,6 +1291,13 @@ export function ElectionDetail({
               </ul>
             </section>
           ) : null}
+          <AdSpendFeedSection
+            adSpendFeed={adSpendFeed}
+            candidateById={candidateById}
+            candidateCardByUserId={candidateCardByUserId}
+            nameBy={nameBy}
+            listKeyPrefix="ad"
+          />
         </section>
       ) : null}
 
@@ -1260,6 +1336,13 @@ export function ElectionDetail({
             emphasizeParty
             myEndorsedCandidateId={null}
             myEndorsementPoints={0}
+          />
+          <AdSpendFeedSection
+            adSpendFeed={adSpendFeed}
+            candidateById={candidateById}
+            candidateCardByUserId={candidateCardByUserId}
+            nameBy={nameBy}
+            listKeyPrefix="closed-ad"
           />
         </section>
       ) : null}

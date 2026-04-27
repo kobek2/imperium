@@ -17,6 +17,8 @@ type AdActionState = {
   ok: boolean;
   spent: number;
   targetState: string | null;
+  /** Authoritative count from `economy_use_campaign_ad` after spend (matches header after refresh). */
+  adsRemaining: number | null;
 };
 
 async function campaignAdAction(
@@ -24,14 +26,17 @@ async function campaignAdAction(
   formData: FormData,
 ): Promise<AdActionState> {
   try {
-    const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
-    const qty = Math.max(1, Math.min(5000, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
-    const targetState = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
-    await submitCampaignAd(formData);
-    return { error: null, ok: true, spent: qty, targetState };
+    const res = await submitCampaignAd(formData);
+    return {
+      error: null,
+      ok: true,
+      spent: res.qty,
+      targetState: res.target_state,
+      adsRemaining: res.ads_remaining,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, spent: 0, targetState: null };
+    return { error: msg, ok: false, spent: 0, targetState: null, adsRemaining: null };
   }
 }
 
@@ -55,6 +60,7 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
     ok: false,
     spent: 0,
     targetState: null,
+    adsRemaining: null,
   });
 
   useEffect(() => {
@@ -117,6 +123,12 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
           {result.spent === 1
             ? `Campaign ad applied. +1 point${result.targetState ? ` in ${result.targetState}` : ""}.`
             : `${result.spent} campaign ads applied. +${result.spent} points${result.targetState ? ` in ${result.targetState}` : ""}.`}
+          {result.adsRemaining != null ? (
+            <>
+              {" "}
+              <span className="font-semibold">Ads remaining (inventory): {result.adsRemaining}.</span>
+            </>
+          ) : null}
           {office === "president" && result.targetState
             ? " Map totals update for that state only — open the matching tile to confirm."
             : null}

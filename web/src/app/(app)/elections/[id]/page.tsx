@@ -87,6 +87,7 @@ export default async function ElectionDetailPage({
     activeSlots,
     { data: speechRows },
     { data: rallyRows },
+    { data: campaignAdRows },
     states,
     isAdmin,
     partisanLean,
@@ -126,6 +127,12 @@ export default async function ElectionDetailPage({
       .order("created_at", { ascending: false })
       .limit(100),
     supabase.from("campaign_rallies").select("candidate_id").eq("election_id", id),
+    supabase
+      .from("campaign_ads")
+      .select("actor_id, candidate_id, target_state, points, created_at")
+      .eq("election_id", id)
+      .order("created_at", { ascending: false })
+      .limit(5000),
     getStatesCached(supabase),
     getStaffMayAccessElectionsConsole(),
     (async () => {
@@ -229,6 +236,9 @@ export default async function ElectionDetailPage({
     for (const s of (speechRows ?? []) as Array<{ author_id: string }>) {
       profileIds.add(s.author_id);
     }
+    for (const a of (campaignAdRows ?? []) as Array<{ actor_id: string }>) {
+      profileIds.add(a.actor_id);
+    }
     const { data: p } = await supabase
       .from("profiles")
       .select("id, character_name, face_claim_url, residence_state, home_district_code, bio")
@@ -279,6 +289,38 @@ export default async function ElectionDetailPage({
     targetState: s.target_state ? String(s.target_state).toUpperCase() : null,
     createdAt: s.created_at,
   }));
+  /** Bulk `economy_use_campaign_ad` inserts share one `created_at` — merge into one line per spend. */
+  const adSpendFeed = (() => {
+    const raw = (campaignAdRows ?? []) as Array<{
+      actor_id: string;
+      candidate_id: string;
+      target_state: string | null;
+      points: number | null;
+      created_at: string;
+    }>;
+    const bucket = new Map<
+      string,
+      { actorId: string; candidateId: string; targetState: string | null; points: number; createdAt: string }
+    >();
+    for (const a of raw) {
+      const targetState = a.target_state ? String(a.target_state).trim().toUpperCase() : null;
+      const key = `${a.actor_id}\t${a.candidate_id}\t${targetState ?? ""}\t${a.created_at}`;
+      const pts = Number(a.points ?? 1);
+      const cur = bucket.get(key);
+      if (cur) cur.points += pts;
+      else
+        bucket.set(key, {
+          actorId: a.actor_id,
+          candidateId: a.candidate_id,
+          targetState,
+          points: pts,
+          createdAt: a.created_at,
+        });
+    }
+    return [...bucket.values()]
+      .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())
+      .slice(0, 100);
+  })();
   const rallyCountBy: Record<string, number> = {};
   for (const row of rallyRows ?? []) {
     const cid = row.candidate_id as string;
@@ -405,6 +447,7 @@ export default async function ElectionDetailPage({
         leadershipMeta={leadershipMeta}
         adsInventory={adsInventory}
         speechFeed={speechRowsForFeed}
+        adSpendFeed={adSpendFeed}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

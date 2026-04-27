@@ -1000,7 +1000,13 @@ async function resolvePresidentialCampaignCandidate(
   return { id: endorsement.candidate_id, via: "endorsement" };
 }
 
-export async function submitCampaignAd(formData: FormData): Promise<void> {
+export type SubmitCampaignAdResult = {
+  qty: number;
+  ads_remaining: number;
+  target_state: string | null;
+};
+
+export async function submitCampaignAd(formData: FormData): Promise<SubmitCampaignAdResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1062,7 +1068,7 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
     }
   }
 
-  const { error } = await supabase.rpc("economy_use_campaign_ad", {
+  const { data: rpcData, error } = await supabase.rpc("economy_use_campaign_ad", {
     p_election: election_id,
     p_candidate: candidate.id,
     p_target_state: election.office === "president" ? target_state : null,
@@ -1078,10 +1084,26 @@ export async function submitCampaignAd(formData: FormData): Promise<void> {
     throwIfPostgrestError(error);
   }
 
+  const row = (rpcData ?? {}) as Record<string, unknown>;
+  const qtyOut = Math.max(0, Math.floor(Number(row.qty ?? qty)));
+  const ads_remaining = Math.max(0, Math.floor(Number(row.ads_remaining ?? 0)));
+  const target_state_out =
+    row.target_state != null && String(row.target_state).trim() !== ""
+      ? String(row.target_state).trim().toUpperCase()
+      : election.office === "president"
+        ? target_state
+        : null;
+
   revalidatePath("/economy");
   revalidatePath("/elections");
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
+
+  return {
+    qty: qtyOut,
+    ads_remaining,
+    target_state: target_state_out,
+  };
 }
 
 export async function submitCampaignSpeech(formData: FormData): Promise<void> {
