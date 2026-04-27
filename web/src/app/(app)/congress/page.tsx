@@ -104,9 +104,7 @@ export default async function CongressOverviewPage() {
                   </Link>
                   <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
                     {b.originating_chamber === "house" ? "House" : "Senate"}
-                    {b.leadership_deadline_at
-                      ? ` · review deadline ${new Date(b.leadership_deadline_at).toLocaleString()}`
-                      : null}
+                    
                   </p>
                 </div>
                 <Link

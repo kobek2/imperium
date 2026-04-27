@@ -277,7 +277,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
 
   const title = `Federal appropriations and revenue — ${input.yearLabel.trim() || "Fiscal year"}`;
   const now = new Date();
-  const leadership_deadline_at = addHours(now, 12).toISOString();
+  const leadership_deadline_at: string | null = null;
   const expires_at = addHours(now, 24 * 30).toISOString();
 
   const appExtras = {

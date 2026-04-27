@@ -195,8 +195,7 @@ export default async function LeadershipPage() {
                   className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm"
                 >
                   <p className="text-xs font-semibold uppercase text-[var(--psc-muted)]">
-                    {bill.originating_chamber === "house" ? "House" : "Senate"} · Submitted · deadline{" "}
-                    {fmt(bill.leadership_deadline_at)}
+                    {bill.originating_chamber === "house" ? "House" : "Senate"} · Submitted
                   </p>
                   <h3 className="mt-1 text-lg font-semibold">
                     <Link href={`/bill/${bill.id}`} className="text-[var(--psc-ink)] hover:underline">

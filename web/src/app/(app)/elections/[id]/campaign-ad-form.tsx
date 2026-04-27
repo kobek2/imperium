@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
 import { submitCampaignAd } from "@/app/actions/elections";
 
 type Props = {
@@ -11,18 +12,26 @@ type Props = {
   states: Array<{ code: string; name: string }>;
 };
 
+type AdActionState = {
+  error: string | null;
+  ok: boolean;
+  spent: number;
+  targetState: string | null;
+};
+
 async function campaignAdAction(
-  _prev: { error: string | null; ok: boolean; spent: number },
+  _prev: AdActionState,
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean; spent: number }> {
+): Promise<AdActionState> {
   try {
     const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
     const qty = Math.max(1, Math.min(5000, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
+    const targetState = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
     await submitCampaignAd(formData);
-    return { error: null, ok: true, spent: qty };
+    return { error: null, ok: true, spent: qty, targetState };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, spent: 0 };
+    return { error: msg, ok: false, spent: 0, targetState: null };
   }
 }
 
@@ -40,11 +49,19 @@ function CampaignAdButton({ disabled }: { disabled: boolean }) {
 }
 
 export function CampaignAdForm({ electionId, office, adsInventory, states }: Props) {
+  const router = useRouter();
   const [result, formAction] = useActionState(campaignAdAction, {
     error: null,
     ok: false,
     spent: 0,
+    targetState: null,
   });
+
+  useEffect(() => {
+    if (!result.ok || result.spent < 1) return;
+    router.refresh();
+  }, [result.ok, result.spent, router]);
+
   return (
     <form action={formAction} className="grid gap-2 border-t border-[var(--psc-border)] pt-4">
       <input type="hidden" name="election_id" value={electionId} />
@@ -98,8 +115,11 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
       {result.ok ? (
         <p className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
           {result.spent === 1
-            ? "Campaign ad applied. +1 point added."
-            : `${result.spent} campaign ads applied. +${result.spent} points added.`}
+            ? `Campaign ad applied. +1 point${result.targetState ? ` in ${result.targetState}` : ""}.`
+            : `${result.spent} campaign ads applied. +${result.spent} points${result.targetState ? ` in ${result.targetState}` : ""}.`}
+          {office === "president" && result.targetState
+            ? " Map totals update for that state only — open the matching tile to confirm."
+            : null}
         </p>
       ) : null}
     </form>

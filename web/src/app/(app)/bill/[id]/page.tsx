@@ -178,11 +178,6 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
             </code>
           </p>
         ) : null}
-        {bill.status === "submitted" && bill.leadership_deadline_at ? (
-          <p className="text-sm font-semibold text-amber-900">
-            Leadership review deadline: {fmt(bill.leadership_deadline_at)}
-          </p>
-        ) : null}
         {bill.status === "on_docket" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
             On the leadership docket — floor vote has not been opened yet.

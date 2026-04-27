@@ -338,11 +338,6 @@ export function BillCard({
               );
             })()}
           </p>
-          {bill.status === "submitted" && bill.leadership_deadline_at ? (
-            <p className="mt-1 text-xs font-semibold text-amber-900">
-              Leadership review deadline: {fmt(bill.leadership_deadline_at)}
-            </p>
-          ) : null}
           {bill.status === "on_docket" ? (
             <p className="mt-1 text-xs font-semibold text-[var(--psc-ink)]">
               On the leadership docket — floor vote has not been opened yet.

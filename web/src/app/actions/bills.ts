@@ -202,7 +202,7 @@ export async function submitBill(formData: FormData): Promise<void> {
   }
 
   const now = new Date();
-  const leadership_deadline_at = addHours(now, 12).toISOString();
+  const leadership_deadline_at: string | null = null;
   const expires_at = addHours(now, 24 * 30).toISOString();
   const duplicateCutoff = new Date(now.getTime() - 30_000).toISOString();
 
@@ -945,7 +945,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
     "",
     "### Next step",
     "",
-    "Senate leadership should **Accept** to send this to the Senate floor for a confirmation vote, or **Reject** to decline. If the leadership window expires with no action, the nomination is dropped.",
+    "Senate leadership should **Accept** to send this to the Senate floor for a confirmation vote, or **Reject** to decline.",
     "",
     "---",
     "",
@@ -963,7 +963,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
       author_id: user.id,
       status: "submitted",
       expires_at,
-      leadership_deadline_at: addHours(now, 12).toISOString(),
+      leadership_deadline_at: null,
       chamber_vote_deadline_at: null,
     })
     .select("id")

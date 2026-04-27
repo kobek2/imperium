@@ -197,29 +197,9 @@ export async function resolveSenateAfterTiebreakVote(
   }
 }
 
-/** Advance bills whose leadership or chamber clocks have expired. */
+/** Advance bills whose chamber voting clocks have expired. */
 export async function processBillDeadlines(supabase: SupabaseClient): Promise<void> {
   const nowIso = new Date().toISOString();
-
-  const hopperStaleRes = await supabase
-    .from("bills")
-    .select("id")
-    .eq("status", "submitted")
-    .not("leadership_deadline_at", "is", null)
-    .lt("leadership_deadline_at", nowIso);
-
-  if (hopperStaleRes.error) {
-    if (isMissingBillTimerColumn(hopperStaleRes.error.message)) {
-      return;
-    }
-    console.warn("[processBillDeadlines] hopperStale:", hopperStaleRes.error.message);
-    return;
-  }
-  const hopperStale = hopperStaleRes.data;
-
-  for (const row of hopperStale ?? []) {
-    await supabase.from("bills").update({ status: "dead" }).eq("id", row.id);
-  }
 
   const { data: houseFloor } = await supabase
     .from("bills")
