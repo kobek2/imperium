@@ -9,6 +9,21 @@ import {
 import { CongressDocketSection } from "../congress-docket-section";
 import { filterBillsForHouseDocket, loadCongressDocket } from "../load-congress-docket";
 
+function countByStatus(
+  bills: Array<{ status: string; originating_chamber: "house" | "senate" }>,
+  chamber: "house" | "senate",
+) {
+  const submitted = bills.filter((b) => b.originating_chamber === chamber && b.status === "submitted").length;
+  const onDocket = bills.filter((b) => b.originating_chamber === chamber && b.status === "on_docket").length;
+  const debate = bills.filter(
+    (b) =>
+      (b.originating_chamber === chamber && b.status === "debate") ||
+      (b.originating_chamber !== chamber && b.status === "other_chamber_debate"),
+  ).length;
+  const floor = bills.filter((b) => b.status === `${chamber}_floor`).length;
+  return { submitted, onDocket, debate, floor };
+}
+
 export default async function CongressHousePage() {
   const { supabase, user } = await getServerAuth();
   if (!supabase) {
@@ -39,6 +54,7 @@ export default async function CongressHousePage() {
   const houseLeadershipSessions = (leadershipSessions ?? []).filter((s) => s.chamber === "house");
   const isHouseMember = rk.has("representative") || rk.has("president") || rk.has("admin");
   const observeHouse = !isHouseMember;
+  const houseStatus = countByStatus(billList, "house");
 
   return (
     <div className="space-y-10">
@@ -125,7 +141,7 @@ export default async function CongressHousePage() {
       <CongressDocketSection
         sectionId="house-docket"
         heading="House docket"
-        subheading="Measures filed in the House and any bill currently on the House floor (including Senate-originated measures after they clear the Senate)."
+        subheading="Shows House pipeline items in chamber workflow: submitted, on_docket, and House-floor cards. Bills can also appear in overview sections under leadership review or other-chamber debate depending on stage."
         shellClassName="border-[var(--psc-border)] bg-white"
         headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         bills={houseBills}
@@ -136,8 +152,28 @@ export default async function CongressHousePage() {
         isRunningMate={isRunningMate}
         canBreakSenateTie={canBreakSenateTie}
         suppressVoteForms={observeHouse}
-        emptyLabel="No House-originated bills on the docket."
+        emptyLabel="No bills are currently in the House docket view. Check Congress overview for submitted leadership review items and other-chamber debate cards."
       />
+      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
+        <h3 className="text-sm font-semibold text-[var(--psc-ink)]">House pipeline snapshot</h3>
+        <p className="mt-1 text-xs text-[var(--psc-muted)]">
+          This clarifies where bills are instead of implying they disappeared.
+        </p>
+        <ul className="mt-3 flex flex-wrap gap-2 text-[11px]">
+          <li className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-2.5 py-1">
+            Submitted: <strong className="text-[var(--psc-ink)]">{houseStatus.submitted}</strong>
+          </li>
+          <li className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-2.5 py-1">
+            On docket: <strong className="text-[var(--psc-ink)]">{houseStatus.onDocket}</strong>
+          </li>
+          <li className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-2.5 py-1">
+            Debate handoff: <strong className="text-[var(--psc-ink)]">{houseStatus.debate}</strong>
+          </li>
+          <li className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-2.5 py-1">
+            House floor: <strong className="text-[var(--psc-ink)]">{houseStatus.floor}</strong>
+          </li>
+        </ul>
+      </section>
     </div>
   );
 }
