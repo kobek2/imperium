@@ -10,6 +10,7 @@ import {
   deleteElection,
   endPrimarySelectWinners,
   finalizePresident,
+  reapplyPresidentRoleTransitions,
   setCandidateCampaignPoints,
   setElectionPhase,
   updateElectionPrimaryBallot,
@@ -470,6 +471,30 @@ export default async function AdminElectionDetailPage({
                 className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
               >
                 Certify this candidate
+              </SubmitButton>
+            </form>
+          </div>
+        ) : null}
+
+        {election.phase === "closed" && election.office === "president" ? (
+          <div className="border-t border-[var(--psc-border)] pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Role transitions (President + VP)
+            </p>
+            <p className="mt-1 max-w-xl text-xs text-[var(--psc-muted)]">
+              If this race was closed before the database granted vice president to the declared running
+              mate on the winning ticket, run this once after deploying migration{" "}
+              <code className="rounded bg-[var(--psc-canvas)] px-1">20260473130000_president_vp_role_transitions.sql</code>
+              . It clears <code className="rounded bg-[var(--psc-canvas)] px-1">roles_applied_at</code> and
+              re-applies transitions idempotently.
+            </p>
+            <form action={reapplyPresidentRoleTransitions} className="mt-2">
+              <input type="hidden" name="election_id" value={id} />
+              <SubmitButton
+                pendingLabel="Re-applying…"
+                className="border border-amber-900 bg-amber-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+              >
+                Re-apply president + VP roles
               </SubmitButton>
             </form>
           </div>

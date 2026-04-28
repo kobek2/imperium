@@ -17,18 +17,28 @@ function formatRemaining(ms: number): string {
 export function BillVoteCountdown({ endsAtIso }: { endsAtIso: string }) {
   const router = useRouter();
   const end = new Date(endsAtIso).getTime();
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
+    if (now == null) return;
     if (end - now > 0) return;
     const t = window.setTimeout(() => router.refresh(), 800);
     return () => window.clearTimeout(t);
   }, [end, now, router]);
+
+  if (now == null) {
+    return (
+      <p className="mt-2 font-mono text-sm font-semibold tabular-nums text-green-900">
+        Voting closes in --:--
+      </p>
+    );
+  }
 
   const left = end - now;
   return (

@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import { createAppointment } from "@/app/actions/bills";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
+import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { SubmitButton } from "@/components/submit-button";
 
 async function transmitNominationAction(
@@ -74,20 +75,11 @@ export function OvalAppointmentForm() {
       )}
 
       <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-        <span>Nominee Discord user id</span>
+        <span>Nominee</span>
         <span className="text-[11px] font-normal text-[var(--psc-muted)]">
-          Paste the nominee&apos;s numeric Discord ID (Discord calls this a &quot;snowflake&quot;). It
-          is just the ID format — not a status. Find it: User profile → right‑click → Copy User ID
-          (Developer Mode on). They must have logged into Imperium at least once.
+          Start typing the nominee&apos;s character name or Discord handle, then pick from the list.
         </span>
-        <input
-          name="nominee_discord"
-          required
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="e.g. 987654321098765432"
-          className="border border-[var(--psc-border)] bg-white px-3 py-2 font-mono text-sm"
-        />
+        <ProfileTypeaheadInput hiddenName="nominee_user_id" required placeholder="Type nominee name…" />
       </label>
 
       <SubmitButton

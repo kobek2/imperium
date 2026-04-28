@@ -126,6 +126,20 @@ export default async function AdminOperationsPage() {
         })}
       </section>
 
+      <section className="max-w-2xl rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-xs text-[var(--psc-muted)]">
+        <h3 className="font-semibold text-[var(--psc-ink)]">Server activity dashboard</h3>
+        <p className="mt-1">
+          Cross-cutting metrics and charts (economy ledger, bills, elections, party treasuries, PACs, campaigns,
+          national stats). Available to anyone who can open this panel.
+        </p>
+        <Link
+          href="/admin/activity"
+          className="mt-3 inline-flex text-xs font-semibold text-[var(--psc-accent)] underline underline-offset-2"
+        >
+          Open activity overview
+        </Link>
+      </section>
+
       <section className="max-w-2xl rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4 text-xs text-[var(--psc-muted)]">
         <p className="font-semibold text-[var(--psc-ink)]">Grant keys (reference)</p>
         <ul className="mt-2 list-inside list-disc space-y-1 font-mono text-[11px]">

@@ -8,7 +8,7 @@ import {
   blackjackTableState,
   type BlackjackTableState,
 } from "@/app/actions/economy";
-import { GAMBLE_BLACKJACK_MAX, GAMBLE_BLACKJACK_MIN } from "@/lib/economy-config";
+import { GAMBLE_BLACKJACK_MIN } from "@/lib/economy-config";
 
 function rankLabel(r: number): string {
   if (r === 1) return "A";
@@ -86,10 +86,6 @@ export function EconomyBlackjack({ economyFrozen = false }: { economyFrozen?: bo
       ) : null}
 
       <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Blackjack vs the house</h2>
-      <p className="text-xs text-[var(--psc-muted)]">
-        Six-deck shoe, dealer stands on all 17s, blackjack pays 3:2, one hand at a time. Stakes{" "}
-        {GAMBLE_BLACKJACK_MIN.toLocaleString()}–{GAMBLE_BLACKJACK_MAX.toLocaleString()}.
-      </p>
       {economyFrozen ? (
         <p className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950">
           Economy is frozen until the federal budget is marked submitted after congressional adoption.
@@ -204,7 +200,6 @@ export function EconomyBlackjack({ economyFrozen = false }: { economyFrozen?: bo
               name="bet"
               type="number"
               min={GAMBLE_BLACKJACK_MIN}
-              max={GAMBLE_BLACKJACK_MAX}
               step={1000}
               defaultValue={5000}
               className="border px-2 py-1 font-mono"

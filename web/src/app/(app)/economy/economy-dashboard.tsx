@@ -14,13 +14,13 @@ import { payFiscalTax } from "@/app/actions/fiscal";
 import {
   CAMPAIGN_AD_POINTS,
   CAMPAIGN_AD_UNIT_PRICE,
-  ECONOMY_MAX_OFFLINE_HOURS,
   PAC_LEVEL_1_COST,
   PAC_LEVEL_2_UPGRADE_COST,
   PAC_LEVEL_3_UPGRADE_COST,
   PAC_HOURLY_BY_LEVEL,
 } from "@/lib/economy-config";
 import { NavRouteButton } from "@/components/nav-route-button";
+import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { EconomyBlackjack } from "./economy-blackjack";
 
 type WalletRow = { balance: number; last_collected_at: string };
@@ -28,11 +28,12 @@ type PacRow = { level: number } | null;
 type InvRow = { sku: string; quantity: number } | null;
 type LedgerRow = { id: string; wallet_user_id: string; delta: number; kind: string; detail: unknown; created_at: string };
 type FlashSection = "balance" | "pac" | "ads" | "payments";
+type FlashDetail = { label: string; value: string; tone?: "positive" | "negative" | "neutral" };
 
 const INCOME_COOLDOWN_MS = 60 * 60 * 1000;
 
 function sectionFlash(
-  flash: { message: string; ok: boolean; section: FlashSection } | null,
+  flash: { message: string; ok: boolean; section: FlashSection; details?: FlashDetail[] } | null,
   section: FlashSection,
 ) {
   if (!flash || flash.section !== section) return null;
@@ -46,7 +47,27 @@ function sectionFlash(
           : "border-rose-300 bg-rose-50 text-rose-950"
       }`}
     >
-      {flash.message}
+      <p>{flash.message}</p>
+      {flash.details?.length ? (
+        <ul className="mt-2 space-y-1 text-xs">
+          {flash.details.map((d) => (
+            <li key={`${d.label}:${d.value}`} className="flex items-center justify-between gap-2">
+              <span className="text-[var(--psc-muted)]">{d.label}</span>
+              <span
+                className={`font-mono font-semibold ${
+                  d.tone === "negative"
+                    ? "text-rose-800"
+                    : d.tone === "positive"
+                      ? "text-emerald-800"
+                      : "text-[var(--psc-ink)]"
+                }`}
+              >
+                {d.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </p>
   );
 }
@@ -65,9 +86,12 @@ function useIncomeCollectGate(lastCollectedAtIso: string | undefined) {
   /** `null` until after mount so SSR and the first client paint match (no Date.now() split). */
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
-    setNow(Date.now());
+    const firstTick = window.setTimeout(() => setNow(Date.now()), 0);
     const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearTimeout(firstTick);
+      window.clearInterval(id);
+    };
   }, []);
 
   return useMemo(() => {
@@ -99,7 +123,7 @@ export function EconomyDashboard({
   economyFrozen,
   governmentShutdown,
   appropriationDeadlineAt,
-  federalTaxYtd,
+  federalEstimatedTax,
   taxAccount,
   showFederalBudgetLink,
 }: {
@@ -112,8 +136,7 @@ export function EconomyDashboard({
   economyFrozen: boolean;
   governmentShutdown?: boolean;
   appropriationDeadlineAt?: string | null;
-  /** Employment income this fiscal year (hourly_income since FY start) and marginal tax on that amount (RPC). */
-  federalTaxYtd?: { grossInflows: number; estimatedTax: number } | null;
+  federalEstimatedTax?: number | null;
   taxAccount?: {
     assessed_tax?: number;
     paid_amount?: number;
@@ -126,7 +149,12 @@ export function EconomyDashboard({
   showFederalBudgetLink: boolean;
 }) {
   const router = useRouter();
-  const [flash, setFlash] = useState<{ message: string; ok: boolean; section: FlashSection } | null>(null);
+  const [flash, setFlash] = useState<{
+    message: string;
+    ok: boolean;
+    section: FlashSection;
+    details?: FlashDetail[];
+  } | null>(null);
   const [adQtyInput, setAdQtyInput] = useState("1");
   const [pending, start] = useTransition();
   const balance = wallet?.balance ?? 0;
@@ -141,11 +169,15 @@ export function EconomyDashboard({
   const nextPacUpgradeCost =
     pac?.level === 1 ? PAC_LEVEL_2_UPGRADE_COST : pac?.level === 2 ? PAC_LEVEL_3_UPGRADE_COST : null;
 
-  function run(section: FlashSection, label: string, fn: () => Promise<{ ok: boolean; message: string }>) {
+  function run(
+    section: FlashSection,
+    label: string,
+    fn: () => Promise<{ ok: boolean; message: string; details?: FlashDetail[] }>,
+  ) {
     start(async () => {
       setFlash(null);
       const r = await fn();
-      setFlash({ message: r.message, ok: r.ok, section });
+      setFlash({ message: r.message, ok: r.ok, section, details: r.details });
       if (r.ok && label === "collect") router.refresh();
     });
   }
@@ -189,20 +221,11 @@ export function EconomyDashboard({
           </p>
         </div>
       ) : null}
-      {!economyFrozen && federalTaxYtd ? (
+      {!economyFrozen && Number.isFinite(federalEstimatedTax ?? NaN) ? (
         <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
-          <p className="font-semibold">Federal income tax (this fiscal year)</p>
-          <p className="mt-2 text-[var(--psc-muted)]">
-            Employment income <strong className="text-[var(--psc-ink)]">this fiscal year only</strong> (sum of{" "}
-            <code className="text-xs">hourly_income</code> since the year began):{" "}
-            <span className="font-mono">${federalTaxYtd.grossInflows.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            . The estimate applies the active year&apos;s marginal brackets to that running total — not a projection of how much
-            you might earn by year-end. <strong className="text-[var(--psc-ink)]">Final tax</strong> is collected when the
-            President closes the fiscal year (same basis, full-year window).
-          </p>
+          <p className="font-semibold">Estimated federal income tax (if year closed now)</p>
           <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
-            Estimated tax if the year closed now: $
-            {federalTaxYtd.estimatedTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            ${Number(federalEstimatedTax ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </p>
         </div>
       ) : null}
@@ -266,10 +289,6 @@ export function EconomyDashboard({
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Balance</p>
           <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-[var(--psc-ink)]">
             ${balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
-          <p className="mt-2 text-xs text-[var(--psc-muted)]">
-            Hourly pay stacks your government role (see SQL rules) plus PAC income, up to{" "}
-            {ECONOMY_MAX_OFFLINE_HOURS} hours per collection.
           </p>
         </div>
         <div className="flex flex-col justify-end gap-2">
@@ -369,9 +388,6 @@ export function EconomyDashboard({
           </button>
         </form>
 
-        <p className="border-t border-[var(--psc-border)] pt-4 text-xs text-[var(--psc-muted)]">
-          Ad usage has moved to each race&apos;s <strong className="text-[var(--psc-ink)]">general-election campaigning panel</strong>.
-        </p>
       </section>
 
       <section
@@ -383,8 +399,7 @@ export function EconomyDashboard({
         <div className={`flex min-h-0 flex-col gap-3 md:h-full ${treasuryPartyKey ? "md:pr-8" : ""}`}>
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Send cash</h2>
           <p className="min-h-[3.5rem] text-xs leading-snug text-[var(--psc-muted)]">
-            Enter the recipient&apos;s Discord username (same handle shown in-game; optional @ prefix or legacy
-            #1234 suffix is fine).
+            Search by character name and choose who should receive the transfer.
           </p>
           <form
             className="flex flex-col gap-2 text-sm md:min-h-0 md:flex-1"
@@ -394,13 +409,8 @@ export function EconomyDashboard({
             }}
           >
             <label className="grid w-full gap-1 font-semibold">
-              Discord username
-              <input
-                name="recipient_discord_username"
-                autoComplete="off"
-                placeholder="e.g. pat_smith"
-                className="w-full border border-[var(--psc-border)] px-2 py-2 font-normal"
-              />
+              Recipient
+              <ProfileTypeaheadInput hiddenName="recipient_user_id" placeholder="Type character name..." required />
             </label>
             <div className="hidden min-h-0 flex-1 md:block" aria-hidden="true" />
             <label className="grid w-full gap-1 font-semibold">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ProfileQuickDock } from "./profile-quick-dock";
 import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
+import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -11,13 +12,18 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
   let partyNavHref = "/parties";
   let showStaffLink = false;
   let showCabinetLink = false;
+  let canUseAppTabs = false;
+  let needsCharacterSetup = false;
 
   if (supabase && user) {
     const { data: profileRow } = await supabase
       .from("profiles")
-      .select("party, office_role")
+      .select("character_name, date_of_birth, residence_state, home_district_code, party, office_role")
       .eq("id", user.id)
       .maybeSingle();
+    const complete = isProfileOnboardingComplete(profileRow);
+    canUseAppTabs = complete;
+    needsCharacterSetup = !complete;
 
     const p = String(profileRow?.party ?? "")
       .trim()
@@ -39,17 +45,19 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       roleSet.has("secretary_of_treasury") || roleSet.has("president") || roleSet.has("admin") || roleSet.has("staff_super");
   }
 
-  const links = [
-    { href: "/", label: "Home" },
-    { href: "/character", label: "Character" },
-    { href: "/economy", label: "Economy" },
-    { href: partyNavHref, label: "Party" },
-    { href: "/elections", label: "Elections" },
-    { href: "/congress", label: "Congress" },
-    { href: "/oval", label: "Oval Office" },
-    { href: "/directory", label: "Directory" },
-    { href: "/policy", label: "Policy" },
-  ];
+  const links = canUseAppTabs
+    ? [
+        { href: "/", label: "Home" },
+        { href: "/character", label: "Character" },
+        { href: "/economy", label: "Economy" },
+        { href: partyNavHref, label: "Party" },
+        { href: "/elections", label: "Elections" },
+        { href: "/congress", label: "Congress" },
+        { href: "/oval", label: "Oval Office" },
+        { href: "/directory", label: "Directory" },
+        { href: "/policy", label: "Policy" },
+      ]
+    : [{ href: "/imperium", label: "Imperium" }];
 
   return (
     <div className="min-h-full bg-[var(--psc-canvas)] text-[var(--psc-ink)]">
@@ -70,7 +78,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
                 {l.label}
               </Link>
             ))}
-            {user ? (
+            {canUseAppTabs ? (
               <Link
                 href="/congress/leadership"
                 className="text-[var(--psc-muted)] underline-offset-4 hover:text-[var(--psc-ink)] hover:underline"
@@ -94,6 +102,14 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
                 Cabinet
               </Link>
             ) : null}
+            {needsCharacterSetup ? (
+              <Link
+                href="/onboarding"
+                className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+              >
+                Create character
+              </Link>
+            ) : null}
           </nav>
           <div className="flex items-center gap-3 text-sm text-[var(--psc-muted)]">
             {user ? (
@@ -113,7 +129,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
-      {user ? (
+      {user && canUseAppTabs ? (
         <>
           <WorldChatDock />
           <ProfileQuickDock />

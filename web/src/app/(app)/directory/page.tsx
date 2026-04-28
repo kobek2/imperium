@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -13,6 +14,71 @@ import {
 } from "./hierarchy-tabs";
 import { DirectoryHashScroll } from "./directory-hash-scroll";
 import { DirectoryMetricsEntry } from "./directory-metrics-entry";
+
+/** PostgREST returns at most 1000 rows per request unless paged. */
+const POSTGREST_PAGE = 1000;
+
+const DIRECTORY_PROFILE_COLUMNS =
+  "id, character_name, discord_username, office_role, party, bio, face_claim_url, residence_state, home_district_code" as const;
+
+type DirectoryProfileRow = {
+  id: string;
+  character_name: string | null;
+  discord_username: string | null;
+  office_role: string | null;
+  party: string | null;
+  bio: string | null;
+  face_claim_url: string | null;
+  residence_state: string | null;
+  home_district_code: string | null;
+};
+
+async function loadDirectoryGrantsAndProfiles(supabase: SupabaseClient): Promise<{
+  grants: Array<{ user_id: string; role_key: string }>;
+  profiles: DirectoryProfileRow[];
+}> {
+  const grants: Array<{ user_id: string; role_key: string }> = [];
+  let gFrom = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("government_role_grants")
+      .select("user_id, role_key")
+      .order("user_id", { ascending: true })
+      .order("role_key", { ascending: true })
+      .range(gFrom, gFrom + POSTGREST_PAGE - 1);
+    if (error) {
+      console.warn("[directory] government_role_grants:", error.message);
+      break;
+    }
+    const chunk = (data ?? []) as Array<{ user_id: string; role_key: string }>;
+    grants.push(...chunk);
+    if (chunk.length < POSTGREST_PAGE) break;
+    gFrom += POSTGREST_PAGE;
+  }
+
+  const profiles: DirectoryProfileRow[] = [];
+  let pFrom = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(DIRECTORY_PROFILE_COLUMNS)
+      .order("id", { ascending: true })
+      .range(pFrom, pFrom + POSTGREST_PAGE - 1);
+    if (error) {
+      console.warn("[directory] profiles:", error.message);
+      break;
+    }
+    const chunk = (data ?? []) as DirectoryProfileRow[];
+    profiles.push(...chunk);
+    if (chunk.length < POSTGREST_PAGE) break;
+    pFrom += POSTGREST_PAGE;
+  }
+
+  return { grants, profiles };
+}
+
+/** Always resolve grants + profiles from Supabase (no stale RSC snapshot of the roster). */
+export const dynamic = "force-dynamic";
 
 /**
  * Each tab is a branch/chamber of government. Sections inside a tab render either as a
@@ -119,13 +185,8 @@ export default async function DirectoryPage() {
 
   if (!user) redirect("/login");
 
-  const [{ data: grants }, { data: profiles }, { data: lawBills }, pres, isAdmin] = await Promise.all([
-    supabase.from("government_role_grants").select("user_id, role_key"),
-    supabase
-      .from("profiles")
-      .select(
-        "id, character_name, discord_username, office_role, party, bio, face_claim_url, residence_state, home_district_code",
-      ),
+  const [{ grants, profiles }, { data: lawBills }, pres, isAdmin] = await Promise.all([
+    loadDirectoryGrantsAndProfiles(supabase),
     supabase
       .from("bills")
       .select("id, title, originating_chamber, created_at, signed_at, author_id")
@@ -178,7 +239,7 @@ export default async function DirectoryPage() {
   }
 
   const profileById = new Map<string, DirectoryHolder>(
-    (profiles ?? []).map((p) => [
+    profiles.map((p) => [
       p.id,
       {
         id: p.id,
@@ -209,8 +270,8 @@ export default async function DirectoryPage() {
     bucket.set(userId, p);
     holdersByRole.set(roleKey, bucket);
   };
-  for (const g of grants ?? []) addHolder(g.role_key, g.user_id);
-  for (const p of profiles ?? []) {
+  for (const g of grants) addHolder(g.role_key, g.user_id);
+  for (const p of profiles) {
     if (p.office_role) addHolder(p.office_role, p.id);
   }
 

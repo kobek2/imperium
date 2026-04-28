@@ -10,6 +10,11 @@ export type SimulationSettingsRow = {
   admin_rp_month_offset: number;
   auto_open_filings_in_rp_january: boolean;
   last_auto_open_rp_key: string | null;
+  september_budget_speed_active?: boolean;
+  september_budget_speed_previous?: number | null;
+  september_budget_speed_started_at?: string | null;
+  september_budget_speed_expires_at?: string | null;
+  september_budget_window_key?: string | null;
   /** When true, finishing character setup may auto-create House + Senate seat races (server RPC). */
   auto_create_seat_elections_on_onboarding?: boolean;
 };

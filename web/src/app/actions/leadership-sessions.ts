@@ -242,6 +242,25 @@ export async function closeLeadershipSessionNow(formData: FormData): Promise<voi
   revalidateSession(sessionId);
 }
 
+/** Admin: recompute a closed session's winners using the current DB tie-break rules. */
+export async function recomputeClosedLeadershipSession(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const supabase = await createClient();
+  const sessionId = String(formData.get("session_id") ?? "");
+  if (!sessionId) throw new Error("Missing session_id.");
+
+  const { error } = await supabase.rpc("recompute_closed_leadership_session", { s_id: sessionId });
+  if (error) {
+    if (isMissingLeadershipSchema(error.message)) {
+      throw new Error(LEADERSHIP_MIGRATION_HINT);
+    }
+    throwIfPostgrestError(error);
+  }
+
+  revalidateSession(sessionId);
+  revalidatePath("/admin/elections?tab=archive");
+}
+
 async function loadSessionOrThrow(
   supabase: Awaited<ReturnType<typeof createClient>>,
   sessionId: string,

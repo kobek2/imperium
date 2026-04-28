@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 
 export type ProfileCardData = {
   /** When set, callers can rely on `profilePath(profile)` to build a stable link. */
@@ -51,14 +52,6 @@ function partyColor(party: string | null | undefined) {
         cardBorder: "border-[var(--psc-border)]",
       };
   }
-}
-
-function initials(name: string | null | undefined) {
-  const raw = (name ?? "").trim();
-  if (!raw) return "?";
-  const parts = raw.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 /**
@@ -141,19 +134,12 @@ export function ProfileCard({
   const headerInner = (
     <>
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-[var(--psc-canvas)]">
-        {photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photo}
-            alt=""
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-3xl font-semibold tracking-wide text-[var(--psc-muted)]">
-            {initials(name)}
-          </div>
-        )}
+        <ProfileImageWithFallback
+          src={photo}
+          name={name}
+          className="h-full w-full object-cover"
+          initialClassName="flex h-full w-full items-center justify-center text-3xl font-semibold tracking-wide text-[var(--psc-muted)]"
+        />
         {badges ? (
           <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-wrap gap-1">
             {badges}

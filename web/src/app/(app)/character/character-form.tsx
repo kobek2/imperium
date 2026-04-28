@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { saveCharacter } from "@/app/actions/profile";
+import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { US_STATE_CODES } from "@/lib/character-onboarding";
 
 type Profile = {
@@ -168,14 +169,38 @@ export function CharacterForm({
         <p className="text-xs font-normal text-[var(--psc-muted)]">{leanHint}</p>
       </div>
 
-      <label className="grid gap-2 text-sm font-semibold">
-        Face claim / portrait URL
-        <input
-          name="face_claim_url"
-          defaultValue={profile?.face_claim_url ?? ""}
-          className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-        />
-      </label>
+      <div className="grid gap-2 text-sm font-semibold">
+        <span>
+          Portrait <span className="font-normal text-[var(--psc-muted)]">(optional)</span>
+        </span>
+        {profile?.face_claim_url ? (
+          <div className="flex flex-wrap items-center gap-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-3">
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]">
+              <ProfileImageWithFallback
+                src={profile.face_claim_url}
+                name={profile?.character_name?.trim() || "Character"}
+                className="h-full w-full object-cover"
+                initialClassName="flex h-20 w-20 items-center justify-center text-lg font-semibold text-[var(--psc-muted)]"
+              />
+            </div>
+            <p className="min-w-0 text-xs font-normal text-[var(--psc-muted)]">
+              Current portrait. Choose a new file below to replace it, or save without choosing a
+              file to keep this one.
+            </p>
+          </div>
+        ) : null}
+        <label className="grid gap-1.5 font-normal">
+          <span className="text-xs font-normal text-[var(--psc-muted)]">
+            Upload JPEG, PNG, WebP, or GIF (max 5MB). Images are stored on the game server.
+          </span>
+          <input
+            type="file"
+            name="portrait"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="border border-[var(--psc-border)] bg-white px-3 py-2 text-xs font-normal file:mr-3"
+          />
+        </label>
+      </div>
 
       <label className="grid gap-2 text-sm font-semibold">
         Biography <span className="font-normal text-[var(--psc-muted)]">(optional)</span>

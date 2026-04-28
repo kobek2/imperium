@@ -23,6 +23,10 @@ import { PresidentialMap } from "./presidential-map";
 import { ElectoralTote } from "./electoral-tote";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
 import {
+  campaignAdListPriceSpendUsd,
+  sumCampaignAdPointsForElection,
+} from "@/lib/campaign-ad-stats";
+import {
   loadPresidentialBundle,
   scorePresidentialBundle,
 } from "@/lib/presidential-data";
@@ -370,6 +374,11 @@ export default async function ElectionDetailPage({
     result: ReturnType<typeof scorePresidentialBundle>;
     candidatesBrief: Array<{ id: string; user_id: string; party: string; name: string }>;
   } | null = null;
+  const totalCampaignAdPoints = election.leadership_role
+    ? 0
+    : await sumCampaignAdPointsForElection(supabase, id);
+  const totalCampaignAdSpendUsd = campaignAdListPriceSpendUsd(totalCampaignAdPoints);
+
   if (election.office === "president") {
     try {
       const bundle = await loadPresidentialBundle(supabase, id);
@@ -448,6 +457,7 @@ export default async function ElectionDetailPage({
         adsInventory={adsInventory}
         speechFeed={speechRowsForFeed}
         adSpendFeed={adSpendFeed}
+        totalCampaignAdSpendUsd={totalCampaignAdSpendUsd}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

@@ -19,9 +19,20 @@ export type CongressDocketPayload = {
   canBreakSenateTie: boolean;
 };
 
+const NON_CHAMBER_BILL_STATUSES = new Set([
+  "oval",
+  "passed_congress",
+  "law",
+  "signed",
+  "vetoed",
+  "dead",
+  "failed",
+]);
+
 /** Bills listed under /congress/house: House filing pipeline + anything on the House floor (any origin). */
 export function filterBillsForHouseDocket(bills: BillForCard[]): BillForCard[] {
   return bills.filter((b) => {
+    if (NON_CHAMBER_BILL_STATUSES.has(b.status)) return false;
     if (b.status === "house_floor") return true;
     if (b.status === "senate_floor") return false;
     if (b.status === "other_chamber_review" || b.status === "other_chamber_debate") {
@@ -34,6 +45,7 @@ export function filterBillsForHouseDocket(bills: BillForCard[]): BillForCard[] {
 /** Bills listed under /congress/senate: Senate filing pipeline + anything on the Senate floor (any origin). */
 export function filterBillsForSenateDocket(bills: BillForCard[]): BillForCard[] {
   return bills.filter((b) => {
+    if (NON_CHAMBER_BILL_STATUSES.has(b.status)) return false;
     if (b.status === "senate_floor") return true;
     if (b.status === "house_floor") return false;
     if (b.status === "other_chamber_review" || b.status === "other_chamber_debate") {
@@ -58,6 +70,11 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
       .select(
         "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
+      .neq("status", "oval")
+      .neq("status", "passed_congress")
+      .neq("status", "law")
+      .neq("status", "signed")
+      .neq("status", "vetoed")
       .neq("status", "dead")
       .neq("status", "failed")
       .order("created_at", { ascending: false }),

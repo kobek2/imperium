@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ProfileCard, ProfileCardBadge, profilePath } from "@/components/profile-card";
+import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { SubmitButton } from "@/components/submit-button";
 import {
   castGeneralVote,
@@ -789,6 +790,7 @@ export function ElectionDetail({
   adsInventory,
   speechFeed,
   adSpendFeed,
+  totalCampaignAdSpendUsd,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -815,6 +817,8 @@ export function ElectionDetail({
   adsInventory: number;
   speechFeed: SpeechFeedItem[];
   adSpendFeed: AdSpendFeedItem[];
+  /** Sum of list-price spend for ads placed in this race (0 for leadership). */
+  totalCampaignAdSpendUsd: number;
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -924,16 +928,35 @@ export function ElectionDetail({
             {election.office === "house" ? "representative" : "senator"} role.
           </p>
         ) : null}
-        <dl className="grid gap-2 text-xs text-[var(--psc-muted)] sm:grid-cols-2">
-          <div>
-            Filing: {new Date(election.filing_opens_at).toLocaleString()} —{" "}
-            {new Date(election.filing_closes_at).toLocaleString()}
+        <div className="flex flex-col gap-4 border-t border-[var(--psc-border)] pt-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1.5 text-xs leading-relaxed text-[var(--psc-muted)]">
+            <div>
+              Filing: {new Date(election.filing_opens_at).toLocaleString()} —{" "}
+              {new Date(election.filing_closes_at).toLocaleString()}
+            </div>
+            {!isLeadership && election.primary_closes_at ? (
+              <div>Primary closes: {new Date(election.primary_closes_at).toLocaleString()}</div>
+            ) : null}
+            <div>General closes: {new Date(election.general_closes_at).toLocaleString()}</div>
           </div>
-          {!isLeadership && election.primary_closes_at ? (
-            <div>Primary closes: {new Date(election.primary_closes_at).toLocaleString()}</div>
+          {!isLeadership ? (
+            <div className="shrink-0 sm:pl-6 sm:text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                Campaign spend (this race)
+              </p>
+              <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-[var(--psc-ink)]">
+                {new Intl.NumberFormat("en-US", {
+                  style: "currency",
+                  currency: "USD",
+                  maximumFractionDigits: 0,
+                }).format(totalCampaignAdSpendUsd)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
+                At list price per ad placed
+              </p>
+            </div>
           ) : null}
-          <div>General closes: {new Date(election.general_closes_at).toLocaleString()}</div>
-        </dl>
+        </div>
       </header>
 
       {election.phase === "closed" && election.winner_user_id ? (
@@ -1001,14 +1024,12 @@ export function ElectionDetail({
                   {election.office === "president" && filingOpen ? (
                     <form action={setPresidentialRunningMate} className="mt-3 space-y-2 border-t border-dashed border-[var(--psc-border)] pt-3">
                       <input type="hidden" name="election_id" value={election.id} />
-                      <label className="block text-xs font-medium text-[var(--psc-ink)]">
-                        Running mate (Discord user id)
-                      </label>
-                      <input
-                        name="running_mate_discord"
-                        type="text"
-                        placeholder="Numeric Discord id"
-                        className="w-full rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+                      <label className="block text-xs font-medium text-[var(--psc-ink)]">Running mate</label>
+                      <ProfileTypeaheadInput
+                        hiddenName="running_mate_user_id"
+                        placeholder="Type running mate name…"
+                        initialUserId={myRow.running_mate_user_id ?? ""}
+                        initialLabel={myRow.running_mate_name ?? ""}
                       />
                       <SubmitButton pendingLabel="Saving…" className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white">
                         Save running mate
@@ -1095,7 +1116,7 @@ export function ElectionDetail({
             </p>
             {election.office === "president" ? (
               <p className="mt-2 text-xs text-[var(--psc-muted)]">
-                Presidential tickets: pick a running mate (same party) with their Discord user id.
+                Presidential tickets: pick a running mate (same party) by searching their name.
                 Speeches and rallies unlock in the general election; during the primary they may cast
                 a Senate tie-breaker only while this primary is open — they cannot file bills, act as
                 president, or vote on ordinary Senate floor votes during that time.
@@ -1109,11 +1130,11 @@ export function ElectionDetail({
             >
               <input type="hidden" name="election_id" value={election.id} />
               <p className="text-xs font-semibold text-[var(--psc-ink)]">Your running mate</p>
-              <input
-                name="running_mate_discord"
-                type="text"
-                placeholder="Discord user id (numeric)"
-                className="w-full max-w-md rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+              <ProfileTypeaheadInput
+                hiddenName="running_mate_user_id"
+                placeholder="Type running mate name…"
+                initialUserId={myRow.running_mate_user_id ?? ""}
+                initialLabel={myRow.running_mate_name ?? ""}
               />
               <SubmitButton
                 pendingLabel="Saving…"
@@ -1192,11 +1213,11 @@ export function ElectionDetail({
               <p className="text-xs font-semibold text-[var(--psc-ink)]">
                 Running mate (allowed until general closes)
               </p>
-              <input
-                name="running_mate_discord"
-                type="text"
-                placeholder="Discord user id (numeric)"
-                className="w-full max-w-md rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--psc-accent)]"
+              <ProfileTypeaheadInput
+                hiddenName="running_mate_user_id"
+                placeholder="Type running mate name…"
+                initialUserId={myRow.running_mate_user_id ?? ""}
+                initialLabel={myRow.running_mate_name ?? ""}
               />
               <SubmitButton
                 pendingLabel="Saving…"

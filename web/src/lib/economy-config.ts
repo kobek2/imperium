@@ -26,4 +26,3 @@ export const PAC_HOURLY_BY_LEVEL: Record<1 | 2 | 3, number> = {
 
 /** Table stakes for house blackjack (matches Postgres `economy_blackjack_start`). */
 export const GAMBLE_BLACKJACK_MIN = 1_000;
-export const GAMBLE_BLACKJACK_MAX = 5_000_000;

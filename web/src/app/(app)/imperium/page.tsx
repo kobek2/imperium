@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { getServerAuth } from "@/lib/supabase/server";
 
 type Snapshot = {
@@ -44,38 +45,53 @@ function statCard(label: string, value: string) {
 
 export default async function ImperiumLandingPage() {
   const snapshot = await loadSnapshot();
+  const { supabase, user } = await getServerAuth();
+  let isReadyForFullAccess = false;
+  if (supabase && user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("character_name, date_of_birth, residence_state, home_district_code, party")
+      .eq("id", user.id)
+      .maybeSingle();
+    isReadyForFullAccess = isProfileOnboardingComplete(profile);
+  }
+  const joinHref = !user ? "/login" : isReadyForFullAccess ? "/" : "/onboarding";
+  const joinLabel = !user ? "Join now" : isReadyForFullAccess ? "Enter Imperium" : "Finish character";
 
   return (
     <div className="space-y-10">
-      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-7 shadow-sm">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--psc-muted)]">Imperium</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--psc-ink)]">
-          Federal power, political strategy, and live roleplay.
-        </h1>
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Imperium is a U.S. federal simulation where players run campaigns, write and pass legislation, manage party
-          institutions, operate cabinet powers, and steer a live fiscal-economy system from draft budgets to
-          appropriations law.
-        </p>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Link
-            href="/elections"
-            className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            Enter elections
-          </Link>
-          <Link
-            href="/congress"
-            className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]"
-          >
-            Open Congress
-          </Link>
-          <Link
-            href="/economy/federal"
-            className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]"
-          >
-            Federal budget
-          </Link>
+      <section className="overflow-hidden rounded-2xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-sm">
+        <div className="relative">
+          {/* Decorative hero art. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://images.unsplash.com/photo-1579965342575-16428a7c8881?auto=format&fit=crop&w=1800&q=80"
+            alt="United States Capitol building"
+            className="h-64 w-full object-cover object-center sm:h-80"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-transparent" />
+          <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-8">
+            <div className="w-full max-w-3xl text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/85">
+              Imperium
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+              Shape the future of the republic.
+            </h1>
+            <p className="mt-3 text-sm leading-relaxed text-white/90 sm:text-base">
+              Campaign for office, negotiate in Congress, pass landmark legislation, and navigate
+              federal budgets in a live political roleplay simulation.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <Link
+                href={joinHref}
+                className="rounded border-2 border-white/80 bg-white px-8 py-4 text-base font-bold uppercase tracking-[0.08em] text-slate-950 shadow-xl"
+              >
+                {joinLabel}
+              </Link>
+            </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -87,61 +103,57 @@ export default async function ImperiumLandingPage() {
         {statCard("Party orgs", snapshot ? snapshot.parties.toLocaleString() : "—")}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-3">
         <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">How the simulation works</h2>
-          <ul className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
-            <li>Character setup defines party identity, geography, and in-world profile.</li>
-            <li>Elections run through Filing, Primary, and General with campaign actions and endorsements.</li>
-            <li>Bills move through leadership review, debate, chamber floor votes, and Oval sign/veto.</li>
-            <li>Inbox + Congressional Chat keep players synced on role-critical updates.</li>
-          </ul>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Become President</h2>
+          <p className="mt-3 text-sm text-[var(--psc-muted)]">
+            Build a national campaign, win the general election, and sign bills into law from the
+            Oval Office.
+          </p>
         </article>
         <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Economy and governance loop</h2>
-          <ul className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
-            <li>Players earn salary and PAC income, then invest in races or party operations.</li>
-            <li>Federal budget drafts set tax brackets plus line-item spending minima and allocations.</li>
-            <li>Appropriations law and fiscal-year close determine treasury health and macro pressure.</li>
-            <li>Cabinet and party leadership decisions directly shape institutional outcomes.</li>
-          </ul>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Join Congress</h2>
+          <p className="mt-3 text-sm text-[var(--psc-muted)]">
+            Run for House or Senate, lead your caucus, and influence every major vote on the floor.
+          </p>
+        </article>
+        <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Write Major Bills</h2>
+          <p className="mt-3 text-sm text-[var(--psc-muted)]">
+            Draft legislation, negotiate amendments, and move proposals through both chambers to
+            the President&apos;s desk.
+          </p>
         </article>
       </section>
 
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Start your path</h2>
-        <p className="mt-2 text-sm text-[var(--psc-muted)]">
-          New to the sim? Build your identity, pick your lane, and start influencing outcomes across elections,
-          Congress, and the federal economy.
+        <h2 className="text-center text-lg font-semibold text-[var(--psc-ink)]">Start your path</h2>
+        <p className="mt-2 text-center text-sm text-[var(--psc-muted)]">
+          Access to gameplay tabs unlocks after sign-in and character onboarding. Create your
+          character first, then all systems open automatically.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
-          <Link className="rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-[var(--psc-ink)]" href="/character">
-            Character
-          </Link>
-          <Link className="rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-[var(--psc-ink)]" href="/parties">
-            Parties
-          </Link>
-          <Link className="rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-[var(--psc-ink)]" href="/inbox">
-            Inbox
-          </Link>
-          <Link className="rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-[var(--psc-ink)]" href="/directory">
-            Directory
+        <div className="mt-4 flex justify-center">
+          <Link
+            href={joinHref}
+            className="inline-flex items-center rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+          >
+            {joinLabel}
           </Link>
         </div>
       </section>
 
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">History & Hall of Fame</h2>
+        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Hall of Fame</h2>
         <p className="mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
-          Explore presidential history in Imperium: winners by era, major career markers, and a hall-of-fame ranking
-          based on election success and governing impact.
+          Explore presidential legacies, term timelines, and defining achievements from Imperium&apos;s
+          most influential leaders.
         </p>
         <div className="mt-4">
           <Link
             href="/history"
             className="inline-flex items-center rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
           >
-            Open history page
+            Open Hall of Fame
           </Link>
         </div>
       </section>

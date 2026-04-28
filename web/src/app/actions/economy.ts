@@ -15,24 +15,70 @@ function revalidateEconomy() {
   revalidatePath("/parties");
 }
 
-export async function collectEconomyIncome(): Promise<{ ok: boolean; message: string }> {
+export async function collectEconomyIncome(): Promise<{
+  ok: boolean;
+  message: string;
+  details?: Array<{ label: string; value: string; tone?: "positive" | "negative" | "neutral" }>;
+}> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("economy_collect_income", { p_body: {} });
   if (error) return { ok: false, message: error.message };
-  const paid = Number((data as { paid?: number })?.paid ?? 0);
-  const partyLevy = Number((data as { party_levy?: number })?.party_levy ?? 0);
+  const payload = (data as {
+    paid?: number;
+    party_levy?: number;
+    hours?: number;
+    party_levy_salary_base?: number;
+    role_hourly?: number;
+    pac_hourly?: number;
+    gross_collect?: number;
+  }) ?? { paid: 0 };
+  const paid = Number(payload.paid ?? 0);
+  const partyLevy = Number(payload.party_levy ?? 0);
+  const hours = Math.max(0, Number(payload.hours ?? 0));
+  const salaryBase = Number(payload.party_levy_salary_base ?? 0);
+  const roleHourly = Math.max(0, Number(payload.role_hourly ?? 0));
+  const pacHourly = Math.max(0, Number(payload.pac_hourly ?? 0));
+  const grossBeforeLevy = Number(payload.gross_collect ?? paid + partyLevy);
+  const roleSlice = roleHourly * hours;
+  const pacSlice = pacHourly * hours;
   revalidateEconomy();
   const base =
     paid > 0
-      ? `Collected $${paid.toLocaleString()} (up to ${ECONOMY_MAX_OFFLINE_HOURS}h).`
+      ? `Collected +$${paid.toLocaleString()} net from ${hours}h of accrual (max ${ECONOMY_MAX_OFFLINE_HOURS}h). Income sources: role +$${roleSlice.toLocaleString()}, PAC +$${pacSlice.toLocaleString()}, gross +$${grossBeforeLevy.toLocaleString()}.`
       : "Nothing to collect yet — the timer above shows when the next payout is available.";
   const partyNote =
     partyLevy > 0
-      ? ` Party salary levy to treasury: $${partyLevy.toLocaleString(undefined, { maximumFractionDigits: 0 })} (withheld automatically).`
+      ? ` Party tax sent to treasury: -$${partyLevy.toLocaleString(undefined, { maximumFractionDigits: 0 })}${
+          salaryBase > 0 ? ` (${Math.round((partyLevy / salaryBase) * 100)}% of salary portion)` : ""
+        }.`
       : "";
+  if (paid <= 0) {
+    return {
+      ok: true,
+      message: base + partyNote,
+    };
+  }
+
   return {
     ok: true,
-    message: base + partyNote,
+    message: `Collected payout (${hours}h accrual).`,
+    details: [
+      { label: "Net deposited", value: `+$${paid.toLocaleString()}`, tone: "positive" },
+      { label: "Role income", value: `+$${roleSlice.toLocaleString()}`, tone: "positive" },
+      { label: "PAC income", value: `+$${pacSlice.toLocaleString()}`, tone: "positive" },
+      { label: "Gross before party tax", value: `+$${grossBeforeLevy.toLocaleString()}`, tone: "positive" },
+      ...(partyLevy > 0
+        ? [
+            {
+              label: "Party tax to treasury",
+              value: `-$${partyLevy.toLocaleString(undefined, { maximumFractionDigits: 0 })}${
+                salaryBase > 0 ? ` (${Math.round((partyLevy / salaryBase) * 100)}%)` : ""
+              }`,
+              tone: "negative" as const,
+            },
+          ]
+        : []),
+    ],
   };
 }
 
@@ -51,26 +97,30 @@ export async function transferToPlayer(formData: FormData): Promise<{ ok: boolea
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "Not signed in." };
 
+  const recipientUserId = String(formData.get("recipient_user_id") ?? "").trim();
   const raw = String(formData.get("recipient_discord_username") ?? "").trim();
   const amt = Number(String(formData.get("amount") ?? "").trim());
   const handle = normalizeDiscordUsernameInput(raw);
-  if (!handle || !Number.isFinite(amt) || amt <= 0) {
-    return { ok: false, message: "Enter the recipient's Discord username and a valid amount." };
+  if ((!recipientUserId && !handle) || !Number.isFinite(amt) || amt <= 0) {
+    return { ok: false, message: "Select a recipient and enter a valid amount." };
   }
-  if (/[%_]/.test(handle)) {
+  if (!recipientUserId && /[%_]/.test(handle)) {
     return { ok: false, message: "Discord username cannot contain % or _." };
   }
 
-  const { data: rows, error: qErr } = await supabase.from("profiles").select("id").ilike("discord_username", handle);
-  if (qErr) return { ok: false, message: qErr.message };
-  const ids = (rows ?? []) as Array<{ id: string }>;
-  if (ids.length === 0) {
-    return { ok: false, message: "No player found with that Discord username." };
+  let to = recipientUserId;
+  if (!to) {
+    const { data: rows, error: qErr } = await supabase.from("profiles").select("id").ilike("discord_username", handle);
+    if (qErr) return { ok: false, message: qErr.message };
+    const ids = (rows ?? []) as Array<{ id: string }>;
+    if (ids.length === 0) {
+      return { ok: false, message: "No player found with that Discord username." };
+    }
+    if (ids.length > 1) {
+      return { ok: false, message: "More than one profile matches that Discord username; ask an admin to disambiguate." };
+    }
+    to = ids[0].id;
   }
-  if (ids.length > 1) {
-    return { ok: false, message: "More than one profile matches that Discord username; ask an admin to disambiguate." };
-  }
-  const to = ids[0].id;
   if (to === user.id) return { ok: false, message: "You cannot transfer to yourself." };
 
   const { error } = await supabase.rpc("economy_transfer_to_user", { p_to_user: to, p_amount: amt });

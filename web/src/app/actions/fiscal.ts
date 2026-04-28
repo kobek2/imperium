@@ -16,6 +16,41 @@ import { isPresident } from "@/lib/president";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { processYearEndParticipationApproval } from "@/lib/approval-ratings";
 
+const TREASURY_ROLE_KEY = "secretary_of_treasury";
+
+function canActorFileAppropriationsBill(params: {
+  roleKeys: string[];
+  isAdmin: boolean;
+  fiscal: {
+    budget_initial_window_ends_at?: string | null;
+    appropriations_act_bill_id?: string | null;
+    budget_treasury_override_until?: string | null;
+  } | null;
+}): boolean {
+  const { roleKeys, isAdmin, fiscal } = params;
+  if (isAdmin) return true;
+  if (!fiscal || fiscal.appropriations_act_bill_id) return false;
+  const now = Date.now();
+  const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
+    ? new Date(fiscal.budget_initial_window_ends_at).getTime()
+    : null;
+
+  if (presidentialWindowEndsAt != null && Number.isFinite(presidentialWindowEndsAt)) {
+    if (now <= presidentialWindowEndsAt) {
+      return roleKeys.includes("president");
+    }
+    const treasuryUntil = fiscal.budget_treasury_override_until
+      ? new Date(fiscal.budget_treasury_override_until).getTime()
+      : null;
+    if (treasuryUntil != null && Number.isFinite(treasuryUntil) && now <= treasuryUntil) {
+      return roleKeys.includes(TREASURY_ROLE_KEY);
+    }
+    return false;
+  }
+
+  return roleKeys.includes("president");
+}
+
 function revalidateFiscal() {
   revalidatePath("/economy");
   revalidatePath("/economy/federal");
@@ -41,12 +76,27 @@ function normalizeLineItemsForSave(lineItems: FiscalLineItemRow[]): FiscalLineIt
 
 async function syncDraftLineMinimaToServerInflation(
   supabase: Awaited<ReturnType<typeof createClient>>,
+  fiscalYearId: string,
 ): Promise<{ ratio_applied?: number } | null> {
+  const { data: budgetMeta } = await supabase
+    .from("federal_budgets")
+    .select("status")
+    .eq("fiscal_year_id", fiscalYearId)
+    .maybeSingle();
+  if (String((budgetMeta as { status?: string } | null)?.status) !== "draft") {
+    return null;
+  }
+
   const { data, error } = await supabase.rpc("fiscal_apply_server_gdp_inflation_to_line_minima");
   if (error) {
     // Older DBs may not have this RPC yet; don't block save/file.
     const m = (error.message ?? "").toLowerCase();
-    if (m.includes("fiscal_apply_server_gdp_inflation_to_line_minima") || m.includes("schema cache")) {
+    if (
+      m.includes("fiscal_apply_server_gdp_inflation_to_line_minima") ||
+      m.includes("schema cache") ||
+      m.includes("draft budget") ||
+      m.includes("only be inflated")
+    ) {
       return null;
     }
     throw new Error(error.message);
@@ -78,7 +128,7 @@ export async function saveFiscalBudgetDraft(input: {
     p_metrics: input.metrics ?? {},
   });
   if (error) return { ok: false, message: error.message };
-  const sync = await syncDraftLineMinimaToServerInflation(supabase);
+  const sync = await syncDraftLineMinimaToServerInflation(supabase, input.fiscalYearId);
   revalidateFiscal();
   const ratioNote =
     sync?.ratio_applied != null
@@ -238,8 +288,6 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "Not signed in." };
-  const pres = await isPresident(supabase, user.id);
-  if (!pres) return { ok: false, message: "Only the President may file the appropriations bill." };
 
   if (await isActivePresidentialRunningMate(supabase, user.id)) {
     return { ok: false, message: "Presidential running mates may not file legislation in Congress." };
@@ -250,16 +298,30 @@ export async function fileFederalBudgetAppropriationsBill(input: {
   if (!canFileLegislationInChamber(roleKeys, "house")) {
     return { ok: false, message: "You may not file House legislation with your current roles." };
   }
+  const isAdminActor = roleKeys.includes("admin");
 
   const normalizedLines = normalizeLineItemsForSave(input.lineItems);
 
   const { data: activeFy } = await supabase
     .from("rp_fiscal_years")
-    .select("id")
+    .select("id, appropriations_act_bill_id, budget_initial_window_ends_at, budget_treasury_override_until")
     .eq("status", "active")
     .maybeSingle();
   if (!activeFy?.id || activeFy.id !== input.fiscalYearId) {
     return { ok: false, message: "Appropriations can only be filed for the active fiscal year." };
+  }
+  if (
+    !canActorFileAppropriationsBill({
+      roleKeys,
+      isAdmin: isAdminActor,
+      fiscal: activeFy,
+    })
+  ) {
+    return {
+      ok: false,
+      message:
+        "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
+    };
   }
 
   const { data: pendingAppRows, error: pendErr } = await supabase
@@ -287,7 +349,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     p_metrics: {},
   });
   if (saveErr) return { ok: false, message: saveErr.message };
-  await syncDraftLineMinimaToServerInflation(supabase);
+  await syncDraftLineMinimaToServerInflation(supabase, input.fiscalYearId);
 
   const { data: refreshedBudget } = await supabase
     .from("federal_budgets")

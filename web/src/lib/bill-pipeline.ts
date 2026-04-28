@@ -93,6 +93,11 @@ function classifyFloorMajority(args: {
   chamber: BillChamber;
 }): "pass" | "fail" | "pending" | "vp_tie" {
   const { yea, nay, cast, chamberSize, chamber } = args;
+  if (cast >= chamberSize) {
+    if (yea > nay) return "pass";
+    if (nay > yea) return "fail";
+    return chamber === "senate" ? "vp_tie" : "fail";
+  }
   const remaining = Math.max(0, chamberSize - cast);
   if (yea > nay + remaining) return "pass";
   if (nay > yea + remaining) return "fail";
@@ -199,6 +204,18 @@ export async function resolveSenateAfterTiebreakVote(
 
 /** Advance bills whose chamber voting clocks have expired. */
 export async function processBillDeadlines(supabase: SupabaseClient): Promise<void> {
+  // Sweep active floor votes for immediate clinch transitions (all votes cast, irreversible margins, etc.)
+  // so bills can advance without requiring an additional ballot event.
+  const { data: liveFloorBills } = await supabase
+    .from("bills")
+    .select("id")
+    .in("status", ["house_floor", "senate_floor"]);
+  for (const row of liveFloorBills ?? []) {
+    const billId = String((row as { id: string }).id);
+    if (!billId) continue;
+    await tryClinchFloorVoteAfterBallotChange(supabase, billId);
+  }
+
   const nowIso = new Date().toISOString();
 
   const { data: houseFloor } = await supabase

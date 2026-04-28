@@ -20,32 +20,31 @@ export default async function HomePage() {
   let careerStats: Awaited<ReturnType<typeof fetchHomeCareerStats>> | null = null;
   let rpDateLabel: string | null = null;
   if (supabase) {
-    if (user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("party, office_role")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (!profile?.party) {
-        redirect("/character");
-      }
-      const [m, s] = await Promise.all([
-        fetchBriefingMoments(supabase, user.id, INBOX_HOME_PREVIEW + 1),
-        fetchHomeCareerStats(supabase, user.id),
-      ]);
-      moments = m;
-      careerStats = s;
+    if (!user) redirect("/imperium");
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("party, office_role")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!profile?.party) {
+      redirect("/onboarding");
+    }
+    const [m, s] = await Promise.all([
+      fetchBriefingMoments(supabase, user.id, INBOX_HOME_PREVIEW + 1),
+      fetchHomeCareerStats(supabase, user.id),
+    ]);
+    moments = m;
+    careerStats = s;
 
-      const staffAccess = await getStaffAccess(profile ? { office_role: profile.office_role ?? null } : null);
-      const { data: simRow, error: simError } = await supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle();
-      if (!simError && simRow) {
-        const effective = await resolveSimulationSettingsForWidget(
-          supabase,
-          simRow as SimulationSettingsRow,
-          staffAccess?.hasFullStaff ?? false,
-        );
-        rpDateLabel = formatRpCalendarShort(computeSimulationRpInstant(effective, new Date()));
-      }
+    const staffAccess = await getStaffAccess(profile ? { office_role: profile.office_role ?? null } : null);
+    const { data: simRow, error: simError } = await supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle();
+    if (!simError && simRow) {
+      const effective = await resolveSimulationSettingsForWidget(
+        supabase,
+        simRow as SimulationSettingsRow,
+        staffAccess?.hasFullStaff ?? false,
+      );
+      rpDateLabel = formatRpCalendarShort(computeSimulationRpInstant(effective, new Date()));
     }
   }
 

@@ -80,7 +80,7 @@ function ChamberCard({
       <p className="text-sm font-semibold text-[var(--psc-ink)]">{label} leadership</p>
       <p className="mt-1 text-xs text-[var(--psc-muted)]">
         Toggle on to open a 24-hour window. Members of the {label.toLowerCase()} can file for a
-        position AND vote during the same window. Per-role ties use most senior member; which
+        position AND vote during the same window. Per-role ties use earliest filer; which
         caucus is majority is set from seat counts when you start (see header note).
       </p>
       <SubmitButton

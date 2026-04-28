@@ -1,3 +1,4 @@
+import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
 
 export type PersonnelProfile = {
@@ -51,14 +52,14 @@ export function PersonnelRecord({
             Party: <span className="font-semibold text-[var(--psc-ink)]">{partyShort(profile.party)}</span>
           </p>
         </div>
-        {profile.face_claim_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+        <div className="h-24 w-24 shrink-0 overflow-hidden border border-[var(--psc-border)] bg-[var(--psc-canvas)]">
+          <ProfileImageWithFallback
             src={profile.face_claim_url}
-            alt=""
-            className="h-24 w-24 border border-[var(--psc-border)] object-cover"
+            name={name}
+            className="h-full w-full object-cover"
+            initialClassName="flex h-24 w-24 items-center justify-center text-2xl font-semibold text-[var(--psc-muted)]"
           />
-        ) : null}
+        </div>
       </div>
 
       <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">

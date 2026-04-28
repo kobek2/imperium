@@ -19,11 +19,14 @@ type AnalyticsRow = {
   salary_levy_collected_all_time_usd?: number;
   salary_levy_collected_active_fy_usd?: number;
   salary_levy_payers_all_time?: number;
-  salary_levy_by_member?: Array<{ user_id: string; character_name: string; total: number; salary_base?: number }>;
-  salary_levy_active_fy_label?: string | null;
-  /** Sum of implied government-salary bases underlying levy rows (for chair rate preview). */
-  salary_levy_salary_base_all_time_usd?: number;
-  salary_levy_salary_base_active_fy_usd?: number;
+  salary_levy_member_flows?: Array<{
+    user_id: string;
+    character_name: string;
+    withheld_total: number;
+    salary_base?: number;
+    received_total?: number;
+    donated_total?: number;
+  }>;
 };
 
 export default async function PartyLeadershipDashboardPage({ params }: { params: Promise<{ party: string }> }) {
@@ -115,13 +118,7 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
   const chairLevyAnalytics =
     isChair && analytics
       ? {
-          allTimeWithheld: Number(analytics.salary_levy_collected_all_time_usd ?? 0),
-          fyWithheld: Number(analytics.salary_levy_collected_active_fy_usd ?? 0),
-          fyLabel: analytics.salary_levy_active_fy_label ?? null,
-          payers: Number(analytics.salary_levy_payers_all_time ?? 0),
-          salaryBaseAll: Number(analytics.salary_levy_salary_base_all_time_usd ?? 0),
-          salaryBaseFy: Number(analytics.salary_levy_salary_base_active_fy_usd ?? 0),
-          byMember: Array.isArray(analytics.salary_levy_by_member) ? analytics.salary_levy_by_member : [],
+          memberFlows: Array.isArray(analytics.salary_levy_member_flows) ? analytics.salary_levy_member_flows : [],
         }
       : null;
 
@@ -138,16 +135,6 @@ export default async function PartyLeadershipDashboardPage({ params }: { params:
 
       <header>
         <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Leadership dashboard</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
-          Internal tools for elected officers and the national committee board. Analytics below are visible only to the
-          chair, vice chair, and treasurer.
-        </p>
-        <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          Leadership cycle:{" "}
-          <span className="font-semibold capitalize text-[var(--psc-ink)]">
-            {(org?.leadership_phase as string | null) ?? "idle"}
-          </span>
-        </p>
       </header>
 
       {isOfficer && analytics ? (

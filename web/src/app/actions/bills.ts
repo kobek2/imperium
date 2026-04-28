@@ -60,6 +60,41 @@ function omitKeys<T extends Record<string, unknown>, K extends keyof T>(obj: T, 
 }
 
 const FEDERAL_APPROPRIATIONS_TITLE_PREFIX = "Federal appropriations and revenue";
+const TREASURY_ROLE_KEY = "secretary_of_treasury";
+
+function canActorFileAppropriationsBill(params: {
+  roleKeys: string[];
+  isAdmin: boolean;
+  fiscal: {
+    budget_initial_window_ends_at?: string | null;
+    appropriations_act_bill_id?: string | null;
+    budget_treasury_override_until?: string | null;
+  } | null;
+}): boolean {
+  const { roleKeys, isAdmin, fiscal } = params;
+  if (isAdmin) return true;
+  if (!fiscal || fiscal.appropriations_act_bill_id) return false;
+  const now = Date.now();
+  const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
+    ? new Date(fiscal.budget_initial_window_ends_at).getTime()
+    : null;
+
+  if (presidentialWindowEndsAt != null && Number.isFinite(presidentialWindowEndsAt)) {
+    if (now <= presidentialWindowEndsAt) {
+      return roleKeys.includes("president");
+    }
+    const treasuryUntil = fiscal.budget_treasury_override_until
+      ? new Date(fiscal.budget_treasury_override_until).getTime()
+      : null;
+    if (treasuryUntil != null && Number.isFinite(treasuryUntil) && now <= treasuryUntil) {
+      return roleKeys.includes(TREASURY_ROLE_KEY);
+    }
+    return false;
+  }
+
+  // Pre-cycle fallback for legacy data.
+  return roleKeys.includes("president");
+}
 
 async function countPendingAmendments(supabase: SupabaseClient, billId: string): Promise<number> {
   const { count, error } = await supabase
@@ -157,17 +192,13 @@ export async function submitBill(formData: FormData): Promise<void> {
   const presEarly = await isPresident(supabase, user.id);
   const adminEarly = await getIsAdmin();
 
-  if (title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX)) {
-    if (!presEarly && !adminEarly) {
-      throw new Error("Only the President (or an admin) may use the federal appropriations bill title.");
-    }
+  if (title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX) && !adminEarly) {
+    // Final authority check happens after roles + active FY are loaded.
   }
 
   const federalAppropriationsFlag = String(formData.get("federal_appropriations") ?? "") === "1";
-  if (federalAppropriationsFlag) {
-    if (!presEarly && !adminEarly) {
-      throw new Error("Invalid appropriations filing flag.");
-    }
+  if (federalAppropriationsFlag && !adminEarly) {
+    // Final authority check happens after roles + active FY are loaded.
   }
 
   const { data: profile } = await supabase
@@ -228,7 +259,9 @@ export async function submitBill(formData: FormData): Promise<void> {
 
   const { data: activeFy } = await supabase
     .from("rp_fiscal_years")
-    .select("id, appropriation_deadline_at, appropriations_act_bill_id")
+    .select(
+      "id, appropriation_deadline_at, appropriations_act_bill_id, budget_initial_window_ends_at, budget_treasury_override_until",
+    )
     .eq("status", "active")
     .maybeSingle();
 
@@ -237,13 +270,30 @@ export async function submitBill(formData: FormData): Promise<void> {
 
   const wantsAppropriations =
     federalAppropriationsFlag || title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX);
+  if (
+    wantsAppropriations &&
+    !canActorFileAppropriationsBill({
+      roleKeys,
+      isAdmin: admin,
+      fiscal: activeFy,
+    })
+  ) {
+    throw new Error(
+      "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
+    );
+  }
   const needsAppropriationsGate =
     Boolean(activeFy?.id) && activeFy?.appropriations_act_bill_id == null;
 
   if (needsAppropriationsGate && wantsAppropriations) {
-    if (!pres && !admin) {
+    const canFileAppropriations = canActorFileAppropriationsBill({
+      roleKeys,
+      isAdmin: admin,
+      fiscal: activeFy,
+    });
+    if (!canFileAppropriations) {
       throw new Error(
-        "Only the President (or an admin) may file the annual federal appropriations bill from the federal budget workspace.",
+        "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
       );
     }
     if (originating_chamber !== "house") {
@@ -276,7 +326,11 @@ export async function submitBill(formData: FormData): Promise<void> {
   const isFederalAppropriationsBill =
     wantsAppropriations &&
     originating_chamber === "house" &&
-    (pres || admin) &&
+    canActorFileAppropriationsBill({
+      roleKeys,
+      isAdmin: admin,
+      fiscal: activeFy,
+    }) &&
     Boolean(activeFy?.id);
 
   const appropriationExtras =
@@ -888,6 +942,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
 
   await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
 
+  const nomineeUserId = String(formData.get("nominee_user_id") ?? "").trim();
   const rawDiscord = String(formData.get("nominee_discord") ?? "").trim();
   const nominee_discord = rawDiscord.replace(/\D/g, "") || rawDiscord;
   const kind = String(formData.get("kind") ?? "cabinet").trim();
@@ -908,19 +963,20 @@ export async function createAppointment(formData: FormData): Promise<void> {
     }
   }
 
-  if (!nominee_discord) {
-    throw new Error("Nominee Discord user id is required.");
+  if (!nomineeUserId && !nominee_discord) {
+    throw new Error("Nominee is required.");
   }
 
-  const { data: nominee } = await supabase
+  const nomineeQuery = supabase
     .from("profiles")
-    .select("id, character_name, discord_username, discord_user_id")
-    .eq("discord_user_id", nominee_discord)
-    .maybeSingle();
+    .select("id, character_name, discord_username, discord_user_id");
+  const { data: nominee } = nomineeUserId
+    ? await nomineeQuery.eq("id", nomineeUserId).maybeSingle()
+    : await nomineeQuery.eq("discord_user_id", nominee_discord).maybeSingle();
 
   if (!nominee) {
     throw new Error(
-      "No profile matches that Discord id. Check the number, or ask the nominee to log in once so their account is linked.",
+      "No matching profile found for the selected nominee.",
     );
   }
 

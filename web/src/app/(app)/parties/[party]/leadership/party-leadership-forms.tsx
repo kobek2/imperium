@@ -22,13 +22,14 @@ type OpenProposal = {
 };
 
 export type PartyChairLevyAnalytics = {
-  allTimeWithheld: number;
-  fyWithheld: number;
-  fyLabel: string | null;
-  payers: number;
-  salaryBaseAll: number;
-  salaryBaseFy: number;
-  byMember: Array<{ user_id: string; character_name: string; total: number; salary_base?: number }>;
+  memberFlows: Array<{
+    user_id: string;
+    character_name: string;
+    withheld_total: number;
+    salary_base?: number;
+    received_total?: number;
+    donated_total?: number;
+  }>;
 };
 
 function clampLevyDecimal(n: number): number {
@@ -40,10 +41,10 @@ function fmtUsd0(n: number) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
-function memberSalaryBase(row: { total: number; salary_base?: number }, savedRate: number): number {
+function memberSalaryBase(row: { withheld_total: number; salary_base?: number }, savedRate: number): number {
   const b = Number(row.salary_base);
   if (Number.isFinite(b) && b > 0) return b;
-  if (savedRate > 0) return Number(row.total ?? 0) / savedRate;
+  if (savedRate > 0) return Number(row.withheld_total ?? 0) / savedRate;
   return 0;
 }
 
@@ -85,10 +86,6 @@ export function PartyLeadershipForms({
 
   const parsedDraft = Number.parseFloat(levyDraftStr.trim());
   const previewRate = clampLevyDecimal(Number.isFinite(parsedDraft) ? parsedDraft : 0);
-  const previewAll =
-    chairLevyAnalytics != null ? Math.round(chairLevyAnalytics.salaryBaseAll * previewRate * 100) / 100 : 0;
-  const previewFy =
-    chairLevyAnalytics != null ? Math.round(chairLevyAnalytics.salaryBaseFy * previewRate * 100) / 100 : 0;
 
   const requiredYes = boardSize > 0 ? Math.floor(boardSize / 2) + 1 : 0;
   const remaining = Math.max(0, boardSize - yesVotes - noVotes);
@@ -182,13 +179,6 @@ export function PartyLeadershipForms({
       {isChair ? (
         <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Party salary levy (automatic)</h2>
-          <p className="text-sm text-[var(--psc-muted)]">
-            Set what share of each member&apos;s <strong className="text-[var(--psc-ink)]">government salary</strong> portion
-            of an hourly collect (scheduled role pay × hours in that collect) is sent to the party treasury. PAC hourly income
-            is excluded. Members do not pay party tax separately — it is withheld when they press{" "}
-            <strong className="text-[var(--psc-ink)]">Collect hourly income</strong>. Federal income tax still uses the full
-            gross collect for the year; this levy is separate party funding.
-          </p>
           <form
             className="flex flex-wrap items-end gap-3 border-t border-[var(--psc-border)] pt-4 text-sm"
             onSubmit={(e) => {
@@ -239,71 +229,22 @@ export function PartyLeadershipForms({
 
           {chairLevyAnalytics ? (
             <div className="space-y-4 border-t border-[var(--psc-border)] pt-4">
-              <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Salary levy — treasury inflows</h3>
-              <p className="text-xs text-[var(--psc-muted)]">
-                <strong className="text-[var(--psc-ink)]">Recorded</strong> is what was actually withheld at the saved rate.{" "}
-                <strong className="text-[var(--psc-ink)]">Preview</strong> multiplies historical government salary bases from
-                levy ledger rows by the rate currently in the field (counterfactual for past collects; PAC excluded). Saving a
-                new rate does not change the past — it only affects future collects.
-              </p>
-              {chairLevyAnalytics.payers === 0 && chairLevyAnalytics.allTimeWithheld <= 0 ? (
-                <p className="rounded border border-amber-800/40 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
-                  All zeros means there are still no <span className="font-mono">party_collect_levy</span> ledger rows for this
-                  party. Those rows are written only when an affiliated member runs{" "}
-                  <strong className="text-[var(--psc-ink)] dark:text-amber-50">Collect hourly income</strong> and that collect
-                  includes <strong className="text-[var(--psc-ink)] dark:text-amber-50">scheduled role (government) pay</strong>{" "}
-                  while the saved levy rate is above zero. If everyone&apos;s collect is PAC-only (no role hourly), or nobody has
-                  collected since the rate was raised, totals stay at $0.
-                </p>
-              ) : null}
-              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
-                <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">All time (recorded)</dt>
-                  <dd className="mt-1 font-mono text-lg text-[var(--psc-ink)]">{fmtUsd0(chairLevyAnalytics.allTimeWithheld)}</dd>
-                </div>
-                <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Active fiscal year (recorded)
-                    {chairLevyAnalytics.fyLabel ? (
-                      <span className="mt-0.5 block font-normal normal-case text-[var(--psc-muted)]">
-                        ({chairLevyAnalytics.fyLabel})
-                      </span>
-                    ) : null}
-                  </dt>
-                  <dd className="mt-1 font-mono text-lg text-[var(--psc-ink)]">{fmtUsd0(chairLevyAnalytics.fyWithheld)}</dd>
-                </div>
-                <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Members with a levy withheld (ever)
-                  </dt>
-                  <dd className="mt-1 font-mono text-lg text-[var(--psc-ink)]">{chairLevyAnalytics.payers}</dd>
-                </div>
-                <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3 sm:col-span-2">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Preview at field rate ({(previewRate * 100).toFixed(2)}%)
-                  </dt>
-                  <dd className="mt-1 font-mono text-[var(--psc-ink)]">
-                    All time: {fmtUsd0(previewAll)}
-                    <span className="mx-2 text-[var(--psc-muted)]">·</span>
-                    This fiscal year: {fmtUsd0(previewFy)}
-                  </dd>
-                </div>
-              </dl>
-
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">By member (top 40)</h4>
-                {chairLevyAnalytics.byMember.length > 0 ? (
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Member levy flows</h4>
+                {chairLevyAnalytics.memberFlows.length > 0 ? (
                   <div className="mt-3 overflow-x-auto">
-                    <table className="w-full min-w-[520px] text-left text-sm">
+                    <table className="w-full min-w-[860px] text-left text-sm">
                       <thead>
                         <tr className="border-b border-[var(--psc-border)] text-[10px] uppercase tracking-wide text-[var(--psc-muted)]">
                           <th className="py-2 pr-3">Member</th>
-                          <th className="py-2 text-right">Withheld (recorded)</th>
-                          <th className="py-2 text-right">At field rate (preview)</th>
+                          <th className="py-2 text-right">Paid via party tax</th>
+                          <th className="py-2 text-right">Projected contribution</th>
+                          <th className="py-2 text-right">Sent to member</th>
+                          <th className="py-2 text-right">Donated to party</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {chairLevyAnalytics.byMember.map((row) => {
+                        {chairLevyAnalytics.memberFlows.map((row) => {
                           const base = memberSalaryBase(row, memberCollectLevyRate);
                           const rowPreview = Math.round(base * previewRate * 100) / 100;
                           return (
@@ -312,10 +253,16 @@ export function PartyLeadershipForms({
                                 {row.character_name?.trim() || row.user_id.slice(0, 8)}
                               </td>
                               <td className="py-2 text-right font-mono tabular-nums text-[var(--psc-ink)]">
-                                {fmtUsd0(Number(row.total ?? 0))}
+                                {fmtUsd0(Number(row.withheld_total ?? 0))}
                               </td>
                               <td className="py-2 text-right font-mono tabular-nums text-[var(--psc-ink)]">
                                 {fmtUsd0(rowPreview)}
+                              </td>
+                              <td className="py-2 text-right font-mono tabular-nums text-[var(--psc-ink)]">
+                                {fmtUsd0(Number(row.received_total ?? 0))}
+                              </td>
+                              <td className="py-2 text-right font-mono tabular-nums text-[var(--psc-ink)]">
+                                {fmtUsd0(Number(row.donated_total ?? 0))}
                               </td>
                             </tr>
                           );
@@ -325,8 +272,7 @@ export function PartyLeadershipForms({
                   </div>
                 ) : (
                   <p className="mt-2 text-sm text-[var(--psc-muted)]">
-                    No per-member levy rows yet. Members need at least one qualifying collect (role pay in the collect, levy
-                    rate &gt; 0 at collect time) before names appear here.
+                    No member levy/treasury flow rows yet.
                   </p>
                 )}
               </div>

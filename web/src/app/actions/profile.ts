@@ -7,6 +7,15 @@ import { isProfileOnboardingComplete, US_STATE_CODES } from "@/lib/character-onb
 const STATE_SET = new Set<string>(US_STATE_CODES);
 const PARTIES = new Set(["democrat", "republican", "independent"]);
 
+const PORTRAIT_MAX_BYTES = 5 * 1024 * 1024;
+
+function extFromImageMime(mime: string): string {
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/gif") return "gif";
+  return "jpg";
+}
+
 export async function saveCharacter(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const {
@@ -24,8 +33,50 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   const home_district_code = String(formData.get("home_district_code") ?? "").trim();
   const party = String(formData.get("party") ?? "independent");
   const bio = String(formData.get("bio") ?? "");
-  const face_claim_url = String(formData.get("face_claim_url") ?? "");
   const former_positions = String(formData.get("former_positions") ?? "");
+
+  const portrait = formData.get("portrait");
+
+  const { data: beforeProfile, error: beforeErr } = await supabase
+    .from("profiles")
+    .select("character_name, date_of_birth, residence_state, home_district_code, party, face_claim_url")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (beforeErr) {
+    throw new Error(beforeErr.message);
+  }
+
+  let face_claim_url = String(
+    (beforeProfile as { face_claim_url?: string | null } | null)?.face_claim_url ?? "",
+  ).trim();
+
+  if (portrait instanceof File && portrait.size > 0) {
+    if (portrait.size > PORTRAIT_MAX_BYTES) {
+      throw new Error("Portrait file must be 5MB or smaller.");
+    }
+    if (!portrait.type.startsWith("image/")) {
+      throw new Error("Portrait must be an image (JPEG, PNG, WebP, or GIF).");
+    }
+    const ext = extFromImageMime(portrait.type);
+    const path = `${user.id}/face.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("face_claims")
+      .upload(path, portrait, { upsert: true, contentType: portrait.type });
+    if (uploadErr) {
+      if (
+        uploadErr.message.toLowerCase().includes("bucket") ||
+        uploadErr.message.toLowerCase().includes("not found")
+      ) {
+        throw new Error(
+          "Avatar storage is not set up on this project yet. Ask an admin to run the latest Supabase migration (face_claims storage bucket).",
+        );
+      }
+      throw new Error(uploadErr.message);
+    }
+    const { data: pub } = supabase.storage.from("face_claims").getPublicUrl(path);
+    face_claim_url = pub.publicUrl;
+  }
 
   if (!character_name) {
     throw new Error("Character name is required.");
@@ -45,16 +96,6 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   }
   if (!PARTIES.has(party)) {
     throw new Error("Choose a valid party.");
-  }
-
-  const { data: beforeProfile, error: beforeErr } = await supabase
-    .from("profiles")
-    .select("character_name, date_of_birth, residence_state, home_district_code, party")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (beforeErr) {
-    throw new Error(beforeErr.message);
   }
 
   const wasOnboardingComplete = isProfileOnboardingComplete(beforeProfile);
@@ -125,4 +166,6 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   revalidatePath("/onboarding");
   revalidatePath("/elections");
   revalidatePath("/");
+  revalidatePath("/directory");
+  revalidatePath(`/profile/${user.id}`);
 }

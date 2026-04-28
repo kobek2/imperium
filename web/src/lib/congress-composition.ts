@@ -46,6 +46,24 @@ const SENATE_LEADER_KEYS = [
   "senate_minority_whip",
 ] as const;
 
+const HOUSE_VOTING_ROLE_KEYS = new Set<string>([
+  "representative",
+  "speaker",
+  "house_majority_leader",
+  "house_majority_whip",
+  "house_minority_leader",
+  "house_minority_whip",
+]);
+
+const SENATE_VOTING_ROLE_KEYS = new Set<string>([
+  "senator",
+  "president_pro_tempore",
+  "senate_majority_leader",
+  "senate_majority_whip",
+  "senate_minority_leader",
+  "senate_minority_whip",
+]);
+
 function emptyCounts(): PartyCounts {
   return { democrat: 0, republican: 0, independent: 0, other: 0 };
 }
@@ -161,6 +179,19 @@ export async function countChamberVotingMembers(
   supabase: SupabaseClient,
   chamber: BillChamber,
 ): Promise<number> {
+  const chamberRoles = chamber === "house" ? HOUSE_VOTING_ROLE_KEYS : SENATE_VOTING_ROLE_KEYS;
+  const { data: profileRows } = await supabase.from("profiles").select("id, office_role");
+  const profileCount = new Set(
+    (profileRows ?? [])
+      .filter((row) => {
+        const role = String((row as { office_role?: string | null }).office_role ?? "");
+        return chamberRoles.has(role);
+      })
+      .map((row) => String((row as { id: string }).id)),
+  ).size;
+  if (profileCount > 0) return profileCount;
+
+  // Fallback to historical snapshot logic when office_role data is unavailable.
   const snap = await fetchCongressOverviewSnapshot(supabase);
   if (!snap) return 0;
   return chamber === "house" ? snap.house.total : snap.senate.total;

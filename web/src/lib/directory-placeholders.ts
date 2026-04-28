@@ -3,8 +3,9 @@
  * When a real player receives the role in `government_role_grants`, they replace these.
  * House/Senate rank-and-file (435 + 100) are intentionally excluded.
  *
- * `face_claim_url` uses stable Wikimedia Commons URLs (mostly federal official portraits).
- * You may also use same-origin paths such as `/directory-placeholders/president.jpg`.
+ * `face_claim_url` defaults to Wikimedia Commons portrait URLs. They can intermittently fail
+ * in the browser (429 rate limits, hotlink policy, or renamed files). For production reliability,
+ * prefer same-origin files under `web/public/directory-placeholders/` (e.g. `/directory-placeholders/president.jpg`).
  */
 
 import type { DirectoryHolder } from "@/lib/directory-types";

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { RecentAuthoredBillsPanel } from "@/components/recent-authored-bills-panel";
+import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { profileImageSrc } from "@/components/profile-card";
 import { formatPrimaryGovernmentTitle, titleCaseEachWord } from "@/lib/government-role-display";
 import { fetchRecentAuthoredBillsWithSubjectVotes } from "@/lib/profile-recent-bills";
@@ -19,13 +20,6 @@ function partyMeta(party: string | null | undefined) {
     default:
       return { label: "Unaffiliated", pill: "bg-slate-200 text-slate-900 border-slate-300", accent: "border-[var(--psc-border)]" };
   }
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 function roleLabel(key: string | null | undefined): string | null {
@@ -156,14 +150,12 @@ export default async function ProfilePage({
         className={`grid grid-cols-1 gap-6 rounded-lg border-2 bg-[var(--psc-panel)] p-6 shadow-sm md:grid-cols-[minmax(220px,320px)_1fr] md:gap-10 md:p-10 ${meta.accent}`}
       >
         <div className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)]">
-          {photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photo} alt="" loading="lazy" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-6xl font-semibold tracking-wide text-[var(--psc-muted)]">
-              {initials(name)}
-            </div>
-          )}
+          <ProfileImageWithFallback
+            src={photo}
+            name={name}
+            className="h-full w-full object-cover"
+            initialClassName="flex h-full w-full items-center justify-center text-6xl font-semibold tracking-wide text-[var(--psc-muted)]"
+          />
         </div>
 
         <div className="flex flex-col gap-4">

@@ -70,14 +70,11 @@ export default async function EconomyPage() {
       governmentShutdown || !fyBudget || (fyBudget as { status: string }).status !== "submitted";
   }
 
-  let federalTaxYtd: { grossInflows: number; estimatedTax: number } | null = null;
+  let federalEstimatedTax: number | null = null;
   const { data: taxRpcData, error: taxRpcErr } = await supabase.rpc("fiscal_estimate_ytd_income_tax");
   if (!taxRpcErr && taxRpcData && typeof taxRpcData === "object") {
     const d = taxRpcData as Record<string, unknown>;
-    federalTaxYtd = {
-      grossInflows: Number(d.gross_inflows ?? 0),
-      estimatedTax: Number(d.estimated_tax ?? 0),
-    };
+    federalEstimatedTax = Number(d.estimated_tax ?? 0);
   }
 
   const aff = String((meProf as { party?: string } | null)?.party ?? "").trim();
@@ -116,7 +113,7 @@ export default async function EconomyPage() {
         economyFrozen={economyFrozen}
         governmentShutdown={governmentShutdown}
         appropriationDeadlineAt={fyRow?.appropriation_deadline_at ?? null}
-        federalTaxYtd={federalTaxYtd}
+        federalEstimatedTax={federalEstimatedTax}
         taxAccount={
           (taxAccount as {
             assessed_tax?: number;

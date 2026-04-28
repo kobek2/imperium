@@ -14,8 +14,17 @@ export async function resolveSimulationSettingsForWidget(
   raw: SimulationSettingsRow,
   isAdmin: boolean,
 ): Promise<SimulationSettingsRow> {
+  // Keeps September budget-cycle pacing and fiscal windows in sync with the RP calendar.
+  const { error: cycleErr } = await supabase.rpc("fiscal_sync_budget_cycle_with_simulation");
+  if (cycleErr) {
+    console.warn("[resolveSimulationSettingsForWidget] fiscal_sync_budget_cycle_with_simulation:", cycleErr.message);
+  }
+
+  const latestRowRes = await supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle();
+  const effectiveRaw = (latestRowRes.data as SimulationSettingsRow | null) ?? raw;
+
   const now = new Date();
-  const { displaySettings, shouldPersistHealToDatabase } = healSimulationClockDrift(raw, now);
+  const { displaySettings, shouldPersistHealToDatabase } = healSimulationClockDrift(effectiveRaw, now);
 
   if (!shouldPersistHealToDatabase || !isAdmin) {
     return displaySettings;
@@ -33,5 +42,5 @@ export async function resolveSimulationSettingsForWidget(
     return displaySettings;
   }
 
-  return { ...raw, real_anchor_at: anchorIso };
+  return { ...effectiveRaw, real_anchor_at: anchorIso };
 }

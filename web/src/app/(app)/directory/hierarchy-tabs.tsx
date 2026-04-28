@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { ProfileCard, profileImageSrc, profilePath } from "@/components/profile-card";
 import type { DirectoryHolder } from "@/lib/directory-types";
 
@@ -39,14 +40,6 @@ export type DirectoryTab = {
     | { kind: "enacted_laws"; title: string; laws: LawEntry[] }
   >;
 };
-
-function initials(name: string | null | undefined) {
-  const raw = (name ?? "").trim();
-  if (!raw) return "?";
-  const parts = raw.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
 
 function partyLabel(party: string | null | undefined) {
   if (party === "democrat") return { text: "Democratic Party", color: "text-blue-700" };
@@ -121,25 +114,21 @@ function FeaturedHolder({
           href={href}
           className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)] outline-none transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
         >
-          {photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]">
-              {initials(name)}
-            </div>
-          )}
+          <ProfileImageWithFallback
+            src={photo}
+            name={name}
+            className="h-full w-full object-cover"
+            initialClassName="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]"
+          />
         </Link>
       ) : (
         <div className="aspect-[3/4] w-full overflow-hidden rounded bg-[var(--psc-canvas)]">
-          {photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]">
-              {initials(name)}
-            </div>
-          )}
+          <ProfileImageWithFallback
+            src={photo}
+            name={name}
+            className="h-full w-full object-cover"
+            initialClassName="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]"
+          />
         </div>
       )}
 

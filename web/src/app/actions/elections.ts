@@ -559,6 +559,33 @@ export async function finalizePresident(formData: FormData): Promise<void> {
   revalidatePath(`/elections/${election_id}`);
 }
 
+/** Re-run SQL role transitions for a closed president race (e.g. after VP grant migration). */
+export async function reapplyPresidentRoleTransitions(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const election_id = String(formData.get("election_id") ?? "").trim();
+  if (!election_id) throw new Error("Missing election id.");
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select("office, phase")
+    .eq("id", election_id)
+    .maybeSingle();
+  if (!election || election.office !== "president" || election.phase !== "closed") {
+    throw new Error("Only closed presidential races can re-apply role transitions.");
+  }
+
+  const { error } = await supabase.rpc("admin_reapply_presidential_role_transitions", {
+    e_election: election_id,
+  });
+  throwIfPostgrestError(error);
+
+  revalidatePath("/admin/elections");
+  revalidatePath(`/admin/elections/${election_id}`);
+  revalidatePath("/elections");
+  revalidatePath(`/elections/${election_id}`);
+  revalidatePath("/directory");
+}
+
 export async function setCandidateCampaignPoints(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
   const election_id = String(formData.get("election_id"));
@@ -710,10 +737,11 @@ export async function setPresidentialRunningMate(formData: FormData): Promise<vo
   if (!user) throw new Error("Unauthorized");
 
   const election_id = String(formData.get("election_id") ?? "");
+  const mateUserId = String(formData.get("running_mate_user_id") ?? "").trim();
   const rawDiscord = String(formData.get("running_mate_discord") ?? "").trim();
   const discordId = rawDiscord.replace(/\D/g, "") || rawDiscord;
-  if (!election_id || !discordId) {
-    throw new Error("Election and running mate Discord user id are required.");
+  if (!election_id || (!mateUserId && !discordId)) {
+    throw new Error("Election and running mate are required.");
   }
 
   const { data: election } = await supabase
@@ -749,13 +777,12 @@ export async function setPresidentialRunningMate(formData: FormData): Promise<vo
     .maybeSingle();
   if (!row) throw new Error("Only a filed presidential candidate can set a running mate.");
 
-  const { data: mateProfile } = await supabase
-    .from("profiles")
-    .select("id, party")
-    .eq("discord_user_id", discordId)
-    .maybeSingle();
+  const mateQuery = supabase.from("profiles").select("id, party");
+  const { data: mateProfile } = mateUserId
+    ? await mateQuery.eq("id", mateUserId).maybeSingle()
+    : await mateQuery.eq("discord_user_id", discordId).maybeSingle();
   if (!mateProfile) {
-    throw new Error("No profile matches that Discord user id. Ask them to log in once to link Discord.");
+    throw new Error("No matching profile found for the selected running mate.");
   }
 
   if (mateProfile.id === user.id) throw new Error("You cannot be your own running mate.");
@@ -1402,9 +1429,7 @@ export async function submitCampaignEndorsement(formData: FormData): Promise<voi
   if (candidate.user_id === user.id) {
     throw new Error("You cannot endorse yourself.");
   }
-  if (election.office === "president" && candidate.running_mate_user_id === user.id) {
-    throw new Error("You cannot endorse your own presidential ticket.");
-  }
+  // Running mates endorse the nominee on their ticket (same candidate row); that must be allowed.
 
   const { error } = await supabase.from("campaign_endorsements").upsert(
     {
