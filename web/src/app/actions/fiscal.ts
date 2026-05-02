@@ -28,7 +28,7 @@ function canActorFileAppropriationsBill(params: {
   } | null;
 }): boolean {
   const { roleKeys, isAdmin, fiscal } = params;
-  if (isAdmin) return true;
+  if (isAdmin || roleKeys.includes("staff_super")) return true;
   if (!fiscal || fiscal.appropriations_act_bill_id) return false;
   const now = Date.now();
   const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
@@ -295,9 +295,6 @@ export async function fileFederalBudgetAppropriationsBill(input: {
 
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canFileLegislationInChamber(roleKeys, "house")) {
-    return { ok: false, message: "You may not file House legislation with your current roles." };
-  }
   const isAdminActor = roleKeys.includes("admin");
 
   const normalizedLines = normalizeLineItemsForSave(input.lineItems);
@@ -310,18 +307,23 @@ export async function fileFederalBudgetAppropriationsBill(input: {
   if (!activeFy?.id || activeFy.id !== input.fiscalYearId) {
     return { ok: false, message: "Appropriations can only be filed for the active fiscal year." };
   }
-  if (
-    !canActorFileAppropriationsBill({
-      roleKeys,
-      isAdmin: isAdminActor,
-      fiscal: activeFy,
-    })
-  ) {
+  const appropriationsAuthorized = canActorFileAppropriationsBill({
+    roleKeys,
+    isAdmin: isAdminActor,
+    fiscal: activeFy,
+  });
+  if (!appropriationsAuthorized) {
     return {
       ok: false,
       message:
         "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
     };
+  }
+  const canHouseMember = canFileLegislationInChamber(roleKeys, "house");
+  const treasurySecretaryHouseAppropriations =
+    roleKeys.includes(TREASURY_ROLE_KEY) && appropriationsAuthorized;
+  if (!canHouseMember && !treasurySecretaryHouseAppropriations) {
+    return { ok: false, message: "You may not file House legislation with your current roles." };
   }
 
   const { data: pendingAppRows, error: pendErr } = await supabase
@@ -331,7 +333,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     .eq("is_federal_appropriations", true)
     .limit(40);
   if (pendErr) return { ok: false, message: pendErr.message };
-    const terminal = new Set(["dead", "vetoed", "failed"]);
+  const terminal = new Set(["dead", "vetoed", "failed"]);
   const hasOpenPipeline = (pendingAppRows ?? []).some(
     (r) => !terminal.has(String((r as { status?: string }).status ?? "")),
   );

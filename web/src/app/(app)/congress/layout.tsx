@@ -32,16 +32,16 @@ export default async function CongressLayout({ children }: { children: React.Rea
       const linkedFiscalYearId = String((fy as { id?: string }).id ?? "");
       const enrolledBillId = (fy as { appropriations_act_bill_id?: string | null }).appropriations_act_bill_id ?? null;
       if (enrolledBillId) {
-        const { data: enrolledBill } = await supabase
+        const { data: enrolledBill, error: enrolledErr } = await supabase
           .from("bills")
           .select("id, title, status")
           .eq("id", enrolledBillId)
           .maybeSingle();
-        if (enrolledBill) {
+        if (!enrolledErr && enrolledBill) {
           appropriationsTracker = enrolledBill as { id: string; title: string; status: string };
         }
       } else if (linkedFiscalYearId) {
-        const { data: latestAppBill } = await supabase
+        const { data: latestAppBill, error: appErr } = await supabase
           .from("bills")
           .select("id, title, status")
           .eq("linked_fiscal_year_id", linkedFiscalYearId)
@@ -49,7 +49,7 @@ export default async function CongressLayout({ children }: { children: React.Rea
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (latestAppBill) {
+        if (!appErr && latestAppBill) {
           appropriationsTracker = latestAppBill as { id: string; title: string; status: string };
         }
       }

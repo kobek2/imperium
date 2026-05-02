@@ -38,7 +38,7 @@ function sectionFlash(
 ) {
   if (!flash || flash.section !== section) return null;
   return (
-    <p
+    <div
       role="status"
       aria-live="polite"
       className={`rounded border px-3 py-2 text-sm ${
@@ -47,7 +47,7 @@ function sectionFlash(
           : "border-rose-300 bg-rose-50 text-rose-950"
       }`}
     >
-      <p>{flash.message}</p>
+      <p className="m-0">{flash.message}</p>
       {flash.details?.length ? (
         <ul className="mt-2 space-y-1 text-xs">
           {flash.details.map((d) => (
@@ -68,7 +68,7 @@ function sectionFlash(
           ))}
         </ul>
       ) : null}
-    </p>
+    </div>
   );
 }
 

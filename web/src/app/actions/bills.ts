@@ -64,6 +64,7 @@ const TREASURY_ROLE_KEY = "secretary_of_treasury";
 
 function canActorFileAppropriationsBill(params: {
   roleKeys: string[];
+  /** True when the actor has site admin or full staff operator grants (`admin` / `staff_super`). */
   isAdmin: boolean;
   fiscal: {
     budget_initial_window_ends_at?: string | null;
@@ -72,7 +73,7 @@ function canActorFileAppropriationsBill(params: {
   } | null;
 }): boolean {
   const { roleKeys, isAdmin, fiscal } = params;
-  if (isAdmin) return true;
+  if (isAdmin || roleKeys.includes("staff_super")) return true;
   if (!fiscal || fiscal.appropriations_act_bill_id) return false;
   const now = Date.now();
   const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
@@ -189,7 +190,6 @@ export async function submitBill(formData: FormData): Promise<void> {
     template_id = templateIdRaw;
   }
 
-  const presEarly = await isPresident(supabase, user.id);
   const adminEarly = await getIsAdmin();
 
   if (title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX) && !adminEarly) {
@@ -201,6 +201,15 @@ export async function submitBill(formData: FormData): Promise<void> {
     // Final authority check happens after roles + active FY are loaded.
   }
 
+  const wantsAppropriations =
+    federalAppropriationsFlag || title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX);
+
+  const rawChamber = String(formData.get("originating_chamber") ?? "").trim();
+  if (rawChamber !== "house" && rawChamber !== "senate") {
+    throw new Error("Missing or invalid originating chamber.");
+  }
+  const originating_chamber = rawChamber as BillChamber;
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("office_role")
@@ -208,10 +217,34 @@ export async function submitBill(formData: FormData): Promise<void> {
     .maybeSingle();
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+
+  const { data: activeFy } = await supabase
+    .from("rp_fiscal_years")
+    .select(
+      "id, appropriation_deadline_at, appropriations_act_bill_id, budget_initial_window_ends_at, budget_treasury_override_until",
+    )
+    .eq("status", "active")
+    .maybeSingle();
+
+  const appropriationsActor = canActorFileAppropriationsBill({
+    roleKeys,
+    isAdmin: adminEarly,
+    fiscal: activeFy,
+  });
+  const treasurySecretaryHouseAppropriations =
+    wantsAppropriations &&
+    originating_chamber === "house" &&
+    roleKeys.includes(TREASURY_ROLE_KEY) &&
+    appropriationsActor;
+  const treasurySecretaryAppropriationsActor =
+    wantsAppropriations && roleKeys.includes(TREASURY_ROLE_KEY) && appropriationsActor;
+
   if (!canFileFederalLegislation(roleKeys)) {
-    throw new Error(
-      "Only Representatives, Senators, or the President (or admin) may file legislation.",
-    );
+    if (!treasurySecretaryAppropriationsActor) {
+      throw new Error(
+        "Only Representatives, Senators, or the President (or admin) may file legislation.",
+      );
+    }
   }
   if (await isActivePresidentialRunningMate(supabase, user.id)) {
     throw new Error(
@@ -219,17 +252,14 @@ export async function submitBill(formData: FormData): Promise<void> {
     );
   }
 
-  const rawChamber = String(formData.get("originating_chamber") ?? "").trim();
-  if (rawChamber !== "house" && rawChamber !== "senate") {
-    throw new Error("Missing or invalid originating chamber.");
-  }
-  const originating_chamber = rawChamber as BillChamber;
   if (!canFileLegislationInChamber(roleKeys, originating_chamber)) {
-    throw new Error(
-      originating_chamber === "house"
-        ? "You may not file House legislation with your current roles (Representatives, President, or admin)."
-        : "You may not file Senate legislation with your current roles (Senators or admin).",
-    );
+    if (!treasurySecretaryHouseAppropriations) {
+      throw new Error(
+        originating_chamber === "house"
+          ? "You may not file House legislation with your current roles (Representatives, President, or admin)."
+          : "You may not file Senate legislation with your current roles (Senators or admin).",
+      );
+    }
   }
 
   const now = new Date();
@@ -257,27 +287,7 @@ export async function submitBill(formData: FormData): Promise<void> {
     return;
   }
 
-  const { data: activeFy } = await supabase
-    .from("rp_fiscal_years")
-    .select(
-      "id, appropriation_deadline_at, appropriations_act_bill_id, budget_initial_window_ends_at, budget_treasury_override_until",
-    )
-    .eq("status", "active")
-    .maybeSingle();
-
-  const pres = presEarly;
-  const admin = adminEarly;
-
-  const wantsAppropriations =
-    federalAppropriationsFlag || title.startsWith(FEDERAL_APPROPRIATIONS_TITLE_PREFIX);
-  if (
-    wantsAppropriations &&
-    !canActorFileAppropriationsBill({
-      roleKeys,
-      isAdmin: admin,
-      fiscal: activeFy,
-    })
-  ) {
+  if (wantsAppropriations && !appropriationsActor) {
     throw new Error(
       "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
     );
@@ -286,22 +296,12 @@ export async function submitBill(formData: FormData): Promise<void> {
     Boolean(activeFy?.id) && activeFy?.appropriations_act_bill_id == null;
 
   if (needsAppropriationsGate && wantsAppropriations) {
-    const canFileAppropriations = canActorFileAppropriationsBill({
-      roleKeys,
-      isAdmin: admin,
-      fiscal: activeFy,
-    });
-    if (!canFileAppropriations) {
-      throw new Error(
-        "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
-      );
-    }
     if (originating_chamber !== "house") {
       throw new Error("The annual appropriations bill must originate in the House.");
     }
   }
 
-  if (activeFy?.id && wantsAppropriations && originating_chamber === "house" && (pres || admin)) {
+  if (activeFy?.id && wantsAppropriations && originating_chamber === "house" && appropriationsActor) {
     if (activeFy.appropriations_act_bill_id) {
       throw new Error(
         "This fiscal year's appropriations act is already enrolled. Further appropriations bills for this year are locked.",
@@ -324,14 +324,7 @@ export async function submitBill(formData: FormData): Promise<void> {
   }
 
   const isFederalAppropriationsBill =
-    wantsAppropriations &&
-    originating_chamber === "house" &&
-    canActorFileAppropriationsBill({
-      roleKeys,
-      isAdmin: admin,
-      fiscal: activeFy,
-    }) &&
-    Boolean(activeFy?.id);
+    wantsAppropriations && originating_chamber === "house" && appropriationsActor && Boolean(activeFy?.id);
 
   const appropriationExtras =
     isFederalAppropriationsBill && activeFy?.id

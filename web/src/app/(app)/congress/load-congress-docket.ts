@@ -19,16 +19,6 @@ export type CongressDocketPayload = {
   canBreakSenateTie: boolean;
 };
 
-const ACTIVE_CONGRESS_STATUSES = [
-  "submitted",
-  "on_docket",
-  "debate",
-  "other_chamber_review",
-  "other_chamber_debate",
-  "house_floor",
-  "senate_floor",
-] as const;
-
 const NON_CHAMBER_BILL_STATUSES = new Set(["oval", "passed_congress", "law", "signed", "vetoed", "dead", "failed"]);
 
 /** Bills listed under /congress/house: House filing pipeline + anything on the House floor (any origin). */
@@ -66,21 +56,24 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, userId, profile);
 
-  const [{ data: bills, error: billsError }, { data: leadershipSessions }, isRunningMate, canBreakSenateTie] =
-    await Promise.all([
+  const [{ data: bills }, { data: leadershipSessions }, isRunningMate, canBreakSenateTie] = await Promise.all([
     supabase
       .from("bills")
       .select(
         "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
-      .in("status", [...ACTIVE_CONGRESS_STATUSES])
+      .neq("status", "oval")
+      .neq("status", "passed_congress")
+      .neq("status", "law")
+      .neq("status", "signed")
+      .neq("status", "vetoed")
+      .neq("status", "dead")
+      .neq("status", "failed")
       .order("created_at", { ascending: false }),
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     isActivePresidentialRunningMate(supabase, userId),
     userCanBreakSenateTie(supabase, userId, roleKeys),
   ]);
-
-  if (billsError) throw new Error(billsError.message);
 
   const billList = (bills ?? []) as BillForCard[];
   const billIds = billList.map((b) => b.id);

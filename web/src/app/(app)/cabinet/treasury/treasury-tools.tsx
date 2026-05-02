@@ -67,31 +67,57 @@ export function TreasuryTools({
           {settings?.label ?? "Active FY"} · due days {Number(settings?.tax_due_days_after_close ?? 0)} · warning lead{" "}
           {Number(settings?.tax_warning_lead_days ?? 0)} · daily penalty {(Number(settings?.tax_penalty_daily_rate ?? 0) * 100).toFixed(2)}%
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            className="rounded border px-3 py-2 text-sm font-semibold"
-            onClick={() => run(() => issueWarningsAction("due_soon"))}
-          >
-            Issue due-soon warnings
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            className="rounded border px-3 py-2 text-sm font-semibold"
-            onClick={() => run(() => issueWarningsAction("delinquent"))}
-          >
-            Issue delinquent warnings
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            className="rounded border px-3 py-2 text-sm font-semibold"
-            onClick={() => run(applyPenaltiesAction)}
-          >
-            Apply daily penalties
-          </button>
+        <p className="mt-2 text-xs text-[var(--psc-muted)]">
+          Each warning action writes a row to the tax event log and updates the account. The same account can receive at most one
+          warning per calendar day (UTC).
+        </p>
+
+        <div className="mt-5 space-y-5">
+          <div className="rounded border border-[var(--psc-border)]/80 bg-[var(--psc-panel)] p-3">
+            <button
+              type="button"
+              disabled={pending}
+              className="rounded border px-3 py-2 text-sm font-semibold"
+              onClick={() => run(() => issueWarningsAction("due_soon"))}
+            >
+              Issue due-soon warnings
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--psc-muted)]">
+              For everyone who still owes tax, records a warning when their due date is within the warning lead window counting from
+              right now, or when they are already past due. Use this as the first nudge before penalties stack up.
+            </p>
+          </div>
+
+          <div className="rounded border border-[var(--psc-border)]/80 bg-[var(--psc-panel)] p-3">
+            <button
+              type="button"
+              disabled={pending}
+              className="rounded border px-3 py-2 text-sm font-semibold"
+              onClick={() => run(() => issueWarningsAction("delinquent"))}
+            >
+              Issue delinquent warnings
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--psc-muted)]">
+              For everyone who still owes tax, records a warning when they are past the due date or already marked delinquent. Use
+              this after the due date has passed for a stronger notice than due-soon.
+            </p>
+          </div>
+
+          <div className="rounded border border-[var(--psc-border)]/80 bg-[var(--psc-panel)] p-3">
+            <button
+              type="button"
+              disabled={pending}
+              className="rounded border px-3 py-2 text-sm font-semibold"
+              onClick={() => run(applyPenaltiesAction)}
+            >
+              Apply daily penalties
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--psc-muted)]">
+              For past-due accounts with a balance, adds penalty dollars to what they owe using the daily penalty rate and how many
+              calendar days they are late. Marks accounts delinquent and logs each penalty. Run when you want to enforce late fees
+              (often after due date and warnings).
+            </p>
+          </div>
         </div>
       </section>
 
