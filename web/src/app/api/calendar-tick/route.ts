@@ -1,3 +1,10 @@
+/**
+ * Runs calendar automation (election phase advance, RP milestone handlers, etc.).
+ *
+ * Vercel Hobby allows at most one project cron per day, so `vercel.json` uses a daily schedule.
+ * For more frequent ticks without upgrading Vercel, use a free external cron (e.g. cron-job.org)
+ * to GET this URL with `Authorization: Bearer <CRON_SECRET>` on whatever interval you want.
+ */
 import { tickCalendarEvents } from "@/lib/calendar-event-engine";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
