@@ -3,7 +3,11 @@ export function orientationStepOrDefault(step: number | null | undefined): 1 | 2
   return 1;
 }
 
-/** Any race still in play — broader than dashboard "active" (includes dormant filing seats you can file in). */
-export function nonClosedElectionIds(rows: Array<{ id: string; phase: string }>): string[] {
-  return rows.filter((e) => e.phase !== "closed").map((e) => e.id);
+/** Any seat/president race still in play (excludes chamber leadership — those live under Congress). */
+export function nonClosedElectionIds(
+  rows: Array<{ id: string; phase: string; leadership_role?: string | null }>,
+): string[] {
+  return rows
+    .filter((e) => e.phase !== "closed" && !e.leadership_role)
+    .map((e) => e.id);
 }

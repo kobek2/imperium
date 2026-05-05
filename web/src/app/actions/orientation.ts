@@ -59,10 +59,12 @@ export async function advanceFromElectionStep(): Promise<void> {
 
   const { data: elections } = await supabase
     .from("elections")
-    .select("id, phase")
+    .select("id, phase, leadership_role")
     .neq("phase", "closed");
 
-  const openIds = nonClosedElectionIds((elections ?? []) as Array<{ id: string; phase: string }>);
+  const openIds = nonClosedElectionIds(
+    (elections ?? []) as Array<{ id: string; phase: string; leadership_role: string | null }>,
+  );
 
   if (openIds.length > 0) {
     const { data: cand } = await supabase

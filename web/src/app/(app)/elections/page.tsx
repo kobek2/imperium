@@ -54,11 +54,12 @@ export default async function ElectionsPage() {
   const all = (elections ?? []) as Array<
     Omit<DashboardElection, "candidate_count">
   >;
+  /** Chamber-wide leadership (Speaker, SML, etc.) lives under Congress, not this page. */
   const active = all.filter((e) => {
+    if (e.leadership_role) return false;
     if (e.phase === "closed") return false;
     if (
       e.phase === "filing" &&
-      !e.leadership_role &&
       !(e as { filing_window_started_at?: string | null }).filing_window_started_at
     ) {
       return false;
@@ -107,9 +108,10 @@ export default async function ElectionsPage() {
   } | null;
   const inTour = !prof?.orientation_completed_at;
   const onStep1 = inTour && (prof?.orientation_step ?? 1) === 1;
-  // Candidacy must match any non-closed election — not only dashboard "active" rows (dormant filing
-  // templates are excluded from `active` until the window starts, but you are still filed).
-  const nonClosedIds = all.filter((e) => e.phase !== "closed").map((e) => e.id);
+  // Candidacy must match any non-closed seat/president race — not leadership (Congress page).
+  const nonClosedIds = all
+    .filter((e) => e.phase !== "closed" && !e.leadership_role)
+    .map((e) => e.id);
   let electionsTourCanAdvance = nonClosedIds.length === 0;
   if (onStep1 && !electionsTourCanAdvance) {
     const { data: myCand } = await supabase
@@ -172,6 +174,13 @@ export default async function ElectionsPage() {
         </header>
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <p className="text-sm text-[var(--psc-muted)]">
+            Chamber leadership races (Speaker, Senate Majority Leader, etc.) are listed on{" "}
+            <Link href="/congress" className="font-semibold text-[var(--psc-accent)] underline">
+              Congress
+            </Link>
+            .
+          </p>
+          <p className="mt-3 text-sm text-[var(--psc-muted)]">
             {isAdmin ? (
               <>
                 Past results are under{" "}

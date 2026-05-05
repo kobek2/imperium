@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { fetchCongressOverviewSnapshot } from "@/lib/congress-composition";
+import { isLeadershipRole, leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 import { OrientationTourPanelCongress } from "@/components/orientation-tour-panel";
@@ -19,6 +20,24 @@ const congressActionBtn =
 
 const congressActionBtnPrimary =
   "inline-flex shrink-0 items-center justify-center rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_14%,white)] px-3 py-1.5 text-xs font-bold text-[var(--psc-ink)] shadow-sm no-underline transition hover:bg-[color-mix(in_srgb,var(--psc-accent)_22%,white)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)] active:translate-y-px";
+
+function leadershipOfficeRaceDeadlineIso(e: {
+  phase: string;
+  filing_closes_at: string;
+  primary_closes_at: string | null;
+  general_closes_at: string;
+}): string {
+  switch (e.phase) {
+    case "filing":
+      return e.filing_closes_at;
+    case "primary":
+      return e.primary_closes_at ?? e.general_closes_at;
+    case "general":
+      return e.general_closes_at;
+    default:
+      return e.general_closes_at;
+  }
+}
 
 export default async function CongressOverviewPage() {
   const { supabase, user } = await getServerAuth();
@@ -42,7 +61,13 @@ export default async function CongressOverviewPage() {
   const isRep = roleKeys.includes("representative");
   const isSen = roleKeys.includes("senator");
 
-  const [{ data: leadershipSessions }, snapshot, { data: reviewBills }, { data: docketBills }] = await Promise.all([
+  const [
+    { data: leadershipSessions },
+    snapshot,
+    { data: reviewBills },
+    { data: docketBills },
+    { data: leadershipOfficeRaces },
+  ] = await Promise.all([
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     fetchCongressOverviewSnapshot(supabase),
     supabase
@@ -55,6 +80,14 @@ export default async function CongressOverviewPage() {
       .select("id, title, originating_chamber")
       .eq("status", "on_docket")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("elections")
+      .select(
+        "id, office, phase, leadership_role, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at",
+      )
+      .not("leadership_role", "is", null)
+      .neq("phase", "closed")
+      .order("filing_opens_at", { ascending: false }),
   ]);
 
   const sessions = (leadershipSessions ?? []) as Array<{ id: string; chamber: string; closes_at: string }>;
@@ -73,6 +106,30 @@ export default async function CongressOverviewPage() {
     title: string;
     originating_chamber: "house" | "senate";
   }>;
+
+  const officeRaceRows = (leadershipOfficeRaces ?? []) as Array<{
+    id: string;
+    office: string;
+    phase: string;
+    leadership_role: string | null;
+    filing_opens_at: string;
+    filing_closes_at: string;
+    primary_closes_at: string | null;
+    general_closes_at: string;
+  }>;
+
+  const officeRaceIds = officeRaceRows.map((r) => r.id);
+  const candCountByElectionId: Record<string, number> = {};
+  if (officeRaceIds.length) {
+    const { data: candRows } = await supabase
+      .from("election_candidates")
+      .select("election_id")
+      .in("election_id", officeRaceIds);
+    for (const row of (candRows ?? []) as Array<{ election_id: string }>) {
+      const id = row.election_id;
+      candCountByElectionId[id] = (candCountByElectionId[id] ?? 0) + 1;
+    }
+  }
 
   if (!snapshot) {
     return (
@@ -96,6 +153,41 @@ export default async function CongressOverviewPage() {
       <header>
         <h1 className="text-3xl font-semibold text-[var(--psc-ink)]">Congress overview</h1>
       </header>
+
+      {officeRaceRows.length > 0 ? (
+        <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
+          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Chamber office elections</h2>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            Speaker, Senate Majority Leader, and other chamber-wide roles. File and vote on each race&apos;s page
+            (House members for House races, Senators for Senate races).
+          </p>
+          <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
+            {officeRaceRows.map((r) => {
+              const role = r.leadership_role;
+              const title =
+                role && isLeadershipRole(role) ? leadershipRoleLabel(role as LeadershipRole) : role ?? "Leadership";
+              const deadline = leadershipOfficeRaceDeadlineIso(r);
+              const n = candCountByElectionId[r.id] ?? 0;
+              const phaseLabel = r.phase.charAt(0).toUpperCase() + r.phase.slice(1);
+              return (
+                <li key={r.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--psc-ink)]">{title}</p>
+                    <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                      {r.office === "house" ? "House" : r.office === "senate" ? "Senate" : r.office} · {phaseLabel} ·{" "}
+                      {n} candidate{n === 1 ? "" : "s"} · current phase ends{" "}
+                      {new Date(deadline).toLocaleString()}
+                    </p>
+                  </div>
+                  <Link href={`/elections/${r.id}`} className={congressActionBtnPrimary}>
+                    Open race →
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       {reviewRows.length > 0 ? (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
@@ -177,7 +269,7 @@ export default async function CongressOverviewPage() {
 
       {(openHouseSessions.length > 0 || openSenateSessions.length > 0) && (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Leadership elections</h2>
+          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Caucus session ballots (Hopper)</h2>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Ballots stay on each chamber&apos;s tab so only members of that chamber can vote.
           </p>

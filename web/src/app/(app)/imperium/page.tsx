@@ -16,7 +16,11 @@ async function loadSnapshot(): Promise<Snapshot | null> {
 
   const [profiles, elections, laws, bills, partyOrgs] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("elections").select("id", { count: "exact", head: true }).neq("phase", "closed"),
+    supabase
+      .from("elections")
+      .select("id", { count: "exact", head: true })
+      .neq("phase", "closed")
+      .is("leadership_role", null),
     supabase.from("bills").select("id", { count: "exact", head: true }).eq("status", "law"),
     supabase
       .from("bills")
