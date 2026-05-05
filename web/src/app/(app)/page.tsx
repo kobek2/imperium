@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { BriefingInbox } from "@/components/briefing-inbox";
-import { HistoryBackButton } from "@/components/history-back-button";
 import { HomeCareerStats } from "@/components/home-career-stats";
 import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { fetchHomeCareerStats } from "@/lib/home-career-stats";
@@ -67,7 +66,6 @@ export default async function HomePage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <HistoryBackButton />
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
         </div>
         {rpDateLabel ? (

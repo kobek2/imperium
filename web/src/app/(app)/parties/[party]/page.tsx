@@ -2,12 +2,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayManagePartyOrg } from "@/lib/staff-access";
-import {
-  computeSimulationRpInstant,
-  defaultSimulationSettingsForDisplay,
-  healSimulationClockDrift,
-  type SimulationSettingsRow,
-} from "@/lib/simulation-calendar";
 import type { ProfileCardData } from "@/components/profile-card";
 import { PartyRoom } from "./party-room";
 
@@ -31,7 +25,6 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     { data: cands },
     { data: votes },
     { data: members },
-    { data: simRow },
     isAdmin,
     { data: viewerProfile },
     { data: myVoteRows },
@@ -52,22 +45,13 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
       .select("id, character_name, home_district_code")
       .eq("party", partyKey)
       .order("character_name", { ascending: true }),
-    supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
     getStaffMayManagePartyOrg(),
     supabase.from("profiles").select("party").eq("id", user.id).maybeSingle(),
     supabase.from("party_officer_votes").select("office, candidate_id").eq("party_key", partyKey).eq("voter_id", user.id),
     supabase.from("party_national_board_members").select("user_id").eq("party_key", partyKey).eq("user_id", user.id).maybeSingle(),
   ]);
 
-  const simSettings: SimulationSettingsRow = simRow
-    ? healSimulationClockDrift(simRow as SimulationSettingsRow).displaySettings
-    : defaultSimulationSettingsForDisplay();
-  const rpInstant = computeSimulationRpInstant(simSettings);
-  const rpCalendarDay = rpInstant.at.toISOString().slice(0, 10);
   const leadershipPhase = (org?.leadership_phase as string | null) ?? "idle";
-  const nextOpensRp = (org?.next_leadership_election_opens_on_rp as string | null) ?? null;
-  const leadershipOpenOverdue =
-    leadershipPhase === "idle" && Boolean(nextOpensRp) && rpCalendarDay >= String(nextOpensRp).slice(0, 10);
 
   const candUserIds = [...new Set((cands ?? []).map((c) => c.user_id as string))];
   const officerHolderIds = (officers ?? [])

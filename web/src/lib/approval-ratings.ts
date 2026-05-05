@@ -11,7 +11,7 @@ const LEADER_ROLE: Record<BillChamber, string> = {
  * Placeholder for future Discord floor-speech integration.
  * Do not call until speech events are modeled.
  */
-export function applyFloorSpeechBonus(_characterId: string, _delta: number): void {
+export function applyFloorSpeechBonus(): void {
   // TODO: Discord webhook / speech sentiment → approval delta
 }
 

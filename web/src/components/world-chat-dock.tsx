@@ -179,8 +179,8 @@ export function WorldChatDock() {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const openRef = useRef(open);
-  const myProfileRef = useRef<ProfileMention | null>(null);
   const mentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [myProfile, setMyProfile] = useState<ProfileMention | null>(null);
 
   const [mention, setMention] = useState<{
     start: number;
@@ -190,7 +190,9 @@ export function WorldChatDock() {
     loading: boolean;
   } | null>(null);
 
-  openRef.current = open;
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     let supabase: ReturnType<typeof createClient>;
@@ -242,7 +244,7 @@ export function WorldChatDock() {
         setMessages([]);
         setReactions({});
         setMentionUnread(0);
-        myProfileRef.current = null;
+        setMyProfile(null);
         setLoadError(null);
         return;
       }
@@ -254,11 +256,13 @@ export function WorldChatDock() {
         .eq("id", user.id)
         .maybeSingle();
       if (cancelled) return;
-      myProfileRef.current = (me as ProfileMention | null) ?? {
-        id: user.id,
-        character_name: "Member",
-        discord_username: null,
-      };
+      const resolved: ProfileMention =
+        (me as ProfileMention | null) ?? {
+          id: user.id,
+          character_name: "Member",
+          discord_username: null,
+        };
+      setMyProfile(resolved);
 
       setLoadError(null);
       const { data, error } = await supabase
@@ -302,7 +306,7 @@ export function WorldChatDock() {
         requestAnimationFrame(scrollBottom);
       }
 
-      const myId = myProfileRef.current?.id ?? user.id;
+      const myId = resolved.id;
 
       const channel = supabase
         .channel("world_chat_messages_live")
@@ -337,12 +341,10 @@ export function WorldChatDock() {
               const next = [...prev, row];
               return next.length > FETCH_LIMIT ? next.slice(-FETCH_LIMIT) : next;
             });
-            const meP = myProfileRef.current;
             if (
-              meP &&
-              row.user_id !== meP.id &&
+              row.user_id !== resolved.id &&
               !openRef.current &&
-              messageMentionsUser(row.body, meP)
+              messageMentionsUser(row.body, resolved)
             ) {
               setMentionUnread((n) => n + 1);
             }
@@ -396,15 +398,15 @@ export function WorldChatDock() {
 
   useEffect(() => {
     if (open) {
-      setMentionUnread(0);
+      queueMicrotask(() => setMentionUnread(0));
       requestAnimationFrame(scrollBottom);
     }
   }, [messages, open, scrollBottom]);
 
   useEffect(() => {
-    const myId = myProfileRef.current?.id;
+    const myId = myProfile?.id;
     if (!myId || messages.length === 0) {
-      setReactions({});
+      queueMicrotask(() => setReactions({}));
       return;
     }
     let cancelled = false;
@@ -426,7 +428,7 @@ export function WorldChatDock() {
     return () => {
       cancelled = true;
     };
-  }, [messages, authVersion, reactionRefetchNonce]);
+  }, [messages, authVersion, reactionRefetchNonce, myProfile?.id]);
 
   const fetchMentionRows = useCallback(async (q: string) => {
     let supabase: ReturnType<typeof createClient>;
@@ -629,7 +631,7 @@ export function WorldChatDock() {
     [open],
   );
 
-  const myId = myProfileRef.current?.id;
+  const myId = myProfile?.id;
 
   if (noSession) {
     return (

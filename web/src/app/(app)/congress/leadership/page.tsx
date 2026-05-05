@@ -12,11 +12,6 @@ import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
 import { canAcceptRejectHopperForChamber, canActLeadershipReviewHopper } from "@/lib/role-capabilities";
 
-function fmt(ts: string | null) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString();
-}
-
 type BillRow = {
   id: string;
   title: string;

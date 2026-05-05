@@ -31,7 +31,6 @@ import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
 import { getIsAdmin } from "@/lib/is-admin";
-import { isPresident } from "@/lib/president";
 import { applyApprovalDelta } from "@/lib/approval-ratings";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
