@@ -1,17 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Dormant seat template races where the jurisdiction already has at least one player (for admin open-filing UI). */
+/** Dormant House/Senate templates where at least one profile lives in that district or state. */
 export type DormantOpenCandidate = {
   electionId: string;
-  office: "house" | "senate" | "president";
+  office: "house" | "senate";
   /** Short label for lists, e.g. House · CA-12 */
   label: string;
-  playerCount: number;
+  /** Profiles whose home district (House) or residence state (Senate) matches this seat. */
+  residentCount: number;
 };
 
 /**
- * Lists dormant House / Senate / President races whose jurisdiction has ≥1 profile,
- * so admins can open filing windows in bulk with clear context.
+ * Lists dormant House and Senate races where at least one profile matches the jurisdiction
+ * (re-election / incumbent geography). President races are excluded — open those from the presidential admin flow.
  */
 export async function loadDormantOpenCandidates(
   supabase: SupabaseClient,
@@ -23,7 +24,7 @@ export async function loadDormantOpenCandidates(
       .eq("phase", "filing")
       .is("filing_window_started_at", null)
       .is("leadership_role", null)
-      .in("office", ["house", "senate", "president"]),
+      .in("office", ["house", "senate"]),
     supabase.from("profiles").select("home_district_code, residence_state"),
   ]);
 
@@ -44,39 +45,36 @@ export async function loadDormantOpenCandidates(
       stateCounts.set(rs, (stateCounts.get(rs) ?? 0) + 1);
     }
   }
-  const totalPlayers = profs?.length ?? 0;
 
   const out: DormantOpenCandidate[] = [];
   for (const e of dormant ?? []) {
+    const electionId = String((e as { id: string }).id);
     const office = e.office as string;
-    let playerCount = 0;
+    let residentCount = 0;
     let label = "";
 
     if (office === "house") {
       const code = String(e.district_code ?? "").trim().toUpperCase();
       if (!code) continue;
-      playerCount = districtCounts.get(code) ?? 0;
+      residentCount = districtCounts.get(code) ?? 0;
       label = `House · ${code}`;
     } else if (office === "senate") {
       const st = String(e.state ?? "").trim().toUpperCase();
       if (!st) continue;
       const cls = e.senate_class != null ? e.senate_class : "";
-      playerCount = stateCounts.get(st) ?? 0;
+      residentCount = stateCounts.get(st) ?? 0;
       label = cls !== "" ? `Senate · ${st} · class ${cls}` : `Senate · ${st}`;
-    } else if (office === "president") {
-      playerCount = totalPlayers;
-      label = "President";
     } else {
       continue;
     }
 
-    if (playerCount < 1) continue;
+    if (residentCount < 1) continue;
 
     out.push({
-      electionId: e.id as string,
+      electionId,
       office: office as DormantOpenCandidate["office"],
       label,
-      playerCount,
+      residentCount,
     });
   }
 

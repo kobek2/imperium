@@ -256,7 +256,14 @@ export function AdminElectionsList({
   const [officeFilter, setOfficeFilter] = useState<Office | "all">("all");
   const [showClosed, setShowClosed] = useState(false);
 
-  const countRows = archiveOnly ? rows.filter((r) => r.phase === "closed") : rows;
+  /** Rows included in phase/chamber counts — matches the default list (active tab hides closed). */
+  const statsRows = useMemo(() => {
+    if (archiveOnly) return rows.filter((r) => r.phase === "closed");
+    if (showClosed) return rows;
+    return rows.filter((r) => r.phase !== "closed");
+  }, [rows, archiveOnly, showClosed]);
+
+  const totalClosedCount = useMemo(() => rows.filter((r) => r.phase === "closed").length, [rows]);
 
   const phaseCounts: Record<Phase, number> = {
     filing: 0,
@@ -270,7 +277,7 @@ export function AdminElectionsList({
     president: 0,
     leadership: 0,
   };
-  for (const r of countRows) {
+  for (const r of statsRows) {
     if ((PHASES as readonly string[]).includes(r.phase)) {
       phaseCounts[r.phase as Phase]++;
     }
@@ -331,7 +338,7 @@ export function AdminElectionsList({
                 onChange={(e) => setShowClosed(e.target.checked)}
                 className="h-3.5 w-3.5"
               />
-              Show closed ({phaseCounts.closed})
+              Show closed ({totalClosedCount})
             </label>
           ) : null}
           <Link
@@ -419,32 +426,41 @@ export function AdminElectionsList({
               </form>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-                Chamber
-              </span>
-              <FilterChip
-                active={officeFilter === "all"}
-                onClick={() => setOfficeFilter("all")}
-                count={
-                  officeCounts.house +
-                  officeCounts.senate +
-                  officeCounts.president +
-                  officeCounts.leadership
-                }
-              >
-                All
-              </FilterChip>
-              {OFFICES.map((o) => (
+            <div className="space-y-1.5">
+              {!archiveOnly && !showClosed ? (
+                <p className="text-[10px] leading-snug text-[var(--psc-muted)]">
+                  Chamber counts are <strong className="text-[var(--psc-ink)]">non-closed</strong> races only (same as
+                  the list below). Old House/Senate/President cycles remain in the database as closed rows — enable
+                  “Show closed” to see them in counts and filters.
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+                  Chamber
+                </span>
                 <FilterChip
-                  key={o}
-                  active={officeFilter === o}
-                  onClick={() => setOfficeFilter(o)}
-                  count={officeCounts[o]}
+                  active={officeFilter === "all"}
+                  onClick={() => setOfficeFilter("all")}
+                  count={
+                    officeCounts.house +
+                    officeCounts.senate +
+                    officeCounts.president +
+                    officeCounts.leadership
+                  }
                 >
-                  {OFFICE_LABEL[o]}
+                  All
                 </FilterChip>
-              ))}
+                {OFFICES.map((o) => (
+                  <FilterChip
+                    key={o}
+                    active={officeFilter === o}
+                    onClick={() => setOfficeFilter(o)}
+                    count={officeCounts[o]}
+                  >
+                    {OFFICE_LABEL[o]}
+                  </FilterChip>
+                ))}
+              </div>
             </div>
           </section>
 

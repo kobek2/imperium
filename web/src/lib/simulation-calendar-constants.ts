@@ -1,0 +1,23 @@
+/** Fixed simulation pace: 1.5 real weeks = 4 RP years (non-configurable). */
+export const RP_MONTHS_PER_REAL_DAY = 48 / 10.5;
+
+export const RP_START_YEAR = 2029;
+export const RP_START_MONTH = 1;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * RP month/year from simulation start (always January 2029 at `simulationStartAt`).
+ */
+export function computeRpDate(simulationStartAt: Date, now: Date = new Date()): { year: number; month: number } {
+  const elapsedDays = (now.getTime() - simulationStartAt.getTime()) / MS_PER_DAY;
+  const elapsedRpMonths = elapsedDays * RP_MONTHS_PER_REAL_DAY;
+  const totalMonths = (RP_START_YEAR - 1) * 12 + (RP_START_MONTH - 1) + elapsedRpMonths;
+  const year = Math.floor(totalMonths / 12) + 1;
+  const month = Math.floor(totalMonths % 12) + 1;
+  return { year, month };
+}
+
+export function rpDateKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}

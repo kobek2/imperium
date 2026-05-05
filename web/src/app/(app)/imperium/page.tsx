@@ -21,7 +21,7 @@ async function loadSnapshot(): Promise<Snapshot | null> {
     supabase
       .from("bills")
       .select("id", { count: "exact", head: true })
-      .in("status", ["submitted", "on_docket", "debate", "house_floor", "senate_floor", "oval"]),
+      .in("status", ["submitted", "leadership_review", "on_docket", "debate", "house_floor", "senate_floor", "oval"]),
     supabase.from("party_organizations").select("party_key", { count: "exact", head: true }),
   ]);
 

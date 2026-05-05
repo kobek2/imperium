@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { HistoryBackButton } from "@/components/history-back-button";
 import { SignInDiscord } from "@/components/sign-in-discord";
 
 export default async function LoginPage({
@@ -11,6 +12,9 @@ export default async function LoginPage({
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return (
       <div className="mx-auto max-w-lg px-6 py-16 text-sm text-red-700">
+        <div className="mb-4">
+          <HistoryBackButton />
+        </div>
         Supabase environment variables are missing. Copy `web/.env.example` to
         `web/.env.local` and add your project keys before signing in.
       </div>
@@ -27,6 +31,9 @@ export default async function LoginPage({
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-lg flex-col justify-center px-6">
+      <div className="mb-4">
+        <HistoryBackButton />
+      </div>
       <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-8 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
           Federal access gateway

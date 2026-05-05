@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
+import { CalendarSystemAdminPanel } from "@/components/calendar-system-admin-panel";
 import { SimulationSettingsForm } from "@/components/simulation-settings-form";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPageAny } from "@/lib/staff-access";
+import { CALENDAR_EVENT_DEFINITIONS } from "@/lib/calendar-events-registry";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { loadDormantOpenCandidates } from "@/lib/admin-dormant-open-candidates";
@@ -16,6 +18,7 @@ import {
   LeadershipToggle,
   type LeadershipSessionRow,
 } from "./leadership-toggle";
+import { StartAllCongressionalElectionsForm } from "@/components/open-occupied-seat-filings-form";
 import { BulkEndElectionsForm } from "./bulk-end-elections-form";
 import { OpenDormantSeatFilingsSelector } from "./open-dormant-seat-filings-selector";
 import { recomputeClosedLeadershipSession } from "@/app/actions/leadership-sessions";
@@ -56,7 +59,9 @@ export default async function AdminElectionsPage({
 
   await runElectionPhaseSchedule(supabase);
 
-  const [{ data: rows }, sessionsRes, simSettingsRes] = await Promise.all([
+  const registryEventKeys = CALENDAR_EVENT_DEFINITIONS.map((d) => d.key);
+
+  const [{ data: rows }, sessionsRes, simSettingsRes, calEventsRes, calRegistrySuccessRes] = await Promise.all([
     supabase
       .from("elections")
       .select(
@@ -68,6 +73,12 @@ export default async function AdminElectionsPage({
       .select("id, chamber, phase, majority_party, opens_at, closes_at, closed_at")
       .eq("phase", "open"),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
+    supabase
+      .from("simulation_calendar_events")
+      .select("id, event_key, fired_at, status, error_message")
+      .order("fired_at", { ascending: false })
+      .limit(40),
+    supabase.from("simulation_calendar_events").select("event_key").eq("status", "success").in("event_key", registryEventKeys),
   ]);
 
   const { data: sessions, error: sessionsErr } = sessionsRes;
@@ -121,6 +132,10 @@ export default async function AdminElectionsPage({
   const rpNow = simSettingsForBanner
     ? computeSimulationRpInstant(simSettingsForBanner, new Date())
     : null;
+
+  const calendarRegistrySuccessKeys = new Set(
+    ((calRegistrySuccessRes.data ?? []) as Array<{ event_key: string }>).map((r) => r.event_key),
+  );
 
   const dormantOpenCandidates = await loadDormantOpenCandidates(supabase);
 
@@ -200,12 +215,28 @@ export default async function AdminElectionsPage({
         <SimulationRpBanner settings={simSettingsForBanner} rp={rpNow} />
       ) : null}
       {simSettingsForForm ? <SimulationSettingsForm initial={simSettingsForForm} /> : null}
+      {simSettingsForForm ? (
+        <CalendarSystemAdminPanel
+          settings={simSettingsForForm}
+          registrySuccessKeys={calendarRegistrySuccessKeys}
+          recentCalendarRows={
+            (calEventsRes.data ?? []) as Array<{
+              id: string;
+              event_key: string;
+              fired_at: string;
+              status: string;
+              error_message: string | null;
+            }>
+          }
+        />
+      ) : null}
       <LeadershipToggle
         houseSession={houseSession}
         senateSession={senateSession}
         schemaMissing={leadershipSchemaMissing}
       />
       <BulkEndElectionsForm />
+      <StartAllCongressionalElectionsForm />
       <OpenDormantSeatFilingsSelector candidates={dormantOpenCandidates} />
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--psc-border)] pb-3">

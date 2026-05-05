@@ -99,24 +99,7 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   }
 
   const wasOnboardingComplete = isProfileOnboardingComplete(beforeProfile);
-
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({
-      character_name,
-      date_of_birth: date_of_birth || null,
-      residence_state: residence_state || null,
-      home_district_code: home_district_code || null,
-      party,
-      bio,
-      face_claim_url,
-      former_positions,
-    })
-    .eq("id", user.id);
-
-  if (profileError) {
-    throw new Error(profileError.message);
-  }
+  const isFirstOnboardingCompletion = !wasOnboardingComplete;
 
   // Release any legacy exclusive district claim so we never strand `claimed_by` after the
   // player moves. Home district is not exclusive — multiple players may share a district
@@ -148,9 +131,28 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error("Character record is incomplete.");
   }
 
+  const profileUpdate: Record<string, unknown> = {
+    character_name,
+    date_of_birth: date_of_birth || null,
+    residence_state: residence_state || null,
+    home_district_code: home_district_code || null,
+    party,
+    bio,
+    face_claim_url,
+    former_positions,
+  };
+  if (isFirstOnboardingCompletion) {
+    profileUpdate.orientation_step = 1;
+  }
+
+  const { error: profileError } = await supabase.from("profiles").update(profileUpdate).eq("id", user.id);
+
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
+
   // Only the first time a profile crosses from "incomplete" to "complete" may auto-open seat
   // filing races. Editing an already-registered character must not spawn new elections.
-  const isFirstOnboardingCompletion = !wasOnboardingComplete;
   if (isFirstOnboardingCompletion) {
     try {
       const { error: autoSeatErr } = await supabase.rpc("auto_create_seat_elections_for_onboarding");

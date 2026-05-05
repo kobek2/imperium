@@ -13,7 +13,9 @@ function countByStatus(
   bills: Array<{ status: string; originating_chamber: "house" | "senate" }>,
   chamber: "house" | "senate",
 ) {
-  const submitted = bills.filter((b) => b.originating_chamber === chamber && b.status === "submitted").length;
+  const submitted = bills.filter(
+    (b) => b.originating_chamber === chamber && (b.status === "submitted" || b.status === "leadership_review"),
+  ).length;
   const onDocket = bills.filter((b) => b.originating_chamber === chamber && b.status === "on_docket").length;
   const debate = bills.filter(
     (b) =>

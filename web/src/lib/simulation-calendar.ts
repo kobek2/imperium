@@ -1,3 +1,5 @@
+import { computeRpDate, rpDateKey } from "@/lib/simulation-calendar-constants";
+
 const MS_PER_DAY = 86_400_000;
 /** Mean Gregorian month length (365.2425 / 12). */
 const MEAN_MONTH_DAYS = 30.436875;
@@ -7,16 +9,15 @@ export type SimulationSettingsRow = {
   real_anchor_at: string;
   rp_anchor_date: string;
   rp_months_per_real_day: number;
-  admin_rp_month_offset: number;
+  /** Removed from DB in v2 migration; optional for older clients. */
+  admin_rp_month_offset?: number;
   auto_open_filings_in_rp_january: boolean;
   last_auto_open_rp_key: string | null;
-  september_budget_speed_active?: boolean;
-  september_budget_speed_previous?: number | null;
-  september_budget_speed_started_at?: string | null;
-  september_budget_speed_expires_at?: string | null;
-  september_budget_window_key?: string | null;
   /** When true, finishing character setup may auto-create House + Senate seat races (server RPC). */
   auto_create_seat_elections_on_onboarding?: boolean;
+  simulation_start_at?: string | null;
+  calendar_is_active?: boolean | null;
+  simulation_start_unlocked?: boolean | null;
 };
 
 function parseISODateOnly(s: string): { y: number; m: number; d: number } {
@@ -86,13 +87,24 @@ export function formatRpCalendarShort(instant: SimulationRpInstant): string {
 
 /**
  * Computes the current simulation calendar instant from real time.
- * Pace: `rp_months_per_real_day` RP months per real Earth day (fixed; default 3.5).
- * `admin_rp_month_offset` shifts the timeline in whole or fractional RP months.
+ * When `calendar_is_active` and `simulation_start_at` are set, uses the fixed v2 pace (see simulation-calendar-constants).
+ * Otherwise uses legacy anchor + configurable pace (until v2 is activated).
  */
 export function computeSimulationRpInstant(
   settings: SimulationSettingsRow,
   now: Date = new Date(),
 ): SimulationRpInstant {
+  if (settings.calendar_is_active && settings.simulation_start_at) {
+    const start = new Date(settings.simulation_start_at);
+    if (!Number.isNaN(start.getTime())) {
+      const rp = computeRpDate(start, now);
+      const yearMonthKey = rpDateKey(rp.year, rp.month);
+      const at = new Date(Date.UTC(rp.year, rp.month - 1, 1, 12, 0, 0));
+      const label = `${MONTH_NAMES[rp.month - 1] ?? "Month"} ${rp.year}`;
+      return { at, year: rp.year, month: rp.month, yearMonthKey, label };
+    }
+  }
+
   const anchor = parseISODateOnly(settings.rp_anchor_date);
   const baseUtc = new Date(
     Date.UTC(anchor.y, anchor.m - 1, anchor.d, 12, 0, 0),
@@ -100,7 +112,7 @@ export function computeSimulationRpInstant(
   const anchorRealMs = new Date(settings.real_anchor_at).getTime();
   const elapsedDays = (now.getTime() - anchorRealMs) / MS_PER_DAY;
   const pace = Number(settings.rp_months_per_real_day) || 3.5;
-  const offset = Number(settings.admin_rp_month_offset) || 0;
+  const offset = Number(settings.admin_rp_month_offset ?? 0) || 0;
   const floatMonths = offset + elapsedDays * pace;
 
   const whole = Math.trunc(floatMonths);
@@ -135,12 +147,14 @@ export function healSimulationClockDrift(
   raw: SimulationSettingsRow,
   now: Date = new Date(),
 ): { displaySettings: SimulationSettingsRow; shouldPersistHealToDatabase: boolean } {
+  if (raw.calendar_is_active) {
+    return { displaySettings: raw, shouldPersistHealToDatabase: false };
+  }
+
   const probe = computeSimulationRpInstant(raw, now);
   const anchorY = parseISODateOnly(raw.rp_anchor_date).y;
   const stalenessDays = (now.getTime() - new Date(raw.real_anchor_at).getTime()) / MS_PER_DAY;
 
-  // If the real anchor was left behind while pace is high, the calendar can jump many years
-  // ahead of `rp_anchor_date`. Heal when that gap is clearly unintended (tunable thresholds).
   if (!(stalenessDays > 2 && probe.year > anchorY + 6)) {
     return { displaySettings: raw, shouldPersistHealToDatabase: false };
   }
@@ -159,5 +173,8 @@ export function defaultSimulationSettingsForDisplay(): SimulationSettingsRow {
     auto_open_filings_in_rp_january: false,
     last_auto_open_rp_key: null,
     auto_create_seat_elections_on_onboarding: false,
+    simulation_start_at: null,
+    calendar_is_active: false,
+    simulation_start_unlocked: false,
   };
 }

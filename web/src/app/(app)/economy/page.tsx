@@ -3,6 +3,7 @@ import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { isPresident } from "@/lib/president";
+import { OrientationTourPanelEconomy } from "@/components/orientation-tour-panel";
 import { EconomyDashboard } from "./economy-dashboard";
 
 export default async function EconomyPage() {
@@ -35,10 +36,14 @@ export default async function EconomyPage() {
       .select("id, wallet_user_id, delta, kind, detail, created_at")
       .order("created_at", { ascending: false })
       .limit(40),
-    supabase.from("profiles").select("party").eq("id", user.id).maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("party, orientation_completed_at, orientation_step")
+      .eq("id", user.id)
+      .maybeSingle(),
     supabase
       .from("rp_fiscal_years")
-      .select("id, appropriation_deadline_at, appropriations_act_bill_id")
+      .select("id, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen")
       .eq("status", "active")
       .maybeSingle(),
     isPresident(supabase, user.id),
@@ -51,6 +56,7 @@ export default async function EconomyPage() {
     id?: string;
     appropriation_deadline_at?: string | null;
     appropriations_act_bill_id?: string | null;
+    economy_activity_frozen?: boolean | null;
   } | null;
 
   const governmentShutdown = Boolean(
@@ -58,6 +64,8 @@ export default async function EconomyPage() {
       !fyRow?.appropriations_act_bill_id &&
       new Date(fyRow.appropriation_deadline_at) < new Date(),
   );
+
+  const calendarBudgetFreeze = Boolean(fyRow?.economy_activity_frozen);
 
   let economyFrozen = true;
   if (fyRow?.id) {
@@ -67,7 +75,10 @@ export default async function EconomyPage() {
       .eq("fiscal_year_id", fyRow.id)
       .maybeSingle();
     economyFrozen =
-      governmentShutdown || !fyBudget || (fyBudget as { status: string }).status !== "submitted";
+      governmentShutdown ||
+      calendarBudgetFreeze ||
+      !fyBudget ||
+      (fyBudget as { status: string }).status !== "submitted";
   }
 
   let federalEstimatedTax: number | null = null;
@@ -77,7 +88,12 @@ export default async function EconomyPage() {
     federalEstimatedTax = Number(d.estimated_tax ?? 0);
   }
 
-  const aff = String((meProf as { party?: string } | null)?.party ?? "").trim();
+  const me = meProf as {
+    party?: string | null;
+    orientation_completed_at?: string | null;
+    orientation_step?: number | null;
+  } | null;
+  const aff = String(me?.party ?? "").trim();
   const treasuryPartyKey = aff === "democrat" || aff === "republican" ? aff : null;
   const { data: taxAccount } = await supabase
     .from("fiscal_tax_accounts")
@@ -90,14 +106,25 @@ export default async function EconomyPage() {
   const inventory =
     (invRows ?? []).find((r) => (r as { sku: string }).sku === "campaign_ad") ?? null;
 
+  const inTour = !me?.orientation_completed_at;
+  const onStep2 = inTour && (me?.orientation_step ?? 1) === 2;
+  const { count: economyLedgerCount } = await supabase
+    .from("economy_ledger")
+    .select("*", { count: "exact", head: true })
+    .eq("wallet_user_id", user.id);
+  const economyTourCanAdvance = (economyLedgerCount ?? 0) > 0;
+  const orientationEconomyBlock = onStep2 ? (
+    <OrientationTourPanelEconomy canAdvance={economyTourCanAdvance} />
+  ) : null;
+
   return (
     <div className="space-y-8">
+      {orientationEconomyBlock}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <NavRouteButton href="/national-metrics">National metrics</NavRouteButton>
           {pres || isAdmin ? <NavRouteButton href="/economy/federal">Federal budget</NavRouteButton> : null}
           <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
         </div>
@@ -112,6 +139,7 @@ export default async function EconomyPage() {
         treasuryPartyKey={treasuryPartyKey}
         economyFrozen={economyFrozen}
         governmentShutdown={governmentShutdown}
+        calendarBudgetFreeze={calendarBudgetFreeze}
         appropriationDeadlineAt={fyRow?.appropriation_deadline_at ?? null}
         federalEstimatedTax={federalEstimatedTax}
         taxAccount={

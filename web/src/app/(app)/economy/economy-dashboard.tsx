@@ -122,6 +122,7 @@ export function EconomyDashboard({
   treasuryPartyKey,
   economyFrozen,
   governmentShutdown,
+  calendarBudgetFreeze,
   appropriationDeadlineAt,
   federalEstimatedTax,
   taxAccount,
@@ -135,6 +136,7 @@ export function EconomyDashboard({
   treasuryPartyKey: "democrat" | "republican" | null;
   economyFrozen: boolean;
   governmentShutdown?: boolean;
+  calendarBudgetFreeze?: boolean;
   appropriationDeadlineAt?: string | null;
   federalEstimatedTax?: number | null;
   taxAccount?: {
@@ -188,7 +190,13 @@ export function EconomyDashboard({
     <div className="space-y-10">
       {economyFrozen ? (
         <div className="rounded border border-rose-400/80 bg-rose-50 p-4 text-sm text-rose-950">
-          <p className="font-semibold">{governmentShutdown ? "Government shutdown" : "Economy frozen"}</p>
+          <p className="font-semibold">
+            {governmentShutdown
+              ? "Government shutdown"
+              : calendarBudgetFreeze
+                ? "Economy frozen (budget deadline)"
+                : "Economy frozen"}
+          </p>
           <p className="mt-2 leading-relaxed">
             {governmentShutdown ? (
               <>
@@ -196,11 +204,16 @@ export function EconomyDashboard({
                 opened). Collects, purchases, and other economy debits are suspended until Congress enrolls appropriations and
                 the President signs the bill into law.
               </>
+            ) : calendarBudgetFreeze ? (
+              <>
+                The simulation calendar marked the federal budget deadline without an enrolled appropriations act. Wallet
+                mutations stay blocked until the President signs appropriations into law or staff uses the emergency unfreeze
+                tool.
+              </>
             ) : (
               <>
                 The active fiscal year&apos;s federal budget must be marked <strong>submitted</strong> (after the appropriations
-                act is adopted in Congress) before wallets, gambling, PACs, and party treasury actions work. Public indicators
-                are on the National metrics page.
+                act is adopted in Congress) before wallets, gambling, PACs, and party treasury actions work.
               </>
             )}{" "}
             {showFederalBudgetLink ? (
@@ -210,14 +223,7 @@ export function EconomyDashboard({
               >
                 Open federal budget
               </NavRouteButton>
-            ) : (
-              <NavRouteButton
-                href="/national-metrics"
-                className="border-rose-800/50 bg-rose-50 text-rose-950 hover:bg-rose-100"
-              >
-                National metrics
-              </NavRouteButton>
-            )}
+            ) : null}
           </p>
         </div>
       ) : null}

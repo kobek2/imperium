@@ -10,7 +10,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { BillBody } from "@/components/bill-body";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
-import { canAcceptRejectHopperForChamber } from "@/lib/role-capabilities";
+import { canAcceptRejectHopperForChamber, canActLeadershipReviewHopper } from "@/lib/role-capabilities";
 
 function fmt(ts: string | null) {
   if (!ts) return "—";
@@ -23,8 +23,11 @@ type BillRow = {
   content_md: string | null;
   content_html: string | null;
   originating_chamber: "house" | "senate";
+  status?: string;
   created_at: string;
   leadership_deadline_at: string | null;
+  leadership_primary_deadline?: string | null;
+  leadership_deputy_deadline?: string | null;
   author_id: string;
 };
 
@@ -41,8 +44,18 @@ export default async function LeadershipPage() {
     .maybeSingle();
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const canActHouse = canAcceptRejectHopperForChamber(roleKeys, "house");
-  const canActSenate = canAcceptRejectHopperForChamber(roleKeys, "senate");
+  const canActHouse = (bill: BillRow) =>
+    canActLeadershipReviewHopper(roleKeys, "house", {
+      status: bill.status ?? "submitted",
+      leadership_primary_deadline: bill.leadership_primary_deadline ?? null,
+      leadership_deputy_deadline: bill.leadership_deputy_deadline ?? null,
+    });
+  const canActSenate = (bill: BillRow) =>
+    canActLeadershipReviewHopper(roleKeys, "senate", {
+      status: bill.status ?? "submitted",
+      leadership_primary_deadline: bill.leadership_primary_deadline ?? null,
+      leadership_deputy_deadline: bill.leadership_deputy_deadline ?? null,
+    });
 
   const isRep = roleKeys.includes("representative");
   const isSen = roleKeys.includes("senator");
@@ -60,7 +73,7 @@ export default async function LeadershipPage() {
   );
 
   const selectCols =
-    "id, title, content_md, content_html, originating_chamber, created_at, leadership_deadline_at, author_id";
+    "id, title, content_md, content_html, originating_chamber, status, created_at, leadership_deadline_at, leadership_primary_deadline, leadership_deputy_deadline, author_id";
 
   let submitted: BillRow[] = [];
   let onDocket: BillRow[] = [];
@@ -73,7 +86,7 @@ export default async function LeadershipPage() {
     const sub = await supabase
       .from("bills")
       .select(selectCols)
-      .eq("status", "submitted")
+      .in("status", ["submitted", "leadership_review"])
       .order("created_at", { ascending: true });
     const dock = await supabase
       .from("bills")
@@ -190,8 +203,8 @@ export default async function LeadershipPage() {
           <ul className="space-y-6">
             {submitted.map((bill) => {
               const canAct =
-                (bill.originating_chamber === "house" && canActHouse) ||
-                (bill.originating_chamber === "senate" && canActSenate);
+                (bill.originating_chamber === "house" && canActHouse(bill)) ||
+                (bill.originating_chamber === "senate" && canActSenate(bill));
               return (
                 <li
                   key={bill.id}
@@ -232,8 +245,8 @@ export default async function LeadershipPage() {
                   ) : (
                     <p className="mt-4 text-xs text-[var(--psc-muted)]">
                       {bill.originating_chamber === "house"
-                        ? "Only the Speaker may accept or reject House bills in review."
-                        : "Only the Senate Majority Leader may accept or reject Senate bills in review."}
+                        ? "Only the Speaker, House Deputy, or House Clerk may accept or reject House bills in review."
+                        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may accept or reject Senate bills in review."}
                     </p>
                   )}
                 </li>
@@ -252,8 +265,8 @@ export default async function LeadershipPage() {
           <ul className="space-y-6">
             {onDocket.map((bill) => {
               const canAct =
-                (bill.originating_chamber === "house" && canActHouse) ||
-                (bill.originating_chamber === "senate" && canActSenate);
+                (bill.originating_chamber === "house" && canActHouse(bill)) ||
+                (bill.originating_chamber === "senate" && canActSenate(bill));
               return (
                 <li
                   key={bill.id}
@@ -302,8 +315,8 @@ export default async function LeadershipPage() {
                   ) : (
                     <p className="mt-4 text-xs text-[var(--psc-muted)]">
                       {bill.originating_chamber === "house"
-                        ? "Only the Speaker may open a House floor vote."
-                        : "Only the Senate Majority Leader may open a Senate floor vote."}
+                        ? "Only the Speaker, House Deputy, or House Clerk may open a House floor vote."
+                        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may open a Senate floor vote."}
                     </p>
                   )}
                 </li>
@@ -317,13 +330,14 @@ export default async function LeadershipPage() {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">3 · Debate — push to vote</h2>
           <p className="text-xs text-[var(--psc-muted)]">
-            Resolve amendments on the bill page, then open a 24-hour floor vote when ready.
+            Resolve amendments on the bill page, then open a 24-hour floor vote when ready. If nothing is scheduled
+            before the debate window ends, the floor vote opens automatically with a 24-hour ballot.
           </p>
           <ul className="space-y-6">
             {inDebate.map((bill) => {
               const canAct =
-                (bill.originating_chamber === "house" && canActHouse) ||
-                (bill.originating_chamber === "senate" && canActSenate);
+                (bill.originating_chamber === "house" && canActHouse(bill)) ||
+                (bill.originating_chamber === "senate" && canActSenate(bill));
               return (
                 <li
                   key={bill.id}
@@ -370,8 +384,7 @@ export default async function LeadershipPage() {
           <ul className="space-y-6">
             {otherChamberReview.map((bill) => {
               const recv = receivingChamberForOrigination(bill.originating_chamber);
-              const canAct =
-                (recv === "house" && canActHouse) || (recv === "senate" && canActSenate);
+              const canAct = canAcceptRejectHopperForChamber(roleKeys, recv);
               return (
                 <li
                   key={bill.id}
@@ -425,8 +438,7 @@ export default async function LeadershipPage() {
           <ul className="space-y-6">
             {otherChamberDebate.map((bill) => {
               const recv = receivingChamberForOrigination(bill.originating_chamber);
-              const canAct =
-                (recv === "house" && canActHouse) || (recv === "senate" && canActSenate);
+              const canAct = canAcceptRejectHopperForChamber(roleKeys, recv);
               return (
                 <li
                   key={bill.id}

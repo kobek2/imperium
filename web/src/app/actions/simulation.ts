@@ -6,6 +6,8 @@ import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
+import { tickCalendarEvents } from "@/lib/calendar-event-engine";
+import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const FILING_HOURS = 24;
@@ -77,31 +79,16 @@ async function vacateSenateLastWinnerForSeat(
   await revokeChamberRoleForUsers(supabase, [uid], "senator");
 }
 
+/** Legacy onboarding / January automation only (pace and RP anchor are no longer editable here). */
 export async function updateSimulationSettings(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
-  const rp_anchor_date = String(formData.get("rp_anchor_date") ?? "").trim();
-  const rp_months_raw = String(formData.get("rp_months_per_real_day") ?? "").trim();
   const auto_open = String(formData.get("auto_open_filings_in_rp_january") ?? "").trim() === "on";
   const auto_seat =
     String(formData.get("auto_create_seat_elections_on_onboarding") ?? "").trim() === "on";
 
-  if (!rp_anchor_date) throw new Error("RP calendar date is required.");
-
-  const rp_months_per_real_day = Number(rp_months_raw);
-  if (!Number.isFinite(rp_months_per_real_day) || rp_months_per_real_day <= 0 || rp_months_per_real_day > 366) {
-    throw new Error("Calendar speed must be a positive number (max 366).");
-  }
-
-  // Simple console: "right now" in real life matches the RP date you set; pace is the only other dial.
-  const real_anchor_at = new Date().toISOString();
-
   const { error } = await supabase
     .from("simulation_settings")
     .update({
-      real_anchor_at,
-      rp_anchor_date,
-      rp_months_per_real_day,
-      admin_rp_month_offset: 0,
       auto_open_filings_in_rp_january: auto_open,
       auto_create_seat_elections_on_onboarding: auto_seat,
       updated_at: new Date().toISOString(),
@@ -111,6 +98,150 @@ export async function updateSimulationSettings(formData: FormData): Promise<void
   throwIfPostgrestError(error);
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
+}
+
+export async function updateSimulationStartAt(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const raw = String(formData.get("simulation_start_at") ?? "").trim();
+  const confirm = String(formData.get("confirm_simulation_start") ?? "").trim() === "1";
+
+  if (!raw) throw new Error("simulation_start_at is required.");
+  if (!confirm) throw new Error("Confirm before setting the simulation start time.");
+
+  const start = new Date(raw);
+  if (Number.isNaN(start.getTime())) throw new Error("Invalid simulation_start_at.");
+
+  const { data: row } = await supabase.from("simulation_settings").select("simulation_start_at, simulation_start_unlocked").eq("id", 1).maybeSingle();
+  const existing = row as { simulation_start_at?: string | null; simulation_start_unlocked?: boolean | null } | null;
+  if (existing?.simulation_start_at && !existing?.simulation_start_unlocked) {
+    throw new Error("simulation_start_at is locked after first save. Ask a super-admin to unlock.");
+  }
+
+  const { error } = await supabase
+    .from("simulation_settings")
+    .update({
+      simulation_start_at: start.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+
+  throwIfPostgrestError(error);
+  revalidatePath("/admin/elections");
+}
+
+export async function setCalendarIsActive(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const on = String(formData.get("calendar_is_active") ?? "").trim() === "on";
+  const confirm = String(formData.get("confirm_calendar_activate") ?? "").trim() === "1";
+  if (on && !confirm) {
+    throw new Error("Confirm before activating the automated calendar.");
+  }
+
+  const { data: row } = await supabase.from("simulation_settings").select("simulation_start_at").eq("id", 1).maybeSingle();
+  if (on && !(row as { simulation_start_at?: string | null } | null)?.simulation_start_at) {
+    throw new Error("Set simulation_start_at before activating the calendar.");
+  }
+
+  const { error } = await supabase
+    .from("simulation_settings")
+    .update({
+      calendar_is_active: on,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+
+  throwIfPostgrestError(error);
+  revalidatePath("/admin/elections");
+
+  const svc = createServiceRoleSupabase();
+  if (svc) await tickCalendarEvents(svc);
+}
+
+/**
+ * Narrative / season reset: clears calendar milestone dedupe, sets `simulation_start_at` to now so RP reads as
+ * January 2029 at the fixed v2 pace, turns the automated calendar on, and runs one tick (inauguration and other due
+ * handlers). Requires `SUPABASE_SERVICE_ROLE_KEY` so calendar rows can be cleared and the start time can be rewritten
+ * even when the normal admin form lock is on.
+ */
+export async function resetCalendarV2ToJanuary2029AndActivate(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const confirm = String(formData.get("confirm_rp_calendar_reset") ?? "").trim() === "1";
+  if (!confirm) {
+    throw new Error("Confirm the hard reset before continuing.");
+  }
+
+  const svc = createServiceRoleSupabase();
+  if (!svc) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is not configured on the server; this reset requires the service role client.",
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+
+  const { error: delErr } = await svc
+    .from("simulation_calendar_events")
+    .delete()
+    .in("status", ["success", "error"]);
+  throwIfPostgrestError(delErr);
+
+  const { error: updErr } = await svc
+    .from("simulation_settings")
+    .update({
+      simulation_start_at: nowIso,
+      calendar_is_active: true,
+      last_auto_open_rp_key: null,
+      updated_at: nowIso,
+    })
+    .eq("id", 1);
+  throwIfPostgrestError(updErr);
+
+  await tickCalendarEvents(svc);
+
+  revalidatePath("/admin/elections");
+  revalidatePath("/admin/operations");
+  revalidatePath("/economy");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
+  revalidatePath("/");
+}
+
+export async function manualFireCalendarEvent(formData: FormData): Promise<void> {
+  const { supabase, user } = await requireAdmin();
+  const eventKey = String(formData.get("event_key") ?? "").trim();
+  if (!eventKey) throw new Error("Missing event_key.");
+
+  const { error } = await supabase.from("simulation_calendar_events").insert({
+    event_key: `manual_audit_${Date.now()}`,
+    status: "success",
+    error_message: null,
+    metadata: { target_event: eventKey, manually_triggered: true, triggered_by: user.id },
+  });
+  throwIfPostgrestError(error);
+  revalidatePath("/admin/elections");
+}
+
+export async function adminUnfreezeEconomy(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const confirm = String(formData.get("confirm_unfreeze") ?? "").trim() === "1";
+  if (!confirm) throw new Error("Confirmation required.");
+
+  const { data, error } = await supabase.rpc("simulation_admin_unfreeze_economy", { p_confirm: true });
+  if (error) throw new Error(error.message);
+  void data;
+  revalidatePath("/economy");
+  revalidatePath("/admin/elections");
+}
+
+export async function unlockSimulationStartForSuperAdmin(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const on = String(formData.get("simulation_start_unlocked") ?? "").trim() === "on";
+  const { error } = await supabase
+    .from("simulation_settings")
+    .update({ simulation_start_unlocked: on, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  throwIfPostgrestError(error);
+  revalidatePath("/admin/elections");
 }
 
 /**
@@ -132,34 +263,162 @@ export async function syncSimulationRealAnchorToNow(): Promise<void> {
   revalidatePath("/elections");
 }
 
-export type OpenSeatFilingsResult = { opened: number; skipped: number };
+export type OpenSeatFilingsResult = { opened: number; skipped: number; created: number };
 
-async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Promise<OpenSeatFilingsResult> {
+/**
+ * Inserts dormant filing templates for House districts and Senate seats that have at least one
+ * resident profile but no active (non-closed) seat race yet — so bulk-open can run a full
+ * re-election cycle without hand-creating every row.
+ */
+async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: SupabaseClient): Promise<number> {
+  const sched = scheduleFromNow();
+
+  const [{ data: profs, error: pErr }, { data: activeHouse, error: ahErr }] = await Promise.all([
+    supabase.from("profiles").select("home_district_code, residence_state"),
+    supabase
+      .from("elections")
+      .select("district_code")
+      .eq("office", "house")
+      .is("leadership_role", null)
+      .neq("phase", "closed"),
+  ]);
+  throwIfPostgrestError(pErr);
+  throwIfPostgrestError(ahErr);
+
+  const activeHouseDistricts = new Set(
+    (activeHouse ?? [])
+      .map((r) => String((r as { district_code: string | null }).district_code ?? "").trim().toUpperCase())
+      .filter(Boolean),
+  );
+
+  const houseDistricts = new Set<string>();
+  const residenceStates = new Set<string>();
+  for (const p of profs ?? []) {
+    const hd = String((p as { home_district_code?: string | null }).home_district_code ?? "")
+      .trim()
+      .toUpperCase();
+    if (hd) houseDistricts.add(hd);
+    const st = String((p as { residence_state?: string | null }).residence_state ?? "")
+      .trim()
+      .toUpperCase();
+    if (st.length === 2) residenceStates.add(st);
+  }
+
+  let created = 0;
+
+  const districtList = [...houseDistricts];
+  if (districtList.length) {
+    const byCode = new Map<string, string>();
+    const chunkSize = 100;
+    for (let i = 0; i < districtList.length; i += chunkSize) {
+      const chunk = districtList.slice(i, i + chunkSize);
+      const { data: drows, error: dErr } = await supabase.from("districts").select("code, state").in("code", chunk);
+      throwIfPostgrestError(dErr);
+      for (const row of drows ?? []) {
+        const code = String((row as { code: string }).code).trim().toUpperCase();
+        const state = String((row as { state: string }).state).trim().toUpperCase();
+        if (code && state) byCode.set(code, state);
+      }
+    }
+
+    const houseInserts: Record<string, unknown>[] = [];
+    for (const [code, state] of byCode) {
+      if (activeHouseDistricts.has(code)) continue;
+      houseInserts.push({
+        office: "house",
+        state,
+        district_code: code,
+        senate_class: null,
+        phase: "filing",
+        ...sched,
+        primary_party_wide: true,
+        filing_window_started_at: null,
+      });
+      activeHouseDistricts.add(code);
+    }
+    if (houseInserts.length) {
+      const { error: insErr } = await supabase.from("elections").insert(houseInserts);
+      throwIfPostgrestError(insErr);
+      created += houseInserts.length;
+    }
+  }
+
+  const { data: activeSenate, error: asErr } = await supabase
+    .from("elections")
+    .select("state, senate_class")
+    .eq("office", "senate")
+    .is("leadership_role", null)
+    .neq("phase", "closed");
+  throwIfPostgrestError(asErr);
+
+  const activeSenateKeys = new Set(
+    (activeSenate ?? []).map((r) => {
+      const st = String((r as { state: string | null }).state ?? "").trim().toUpperCase();
+      const sc = (r as { senate_class: number | null }).senate_class;
+      return `${st}:${sc ?? ""}`;
+    }),
+  );
+
+  if (residenceStates.size) {
+    const stateList = [...residenceStates];
+    const { data: stateRows, error: sErr } = await supabase
+      .from("states")
+      .select("code, senate_class")
+      .in("code", stateList);
+    throwIfPostgrestError(sErr);
+
+    const senateInserts: Record<string, unknown>[] = [];
+    for (const row of stateRows ?? []) {
+      const S = String((row as { code: string }).code).trim().toUpperCase();
+      const scRaw = (row as { senate_class: number | null }).senate_class;
+      const sc = scRaw != null && scRaw >= 1 && scRaw <= 3 ? Number(scRaw) : 1;
+      const key = `${S}:${sc}`;
+      if (activeSenateKeys.has(key)) continue;
+      senateInserts.push({
+        office: "senate",
+        state: S,
+        district_code: null,
+        senate_class: sc,
+        phase: "filing",
+        ...sched,
+        primary_party_wide: true,
+        filing_window_started_at: null,
+      });
+      activeSenateKeys.add(key);
+    }
+    if (senateInserts.length) {
+      const { error: insErr } = await supabase.from("elections").insert(senateInserts);
+      throwIfPostgrestError(insErr);
+      created += senateInserts.length;
+    }
+  }
+
+  return created;
+}
+
+/**
+ * Opens dormant House and Senate seat races where at least one profile lives in that district or state
+ * (re-election / incumbent geography). Does not include President — use the presidential race admin flow.
+ */
+async function bulkOpenDormantCongressionalSeatFilings(supabase: SupabaseClient): Promise<OpenSeatFilingsResult> {
   const { data: dormant, error } = await supabase
     .from("elections")
     .select("id, office, state, district_code, senate_class, filing_window_started_at, phase, leadership_role")
     .eq("phase", "filing")
     .is("filing_window_started_at", null)
     .is("leadership_role", null)
-    .in("office", ["house", "senate", "president"]);
+    .in("office", ["house", "senate"]);
 
   throwIfPostgrestError(error);
   const rows = dormant ?? [];
   let opened = 0;
   let skipped = 0;
 
-  const { count: totalPlayers, error: pcErr } = await supabase
-    .from("profiles")
-    .select("id", { count: "exact", head: true });
-  throwIfPostgrestError(pcErr);
-  const playerTotal = totalPlayers ?? 0;
-
   for (const e of rows) {
     const office = e.office as string;
+
     let occupied = false;
-    if (office === "president") {
-      occupied = playerTotal >= 1;
-    } else if (office === "house") {
+    if (office === "house") {
       const code = String(e.district_code ?? "").trim();
       if (!code) {
         skipped += 1;
@@ -219,21 +478,28 @@ async function bulkOpenDormantOccupiedSeatFilings(supabase: SupabaseClient): Pro
     opened += 1;
   }
 
-  return { opened, skipped };
+  return { opened, skipped, created: 0 };
 }
 
 /**
- * Opens filing windows for dormant seat races that have at least one player in jurisdiction.
- * Does not touch races that already have filing_window_started_at set.
- * Vacates sitting House representatives in opened districts and the last closed Senate winner for that class (if any).
+ * Ensures a dormant seat row exists for every occupied jurisdiction, then opens each dormant House/Senate
+ * race where at least one profile lists that district (House) or state (Senate) — for re-election cycles.
+ * Skips races already live. Does not include President. Vacates House reps in opened districts and the
+ * prior Senate class winner when applicable.
  */
-export async function openOccupiedSeatElectionFilings(): Promise<OpenSeatFilingsResult> {
+export async function startAllCongressionalElectionFilings(): Promise<OpenSeatFilingsResult> {
   const { supabase } = await requireAdmin();
-  const result = await bulkOpenDormantOccupiedSeatFilings(supabase);
+  const created = await ensureDormantCongressionalSeatTemplatesForResidents(supabase);
+  const { opened, skipped } = await bulkOpenDormantCongressionalSeatFilings(supabase);
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
-  return result;
+  return { opened, skipped, created };
 }
+
+/** @deprecated Prefer startAllCongressionalElectionFilings */
+export const startAllEligibleDormantElectionFilings = startAllCongressionalElectionFilings;
+/** @deprecated Prefer startAllCongressionalElectionFilings */
+export const openOccupiedSeatElectionFilings = startAllCongressionalElectionFilings;
 
 /** Core open-dormant logic (admin RLS). */
 async function openOneDormantSeatElection(supabase: SupabaseClient, id: string): Promise<void> {
@@ -318,7 +584,7 @@ export async function openSelectedSeatElectionFilings(formData: FormData): Promi
 
 /**
  * When an admin visits the elections console during RP January, optionally runs the same
- * bulk-open as the manual button once per RP calendar month-key (stops repeat work on refresh).
+ * congressional bulk-open as “Start all congressional elections” once per RP calendar month-key.
  */
 export async function runJanuaryAutoOpenIfEligible(): Promise<void> {
   if (!(await getIsAdmin())) return;
@@ -336,7 +602,8 @@ export async function runJanuaryAutoOpenIfEligible(): Promise<void> {
   if (rp.month !== 1) return;
   if (s.last_auto_open_rp_key === rp.yearMonthKey) return;
 
-  await bulkOpenDormantOccupiedSeatFilings(supabase);
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase);
+  await bulkOpenDormantCongressionalSeatFilings(supabase);
 
   await supabase
     .from("simulation_settings")

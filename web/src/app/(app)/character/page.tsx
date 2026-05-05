@@ -77,11 +77,13 @@ export default async function CharacterPage() {
         setupMode={setupMode}
       />
       {!setupMode ? (
-        <RecentAuthoredBillsPanel
-          bills={recentAuthored.bills}
-          votes={recentAuthored.votes}
-          caption="Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
-        />
+        <>
+          <RecentAuthoredBillsPanel
+            bills={recentAuthored.bills}
+            votes={recentAuthored.votes}
+            caption="Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
+          />
+        </>
       ) : null}
     </div>
   );

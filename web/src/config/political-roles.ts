@@ -18,10 +18,16 @@ export const POLITICAL_ROLE_LABELS: Record<string, string> = {
   senate_majority_whip: "Senate Majority Whip",
   senate_minority_leader: "Senate Minority Leader",
   senate_minority_whip: "Senate Minority Whip",
+  // Rotating: most economy collects among Senators (excludes Majority Leader).
+  senate_deputy: "Senate Deputy (floor & hopper backup)",
+  senate_clerk: "Senate Clerk (floor & hopper backup)",
   house_majority_leader: "House Majority Leader",
   house_majority_whip: "House Majority Whip",
   house_minority_leader: "House Minority Leader",
   house_minority_whip: "House Minority Whip",
+  // Rotating: most economy collects among House members (excludes Speaker).
+  house_deputy: "House Deputy (floor & hopper backup)",
+  house_clerk: "House Clerk (floor & hopper backup)",
   // Membership & party (image 2)
   governor: "Governor",
   senator: "Senator",

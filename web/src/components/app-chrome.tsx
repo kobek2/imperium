@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HistoryBackButton } from "@/components/history-back-button";
 import { ProfileQuickDock } from "./profile-quick-dock";
 import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
@@ -128,7 +129,12 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <div className="mb-6">
+          <HistoryBackButton />
+        </div>
+        {children}
+      </main>
       {user && canUseAppTabs ? (
         <>
           <WorldChatDock />

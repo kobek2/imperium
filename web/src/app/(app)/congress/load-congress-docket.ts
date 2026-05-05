@@ -19,7 +19,31 @@ export type CongressDocketPayload = {
   canBreakSenateTie: boolean;
 };
 
-const NON_CHAMBER_BILL_STATUSES = new Set(["oval", "passed_congress", "law", "signed", "vetoed", "dead", "failed"]);
+const NON_CHAMBER_BILL_STATUSES = new Set([
+  "oval",
+  "passed_congress",
+  "law",
+  "signed",
+  "vetoed",
+  "dead",
+  "failed",
+  "expired",
+  "rejected",
+]);
+
+/** Positive filter so terminal bills do not consume the PostgREST row cap (default 1000). */
+const CONGRESS_PIPELINE_STATUSES = [
+  "submitted",
+  "leadership_review",
+  "on_docket",
+  "debate",
+  "house_floor",
+  "senate_floor",
+  "other_chamber_review",
+  "other_chamber_debate",
+  "house_committee",
+  "senate_committee",
+] as const;
 
 /** Bills listed under /congress/house: House filing pipeline + anything on the House floor (any origin). */
 export function filterBillsForHouseDocket(bills: BillForCard[]): BillForCard[] {
@@ -62,13 +86,8 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
       .select(
         "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
-      .neq("status", "oval")
-      .neq("status", "passed_congress")
-      .neq("status", "law")
-      .neq("status", "signed")
-      .neq("status", "vetoed")
-      .neq("status", "dead")
-      .neq("status", "failed")
+      .in("status", [...CONGRESS_PIPELINE_STATUSES])
+      .order("chamber_vote_deadline_at", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     isActivePresidentialRunningMate(supabase, userId),

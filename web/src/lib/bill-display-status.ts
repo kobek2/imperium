@@ -3,6 +3,12 @@ export function billStatusDisplay(status: string): string {
   switch (status) {
     case "submitted":
       return "Submitted — leadership review";
+    case "leadership_review":
+      return "Leadership review (timed hopper)";
+    case "rejected":
+      return "Rejected by leadership";
+    case "expired":
+      return "Expired (Congress reset)";
     case "debate":
       return "Debate — floor vote not open";
     case "other_chamber_review":

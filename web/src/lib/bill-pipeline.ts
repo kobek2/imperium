@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { processVoteApproval } from "@/lib/approval-ratings";
 import { countChamberVotingMembers } from "@/lib/congress-composition";
 import type { BillChamber } from "@/lib/bill-types";
+import { hoursFromNowIso, OTHER_CHAMBER_REVIEW_HOURS } from "@/lib/legislation-automation-constants";
 
 const SENATE_CONFIRMATION_ROLE_KEYS = [
   "senator",
@@ -21,6 +22,14 @@ function isMissingBillTimerColumn(message: string | null | undefined): boolean {
 function isMissingVpTieColumn(message: string | null | undefined): boolean {
   const m = (message ?? "").toLowerCase();
   return m.includes("vp_tie_break_pending");
+}
+
+function isMissingLegislationMaintenanceRpc(message: string | null | undefined): boolean {
+  const m = (message ?? "").toLowerCase();
+  return (
+    m.includes("legislation_run_maintenance") &&
+    (m.includes("does not exist") || m.includes("schema cache") || m.includes("could not find"))
+  );
 }
 
 async function tallyChamberPass(
@@ -133,7 +142,12 @@ async function transitionAfterChamberPass(
   floorChamber: BillChamber,
 ): Promise<void> {
   const orig = bill.originating_chamber as BillChamber;
-  const nextOther = { status: "other_chamber_review" as const, chamber_vote_deadline_at: null, vp_tie_break_pending: false };
+  const nextOther = {
+    status: "other_chamber_review" as const,
+    chamber_vote_deadline_at: null,
+    vp_tie_break_pending: false,
+    leadership_deadline_at: hoursFromNowIso(OTHER_CHAMBER_REVIEW_HOURS),
+  };
   const nextOval = { status: "oval" as const, chamber_vote_deadline_at: null, vp_tie_break_pending: false };
 
   const patch =
@@ -145,10 +159,16 @@ async function transitionAfterChamberPass(
         ? nextOther
         : nextOval;
 
-  let { error } = await supabase.from("bills").update(patch).eq("id", bill.id);
+  const applied: Record<string, unknown> = { ...patch };
+  let { error } = await supabase.from("bills").update(applied).eq("id", bill.id);
+  if (error && isMissingBillTimerColumn(error.message)) {
+    delete applied.leadership_deadline_at;
+    const retry = await supabase.from("bills").update(applied).eq("id", bill.id);
+    error = retry.error;
+  }
   if (error && isMissingVpTieColumn(error.message)) {
-    const { vp_tie_break_pending: _v, ...withoutVp } = patch;
-    const retry = await supabase.from("bills").update(withoutVp).eq("id", bill.id);
+    delete applied.vp_tie_break_pending;
+    const retry = await supabase.from("bills").update(applied).eq("id", bill.id);
     error = retry.error;
   }
   if (error) throw new Error(error.message);
@@ -204,6 +224,11 @@ export async function resolveSenateAfterTiebreakVote(
 
 /** Advance bills whose chamber voting clocks have expired. */
 export async function processBillDeadlines(supabase: SupabaseClient): Promise<void> {
+  const { error: maintErr } = await supabase.rpc("legislation_run_maintenance");
+  if (maintErr && !isMissingLegislationMaintenanceRpc(maintErr.message)) {
+    console.warn("[processBillDeadlines] legislation_run_maintenance:", maintErr.message);
+  }
+
   // Sweep active floor votes for immediate clinch transitions (all votes cast, irreversible margins, etc.)
   // so bills can advance without requiring an additional ballot event.
   const { data: liveFloorBills } = await supabase
@@ -226,17 +251,22 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
     .lt("chamber_vote_deadline_at", nowIso);
 
   for (const bill of houseFloor ?? []) {
-    const pass = await tallyChamberPass(supabase, bill.id, "house");
-    if (!pass) {
-      await setBillFailed(supabase, bill.id, "house");
+    // Align with tryClinchFloorVoteAfterBallotChange: tallyChamberPass only compared raw yea vs nay and
+    // ignored abstain/present and remaining electorate — wrong for partial tallies (e.g. Senate→House).
+    const M = await countChamberVotingMembers(supabase, "house");
+    if (M < 1) continue;
+    const { yea, nay, cast } = await tallyFloorYeasNaysAbstain(supabase, bill.id, "house");
+    const outcome = classifyFloorMajority({ yea, nay, cast, chamberSize: M, chamber: "house" });
+    if (outcome === "pass") {
+      await processVoteApproval(supabase, bill.id, "house", true);
+      try {
+        await transitionAfterChamberPass(supabase, bill, "house");
+      } catch (e) {
+        console.warn("[processBillDeadlines] house advance:", e);
+      }
       continue;
     }
-    await processVoteApproval(supabase, bill.id, "house", true);
-    try {
-      await transitionAfterChamberPass(supabase, bill, "house");
-    } catch (e) {
-      console.warn("[processBillDeadlines] house advance:", e);
-    }
+    await setBillFailed(supabase, bill.id, "house");
   }
 
   const senateFloorRes = await supabase

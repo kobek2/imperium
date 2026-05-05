@@ -333,7 +333,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     .eq("is_federal_appropriations", true)
     .limit(40);
   if (pendErr) return { ok: false, message: pendErr.message };
-  const terminal = new Set(["dead", "vetoed", "failed"]);
+  const terminal = new Set(["dead", "vetoed", "failed", "expired", "rejected"]);
   const hasOpenPipeline = (pendingAppRows ?? []).some(
     (r) => !terminal.has(String((r as { status?: string }).status ?? "")),
   );

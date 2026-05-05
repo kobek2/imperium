@@ -178,6 +178,12 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
             </code>
           </p>
         ) : null}
+        {bill.status === "leadership_review" ? (
+          <p className="text-sm font-semibold text-[var(--psc-ink)]">
+            Leadership review — the Speaker or Majority Leader (and Deputy after 12h) must accept or reject before the
+            automatic debate window.
+          </p>
+        ) : null}
         {bill.status === "on_docket" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
             On the leadership docket — floor vote has not been opened yet.

@@ -70,7 +70,7 @@ export function CharacterForm({
       await saveCharacter(formData);
       setMessage("Saved.");
       if (variant === "onboarding") {
-        router.push("/");
+        router.push("/elections");
       } else {
         router.refresh();
       }

@@ -6,6 +6,7 @@ import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
+import { OrientationTourPanelElections } from "@/components/orientation-tour-panel";
 import {
   ElectionsDashboard,
   type DashboardElection,
@@ -36,7 +37,7 @@ export default async function ElectionsPage() {
       .order("filing_opens_at", { ascending: false }),
     supabase
       .from("profiles")
-      .select("home_district_code, residence_state")
+      .select("home_district_code, residence_state, orientation_completed_at, orientation_step")
       .eq("id", user.id)
       .maybeSingle(),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
@@ -98,6 +99,32 @@ export default async function ElectionsPage() {
     candidate_count: countsById[e.id] ?? 0,
   }));
 
+  const prof = profile as {
+    home_district_code?: string | null;
+    residence_state?: string | null;
+    orientation_completed_at?: string | null;
+    orientation_step?: number | null;
+  } | null;
+  const inTour = !prof?.orientation_completed_at;
+  const onStep1 = inTour && (prof?.orientation_step ?? 1) === 1;
+  // Candidacy must match any non-closed election — not only dashboard "active" rows (dormant filing
+  // templates are excluded from `active` until the window starts, but you are still filed).
+  const nonClosedIds = all.filter((e) => e.phase !== "closed").map((e) => e.id);
+  let electionsTourCanAdvance = nonClosedIds.length === 0;
+  if (onStep1 && !electionsTourCanAdvance) {
+    const { data: myCand } = await supabase
+      .from("election_candidates")
+      .select("id")
+      .eq("user_id", user.id)
+      .in("election_id", nonClosedIds)
+      .limit(1)
+      .maybeSingle();
+    electionsTourCanAdvance = Boolean(myCand);
+  }
+  const orientationElectionBlock = onStep1 ? (
+    <OrientationTourPanelElections canAdvance={electionsTourCanAdvance} />
+  ) : null;
+
   const rpNow = simSettingsForDisplay
     ? computeSimulationRpInstant(simSettingsForDisplay, new Date())
     : null;
@@ -109,6 +136,7 @@ export default async function ElectionsPage() {
   if (!all.length) {
     return (
       <div className="space-y-8">
+        {orientationElectionBlock}
         {rpBanner}
         <header>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
@@ -132,6 +160,7 @@ export default async function ElectionsPage() {
   if (!active.length) {
     return (
       <div className="space-y-8">
+        {orientationElectionBlock}
         {rpBanner}
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -165,6 +194,7 @@ export default async function ElectionsPage() {
 
   return (
     <div className="space-y-6">
+      {orientationElectionBlock}
       {rpBanner}
       <ElectionsDashboard
         elections={dashboardRows}

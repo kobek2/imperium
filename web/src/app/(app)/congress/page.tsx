@@ -3,8 +3,15 @@ import { redirect } from "next/navigation";
 import { fetchCongressOverviewSnapshot } from "@/lib/congress-composition";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
+import { OrientationTourPanelCongress } from "@/components/orientation-tour-panel";
 import { ChamberHemicycle } from "./chamber-hemicycle";
 import { CongressLeadersPanel } from "./congress-leaders-panel";
+import {
+  DEBATE_AUTO_FLOOR_HOURS,
+  HOPPER_LEADERSHIP_HOURS,
+  ON_DOCKET_AUTO_FLOOR_HOURS,
+  OTHER_CHAMBER_REVIEW_HOURS,
+} from "@/lib/legislation-automation-constants";
 
 /** Small button-styled links (server component — use `Link`, not client `NavRouteButton`). */
 const congressActionBtn =
@@ -27,7 +34,7 @@ export default async function CongressOverviewPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("office_role")
+    .select("office_role, orientation_completed_at, orientation_step")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -41,7 +48,7 @@ export default async function CongressOverviewPage() {
     supabase
       .from("bills")
       .select("id, title, originating_chamber, leadership_deadline_at")
-      .eq("status", "submitted")
+      .in("status", ["submitted", "leadership_review"])
       .order("created_at", { ascending: true }),
     supabase
       .from("bills")
@@ -75,8 +82,17 @@ export default async function CongressOverviewPage() {
     );
   }
 
+  const prof = profile as {
+    office_role?: string | null;
+    orientation_completed_at?: string | null;
+    orientation_step?: number | null;
+  } | null;
+  const onStep3 = !prof?.orientation_completed_at && (prof?.orientation_step ?? 1) === 3;
+  const orientationCongressBlock = onStep3 ? <OrientationTourPanelCongress /> : null;
+
   return (
     <div className="space-y-10">
+      {orientationCongressBlock}
       <header>
         <h1 className="text-3xl font-semibold text-[var(--psc-ink)]">Congress overview</h1>
       </header>
@@ -90,7 +106,11 @@ export default async function CongressOverviewPage() {
             </Link>
           </div>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Newly filed measures awaiting Speaker / Majority Leader action before they go on the docket.
+            Newly filed measures await Speaker / Majority Leader (or Deputy / Clerk) action. If nothing happens within{" "}
+            {HOPPER_LEADERSHIP_HOURS} hours, each measure auto-advances to debate. Receiving-chamber review uses a{" "}
+            {OTHER_CHAMBER_REVIEW_HOURS}-hour clock; on-docket bills use {ON_DOCKET_AUTO_FLOOR_HOURS} hours before a
+            floor vote opens automatically. Debate runs on a {DEBATE_AUTO_FLOOR_HOURS}-hour window before a default
+            floor ballot is scheduled.
           </p>
           <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
             {reviewRows.map((b) => (
@@ -104,7 +124,9 @@ export default async function CongressOverviewPage() {
                   </Link>
                   <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
                     {b.originating_chamber === "house" ? "House" : "Senate"}
-                    
+                    {b.leadership_deadline_at
+                      ? ` · Auto-advance ${new Date(b.leadership_deadline_at).toLocaleString()}`
+                      : null}
                   </p>
                 </div>
                 <Link
@@ -200,12 +222,14 @@ export default async function CongressOverviewPage() {
       <section className="grid gap-8 lg:grid-cols-2 lg:items-start">
         <CongressLeadersPanel
           heading="House leadership"
+          subheading="Deputy and Clerk rotate to the two Representatives with the most personal economy collects (hourly income rows), excluding the Speaker. They may move hopper bills and open floor votes alongside the Speaker when timers fire."
           slots={snapshot.houseLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         />
         <CongressLeadersPanel
           heading="Senate leadership"
+          subheading="Deputy and Clerk rotate to the two Senators with the most personal economy collects, excluding the Majority Leader. They backstop hopper review and floor scheduling the same way."
           slots={snapshot.senateLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"

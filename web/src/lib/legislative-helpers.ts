@@ -10,7 +10,7 @@ export function leadershipEditChamberForBillStatus(
   status: string,
   originating_chamber: BillChamber,
 ): BillChamber | null {
-  if (status === "submitted" || status === "on_docket") return originating_chamber;
+  if (status === "submitted" || status === "leadership_review" || status === "on_docket") return originating_chamber;
   if (status === "debate") return originating_chamber;
   if (status === "other_chamber_debate") return receivingChamberForOrigination(originating_chamber);
   return null;

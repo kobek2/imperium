@@ -351,8 +351,10 @@ export function CreateElectionForm({
         <input type="checkbox" name="dormant_filing_window" className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
           <span className="font-semibold">Dormant template</span> — create the race in the database
-          but keep filings closed until you open this seat (individually or via &quot;Open occupied seat
-          filings&quot; on the admin elections page). Schedule fields below are stored as placeholders
+          but keep filings closed until you open this seat (individually or via &quot;Start all congressional
+          elections&quot; / &quot;Open dormant congressional filings&quot; on the admin elections page). Schedule
+          fields below are stored as
+          placeholders
           only until the window opens.
         </span>
       </label>

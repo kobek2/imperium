@@ -2,6 +2,28 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib/character-onboarding";
 
+function guidedTourRoot(step: number): string {
+  if (step === 2) return "/economy";
+  if (step === 3) return "/congress";
+  return "/elections";
+}
+
+function isGuidedTourPathAllowed(path: string, step: number): boolean {
+  if (path.startsWith("/login") || path.startsWith("/auth")) return true;
+  if (path.startsWith("/character")) return true;
+
+  if (step === 1) {
+    return path === "/elections" || path.startsWith("/elections/");
+  }
+  if (step === 2) {
+    return path === "/economy" || path.startsWith("/economy/");
+  }
+  if (step === 3) {
+    return path === "/congress" || path.startsWith("/congress/") || path.startsWith("/bill/");
+  }
+  return true;
+}
+
 /**
  * Refreshes the Supabase session and gates the app until character onboarding is complete.
  * Must not throw — a failure here would 500 every route.
@@ -51,7 +73,9 @@ export async function proxy(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("character_name, date_of_birth, residence_state, home_district_code, party")
+      .select(
+        "character_name, date_of_birth, residence_state, home_district_code, party, orientation_completed_at, orientation_step",
+      )
       .eq("id", user.id)
       .maybeSingle();
 
@@ -64,8 +88,25 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/onboarding", request.url));
     }
 
+    const orientationDone = Boolean(
+      (profile as { orientation_completed_at?: string | null } | null)?.orientation_completed_at,
+    );
+    const step = Number((profile as { orientation_step?: number | null } | null)?.orientation_step ?? 1);
+
     if (path.startsWith("/onboarding")) {
+      if (!orientationDone) {
+        return NextResponse.redirect(new URL(guidedTourRoot(step), request.url));
+      }
       return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    if (!orientationDone) {
+      if (path.startsWith("/welcome")) {
+        return NextResponse.redirect(new URL(guidedTourRoot(step), request.url));
+      }
+      if (!isGuidedTourPathAllowed(path, step)) {
+        return NextResponse.redirect(new URL(guidedTourRoot(step), request.url));
+      }
     }
   } catch (err) {
     console.error("[proxy] failed, passing through:", err);

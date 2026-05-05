@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
 import { BriefingInbox } from "@/components/briefing-inbox";
+import { HistoryBackButton } from "@/components/history-back-button";
 import { HomeCareerStats } from "@/components/home-career-stats";
 import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { fetchHomeCareerStats } from "@/lib/home-career-stats";
+import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib/character-onboarding";
+import { orientationStepOrDefault } from "@/lib/orientation-tour";
 import { computeSimulationRpInstant, formatRpCalendarShort, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { getStaffAccess } from "@/lib/staff-access";
@@ -23,11 +26,21 @@ export default async function HomePage() {
     if (!user) redirect("/imperium");
     const { data: profile } = await supabase
       .from("profiles")
-      .select("party, office_role")
+      .select(
+        "character_name, date_of_birth, residence_state, home_district_code, party, office_role, orientation_completed_at, orientation_step",
+      )
       .eq("id", user.id)
       .maybeSingle();
-    if (!profile?.party) {
+    if (!isProfileOnboardingComplete(profile as ProfileOnboardingFields | null)) {
       redirect("/onboarding");
+    }
+    if (!profile?.orientation_completed_at) {
+      const st = orientationStepOrDefault(
+        (profile as { orientation_step?: number | null }).orientation_step ?? null,
+      );
+      if (st === 2) redirect("/economy");
+      if (st === 3) redirect("/congress");
+      redirect("/elections");
     }
     const [m, s] = await Promise.all([
       fetchBriefingMoments(supabase, user.id, INBOX_HOME_PREVIEW + 1),
@@ -53,7 +66,10 @@ export default async function HomePage() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <HistoryBackButton />
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
+        </div>
         {rpDateLabel ? (
           <div
             className="inline-flex items-baseline gap-2 rounded-md border border-[var(--psc-border)] bg-[var(--psc-panel)]/95 px-3 py-2 shadow-sm"

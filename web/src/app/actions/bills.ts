@@ -18,6 +18,7 @@ import {
 import {
   canAcceptRejectHopperForChamber,
   canActAsPresident,
+  canActLeadershipReviewHopper,
   canLeadershipEditBillContent,
 } from "@/lib/role-capabilities";
 import {
@@ -35,6 +36,12 @@ import { applyApprovalDelta } from "@/lib/approval-ratings";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
+import {
+  DEBATE_AUTO_FLOOR_HOURS,
+  HOPPER_LEADERSHIP_HOURS,
+  ON_DOCKET_AUTO_FLOOR_HOURS,
+  hoursFromNowIso,
+} from "@/lib/legislation-automation-constants";
 
 function revalidateCongressPages() {
   revalidatePath("/congress");
@@ -263,7 +270,10 @@ export async function submitBill(formData: FormData): Promise<void> {
   }
 
   const now = new Date();
-  const leadership_deadline_at: string | null = null;
+  const leadership_review_opened_at = now.toISOString();
+  const leadership_primary_deadline = addHours(now, 12).toISOString();
+  const leadership_deputy_deadline = addHours(now, 24).toISOString();
+  const legacyHopperDeadline = hoursFromNowIso(HOPPER_LEADERSHIP_HOURS);
   const expires_at = addHours(now, 24 * 30).toISOString();
   const duplicateCutoff = new Date(now.getTime() - 30_000).toISOString();
 
@@ -314,7 +324,7 @@ export async function submitBill(formData: FormData): Promise<void> {
       .eq("is_federal_appropriations", true)
       .limit(40);
     if (pendErr) throw new Error(pendErr.message);
-    const terminal = new Set(["dead", "vetoed", "failed"]);
+    const terminal = new Set(["dead", "vetoed", "failed", "expired", "rejected"]);
     const hasOpenPipeline = (pendingAppRows ?? []).some(
       (r) => !terminal.has(String((r as { status?: string }).status ?? "")),
     );
@@ -342,14 +352,42 @@ export async function submitBill(formData: FormData): Promise<void> {
     originating_chamber,
     author_id: user.id,
     expires_at,
-    status: "submitted" as const,
-    leadership_deadline_at,
+    status: "leadership_review" as const,
+    leadership_review_opened_at,
+    leadership_primary_deadline,
+    leadership_deputy_deadline,
+    leadership_deadline_at: null as string | null,
     chamber_vote_deadline_at: null as string | null,
     ...appropriationExtras,
     ...templateExtras,
   };
 
   let { error } = await supabase.from("bills").insert(baseInsert);
+
+  if (
+    error &&
+    dbErrorHintsMissingColumn(error.message, [
+      "leadership_review",
+      "leadership_primary_deadline",
+      "leadership_deputy_deadline",
+      "leadership_review_opened_at",
+    ])
+  ) {
+    const retry = await supabase.from("bills").insert({
+      title,
+      content_md,
+      content_html,
+      originating_chamber,
+      author_id: user.id,
+      expires_at,
+      status: "submitted",
+      leadership_deadline_at: legacyHopperDeadline,
+      chamber_vote_deadline_at: null,
+      ...appropriationExtras,
+      ...templateExtras,
+    });
+    error = retry.error;
+  }
 
   if (error && dbErrorHintsMissingColumn(error.message, [
     "leadership_deadline_at",
@@ -368,7 +406,7 @@ export async function submitBill(formData: FormData): Promise<void> {
       author_id: user.id,
       expires_at,
       status: "submitted",
-      leadership_deadline_at,
+      leadership_deadline_at: legacyHopperDeadline,
       chamber_vote_deadline_at: null,
       ...appropriationExtras,
     });
@@ -435,28 +473,57 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
 
   const { data: bill } = await supabase
     .from("bills")
-    .select("id, status, originating_chamber")
+    .select(
+      "id, title, status, originating_chamber, leadership_primary_deadline, leadership_deputy_deadline, leadership_deadline_at",
+    )
     .eq("id", bill_id)
     .maybeSingle();
 
-  if (!bill || bill.status !== "submitted") {
+  if (!bill || (bill.status !== "submitted" && bill.status !== "leadership_review")) {
     throw new Error("This bill is not awaiting leadership review.");
   }
 
   const chamber = bill.originating_chamber as BillChamber;
-  if (!canAcceptRejectHopperForChamber(roleKeys, chamber)) {
+  if (
+    !canActLeadershipReviewHopper(roleKeys, chamber, {
+      status: String(bill.status),
+      leadership_primary_deadline: (bill as { leadership_primary_deadline?: string | null })
+        .leadership_primary_deadline,
+      leadership_deputy_deadline: (bill as { leadership_deputy_deadline?: string | null })
+        .leadership_deputy_deadline,
+    })
+  ) {
     throw new Error(
       chamber === "house"
-        ? "Only the Speaker may accept or reject House legislation in the hopper."
-        : "Only the Senate Majority Leader may accept or reject Senate legislation in the hopper.",
+        ? "Only the Speaker (first 12h) or Speaker plus House Deputy (next 12h) may act on this bill in leadership review."
+        : "Only the Senate Majority Leader (first 12h) or the Leader plus Senate Deputy (next 12h) may act on this bill in leadership review.",
     );
   }
 
   if (decision === "reject") {
     let { error } = await supabase
       .from("bills")
-      .update({ status: "dead", leadership_deadline_at: null, chamber_vote_deadline_at: null })
+      .update({
+        status: "rejected",
+        leadership_deadline_at: null,
+        chamber_vote_deadline_at: null,
+        leadership_primary_deadline: null,
+        leadership_deputy_deadline: null,
+      })
       .eq("id", bill_id);
+    if (error && dbErrorHintsMissingColumn(error.message, ["rejected"])) {
+      const retry = await supabase
+        .from("bills")
+        .update({
+          status: "dead",
+          leadership_deadline_at: null,
+          chamber_vote_deadline_at: null,
+          leadership_primary_deadline: null,
+          leadership_deputy_deadline: null,
+        })
+        .eq("id", bill_id);
+      error = retry.error;
+    }
     if (error && dbErrorHintsMissingColumn(error.message, [
     "leadership_deadline_at",
     "chamber_vote_deadline_at",
@@ -467,14 +534,18 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
     throwIfPostgrestError(error);
   } else if (decision === "accept") {
     const nowIso = new Date().toISOString();
+    const debateDeadline = hoursFromNowIso(DEBATE_AUTO_FLOOR_HOURS);
     let { error } = await supabase
       .from("bills")
       .update({
         status: "debate",
-        leadership_deadline_at: null,
+        leadership_deadline_at: debateDeadline,
         chamber_vote_deadline_at: null,
         vp_tie_break_pending: false,
         debate_started_at: nowIso,
+        leadership_primary_deadline: null,
+        leadership_deputy_deadline: null,
+        leadership_review_opened_at: null,
       })
       .eq("id", bill_id);
     if (error && dbErrorHintsMissingColumn(error.message, ["debate_started_at"])) {
@@ -482,7 +553,7 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
         .from("bills")
         .update({
           status: "debate",
-          leadership_deadline_at: null,
+          leadership_deadline_at: debateDeadline,
           chamber_vote_deadline_at: null,
           vp_tie_break_pending: false,
         })
@@ -490,11 +561,12 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
       error = retry.error;
     }
     if (error) {
+      const onDocketDeadline = hoursFromNowIso(ON_DOCKET_AUTO_FLOOR_HOURS);
       const legacy = await supabase
         .from("bills")
         .update({
           status: "on_docket",
-          leadership_deadline_at: null,
+          leadership_deadline_at: onDocketDeadline,
           chamber_vote_deadline_at: null,
           vp_tie_break_pending: false,
         })
@@ -509,17 +581,20 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
       error = retry.error;
     }
     if (error && dbErrorHintsMissingColumn(error.message, ["vp_tie_break_pending"])) {
+      const onDocketDeadline = hoursFromNowIso(ON_DOCKET_AUTO_FLOOR_HOURS);
       const retry = await supabase
         .from("bills")
         .update({
           status: "on_docket",
-          leadership_deadline_at: null,
+          leadership_deadline_at: onDocketDeadline,
           chamber_vote_deadline_at: null,
         })
         .eq("id", bill_id);
       error = retry.error;
     }
     throwIfPostgrestError(error);
+    // TODO: Discord webhook — bill entered floor debate in originating chamber #floor-session
+    // Payload should include: { eventType, rpDate, details: { billId, title, chamber } }
   } else {
     throw new Error("Invalid decision.");
   }
@@ -576,8 +651,8 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
   if (!canAcceptRejectHopperForChamber(roleKeys, floorChamber)) {
     throw new Error(
       floorChamber === "house"
-        ? "Only the Speaker may open this House floor vote."
-        : "Only the Senate Majority Leader may open this Senate floor vote.",
+        ? "Only the Speaker, House Deputy, or House Clerk may open this House floor vote."
+        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may open this Senate floor vote.",
     );
   }
 
@@ -668,7 +743,9 @@ export async function updateBillContent(formData: FormData): Promise<void> {
     bill.originating_chamber as BillChamber,
   );
   if (!editChamber || !canLeadershipEditBillContent(roleKeys, editChamber)) {
-    throw new Error("Only the Speaker or Senate Majority Leader may edit this bill during the current debate phase.");
+    throw new Error(
+      "Only the Speaker, House Deputy, House Clerk, Senate Majority Leader, Senate Deputy, or Senate Clerk may edit this bill during the current leadership-edit phase.",
+    );
   }
 
   const terminal = new Set(["law", "vetoed", "dead", "failed"]);
@@ -834,8 +911,8 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
   if (!canAcceptRejectHopperForChamber(roleKeys, receiving)) {
     throw new Error(
       receiving === "house"
-        ? "Only the Speaker may accept or reject bills for the House at this stage."
-        : "Only the Senate Majority Leader may accept or reject bills for the Senate at this stage.",
+        ? "Only the Speaker, House Deputy, or House Clerk may accept or reject bills for the House at this stage."
+        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may accept or reject bills for the Senate at this stage.",
     );
   }
 
@@ -866,11 +943,12 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
     }
     throwIfPostgrestError(error);
   } else if (decision === "accept") {
+    const debateDeadline = hoursFromNowIso(DEBATE_AUTO_FLOOR_HOURS);
     let { error } = await supabase
       .from("bills")
       .update({
         status: "other_chamber_debate",
-        leadership_deadline_at: null,
+        leadership_deadline_at: debateDeadline,
         chamber_vote_deadline_at: null,
         vp_tie_break_pending: false,
         debate_started_at: nowIso,
@@ -881,7 +959,7 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
         .from("bills")
         .update({
           status: "other_chamber_debate",
-          leadership_deadline_at: null,
+          leadership_deadline_at: debateDeadline,
           chamber_vote_deadline_at: null,
           vp_tie_break_pending: false,
         })
@@ -889,11 +967,12 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
       error = retry.error;
     }
     if (error) {
+      const onDocketDeadline = hoursFromNowIso(ON_DOCKET_AUTO_FLOOR_HOURS);
       const legacy = await supabase
         .from("bills")
         .update({
           status: "on_docket",
-          leadership_deadline_at: null,
+          leadership_deadline_at: onDocketDeadline,
           chamber_vote_deadline_at: null,
           vp_tie_break_pending: false,
         })
@@ -1012,7 +1091,7 @@ export async function createAppointment(formData: FormData): Promise<void> {
       author_id: user.id,
       status: "submitted",
       expires_at,
-      leadership_deadline_at: null,
+      leadership_deadline_at: hoursFromNowIso(HOPPER_LEADERSHIP_HOURS),
       chamber_vote_deadline_at: null,
     })
     .select("id")
@@ -1104,6 +1183,8 @@ export async function presidentialAction(formData: FormData): Promise<void> {
         p_bill_id: bill_id,
       });
       if (enrollErr) throw new Error(enrollErr.message);
+      // TODO: Discord webhook — shutdown ended, economy restored after appropriations signed #announcements
+      // Payload should include: { eventType, rpDate, details: { billId } }
     }
   }
 
