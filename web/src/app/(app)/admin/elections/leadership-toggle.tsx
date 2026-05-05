@@ -109,8 +109,10 @@ export function LeadershipToggle({
           Leadership elections
         </h2>
         <span className="text-xs text-[var(--psc-muted)]">
-          One open session per chamber. Majority caucus = most seats; ties use delegation seniority
-          (earliest chamber grants), then the party of the seated President.
+          One open session per chamber. The simulation calendar also opens House and Senate sessions at
+          inauguration and seating milestones (same window as before). Use this panel for manual runs or
+          re-opens. Majority caucus = most seats; ties use delegation seniority (earliest chamber grants), then
+          the party of the seated President.
         </span>
       </div>
       {schemaMissing ? (

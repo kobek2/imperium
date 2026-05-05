@@ -12,6 +12,8 @@ import {
   insertCalendarEventSuccess,
 } from "@/lib/calendar-event-log";
 import type { SimulationSettingsRow } from "@/lib/simulation-calendar";
+import type { Chamber } from "@/lib/leadership";
+import { inferMajorityParty } from "@/lib/leadership-majority";
 
 const NON_TERMINAL_BILL_STATUSES = [
   "submitted",
@@ -47,7 +49,7 @@ const CONGRESSIONAL_LEADERSHIP_GRANT_KEYS = [
 /**
  * Clears prior-term congressional leadership so a new Congress is not stuck with old Speakers / whips / PPT.
  * Closes Hopper leadership_sessions and abandons stale Speaker / SML election rows that block
- * openChamberLeadershipRacesIfNone. Re-runs deputy rotation from economy collects.
+ * openChamberLeadershipSessionsIfNone. Re-runs deputy rotation from economy collects.
  */
 async function resetCongressionalLeadershipForNewTerm(
   supabase: SupabaseClient,
@@ -155,58 +157,41 @@ async function seatInaugurationCalendarElections(
   return toSeat.length;
 }
 
-async function countActiveChamberLeadershipRace(
-  supabase: SupabaseClient,
-  leadershipRole: string,
-): Promise<number> {
-  const { count, error } = await supabase
-    .from("elections")
-    .select("id", { count: "exact", head: true })
-    .eq("leadership_role", leadershipRole)
-    .in("phase", ["filing", "primary", "general"]);
-  if (error) return 0;
-  return count ?? 0;
-}
-
-async function openChamberLeadershipRacesIfNone(supabase: SupabaseClient): Promise<void> {
+/**
+ * Opens one `leadership_sessions` row per chamber when none are open: same combined window as
+ * the old Speaker/SML `elections` leadership rows (filing through general_closes_at).
+ * Members file for one role and vote on all roles (Speaker, PPT, majority/minority leaders, whips).
+ */
+async function openChamberLeadershipSessionsIfNone(supabase: SupabaseClient): Promise<void> {
   const sched = leadershipRaceScheduleFromNow();
-  const { filing_opens_at, filing_closes_at, general_closes_at } = sched;
-  const primary_closes_at = filing_closes_at;
-
+  const closesAt = sched.general_closes_at;
   const errors: string[] = [];
 
-  if ((await countActiveChamberLeadershipRace(supabase, "speaker")) === 0) {
-    const { error } = await supabase.from("elections").insert({
-      office: "house",
-      leadership_role: "speaker",
-      phase: "filing",
-      filing_opens_at,
-      filing_closes_at,
-      primary_closes_at,
-      general_closes_at,
-      primary_party_wide: true,
-      filing_window_started_at: filing_opens_at,
-    });
-    if (error) errors.push(`Speaker leadership race: ${error.message}`);
-  }
+  const chambers: Chamber[] = ["house", "senate"];
+  for (const chamber of chambers) {
+    const { count, error: cntErr } = await supabase
+      .from("leadership_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("chamber", chamber)
+      .eq("phase", "open");
+    if (cntErr) {
+      errors.push(`${chamber} leadership session (count): ${cntErr.message}`);
+      continue;
+    }
+    if ((count ?? 0) > 0) continue;
 
-  if ((await countActiveChamberLeadershipRace(supabase, "senate_majority_leader")) === 0) {
-    const { error } = await supabase.from("elections").insert({
-      office: "senate",
-      leadership_role: "senate_majority_leader",
-      phase: "filing",
-      filing_opens_at,
-      filing_closes_at,
-      primary_closes_at,
-      general_closes_at,
-      primary_party_wide: true,
-      filing_window_started_at: filing_opens_at,
+    const majorityParty = await inferMajorityParty(supabase, chamber);
+    const { error } = await supabase.from("leadership_sessions").insert({
+      chamber,
+      phase: "open",
+      majority_party: majorityParty,
+      closes_at: closesAt,
     });
-    if (error) errors.push(`Senate majority leader leadership race: ${error.message}`);
+    if (error) errors.push(`${chamber} leadership session: ${error.message}`);
   }
 
   if (errors.length) {
-    throw new Error(`[calendar] Could not open chamber leadership races: ${errors.join(" · ")}`);
+    throw new Error(`[calendar] Could not open chamber leadership sessions: ${errors.join(" · ")}`);
   }
 }
 
@@ -219,7 +204,7 @@ async function rpcOpenPartyLeadershipWindows(supabase: SupabaseClient, hours: nu
 
 /**
  * January inauguration: seat pending seat races (excluding midterm/presidential calendar cycles),
- * expire prior Congress bills, open Speaker + Majority Leader + party officer windows.
+ * expire prior Congress bills, open chamber leadership sessions + party officer windows.
  */
 export async function handleInauguration(supabase: SupabaseClient, year: number): Promise<void> {
   const key = `inauguration_${year}`;
@@ -232,14 +217,14 @@ export async function handleInauguration(supabase: SupabaseClient, year: number)
 
   if (await calendarSuccessExists(supabase, key)) {
     // Milestone already logged (e.g. after a prior reset) but DB can be missing races if inserts failed earlier.
-    await openChamberLeadershipRacesIfNone(supabase);
+    await openChamberLeadershipSessionsIfNone(supabase);
     return;
   }
 
   await resetCongressionalLeadershipForNewTerm(supabase, simStart);
 
   await expireOpenBills(supabase, "new_congress");
-  await openChamberLeadershipRacesIfNone(supabase);
+  await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, 25);
 
   const sched = leadershipRaceScheduleFromNow();
@@ -266,112 +251,7 @@ function leadershipCloseEventKey(ctx: LeadershipCloseContext): string {
   }
 }
 
-function noCandidatesLogKey(chamber: "house" | "senate", ctx: LeadershipCloseContext): string {
-  const suffix =
-    ctx.kind === "inauguration"
-      ? String(ctx.year)
-      : ctx.kind === "midterm"
-        ? String(ctx.cycleYear)
-        : String(ctx.cycleOpenYear);
-  return `leadership_close_no_candidates_${chamber}_${suffix}`;
-}
-
-async function tallyGeneralVotesByCandidate(
-  supabase: SupabaseClient,
-  electionId: string,
-): Promise<Map<string, number>> {
-  const { data } = await supabase.from("general_votes").select("candidate_id").eq("election_id", electionId);
-  const m = new Map<string, number>();
-  for (const row of data ?? []) {
-    const id = String((row as { candidate_id: string }).candidate_id);
-    m.set(id, (m.get(id) ?? 0) + 1);
-  }
-  return m;
-}
-
-type CandRow = { id: string; user_id: string; created_at: string | null };
-
-async function assignDeputyFromLeadershipRace(
-  supabase: SupabaseClient,
-  leadershipRole: "speaker" | "senate_majority_leader",
-  deputyGrantKey: "house_deputy" | "senate_deputy",
-  ctx: LeadershipCloseContext,
-  chamberLabel: "house" | "senate",
-  simStartIso: string | null,
-): Promise<void> {
-  let q = supabase
-    .from("elections")
-    .select("id, winner_user_id, phase")
-    .eq("leadership_role", leadershipRole)
-    .eq("phase", "closed");
-  if (simStartIso) {
-    q = q.gte("filing_opens_at", simStartIso);
-  }
-  const { data: election } = await q
-    .order("general_closes_at", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!election?.id) return;
-
-  const electionId = String(election.id);
-  const winnerUid = election.winner_user_id as string | null;
-  if (!winnerUid) {
-    await supabase.from("government_role_grants").delete().eq("role_key", deputyGrantKey);
-    return;
-  }
-
-  const { count: candCount } = await supabase
-    .from("election_candidates")
-    .select("id", { count: "exact", head: true })
-    .eq("election_id", electionId);
-
-  if ((candCount ?? 0) === 0) {
-    await insertCalendarEventSuccess(supabase, noCandidatesLogKey(chamberLabel, ctx), {
-      leadership_role: leadershipRole,
-      election_id: electionId,
-    });
-    await supabase.from("government_role_grants").delete().eq("role_key", deputyGrantKey);
-    return;
-  }
-
-  if ((candCount ?? 0) === 1) {
-    await supabase.from("government_role_grants").delete().eq("role_key", deputyGrantKey);
-    return;
-  }
-
-  const { data: cands } = await supabase
-    .from("election_candidates")
-    .select("id, user_id, created_at")
-    .eq("election_id", electionId);
-
-  const list = (cands ?? []) as CandRow[];
-  const tally = await tallyGeneralVotesByCandidate(supabase, electionId);
-
-  const sorted = [...list].sort((a, b) => {
-    const va = tally.get(a.id) ?? 0;
-    const vb = tally.get(b.id) ?? 0;
-    if (va !== vb) return vb - va;
-    const ta = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-    const tb = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-    if (ta !== tb) return ta - tb;
-    return a.id.localeCompare(b.id);
-  });
-
-  if (!sorted.length) return;
-
-  const deputy = sorted.find((c) => c.user_id !== winnerUid) ?? null;
-
-  if (!deputy?.user_id) {
-    await supabase.from("government_role_grants").delete().eq("role_key", deputyGrantKey);
-    return;
-  }
-
-  await supabase.from("government_role_grants").delete().eq("role_key", deputyGrantKey);
-  await supabase.from("government_role_grants").insert({ user_id: deputy.user_id, role_key: deputyGrantKey });
-}
-
-/** After leadership generals close: advance phases, assign Speaker/ML (SQL) + deputies from vote totals. */
+/** Milestone after chamber leadership sessions end: advance seat-election phases only. */
 export async function handleLeadershipClose(
   supabase: SupabaseClient,
   ctx: LeadershipCloseContext,
@@ -379,10 +259,7 @@ export async function handleLeadershipClose(
   const key = leadershipCloseEventKey(ctx);
   if (await calendarSuccessExists(supabase, key)) return;
 
-  // TODO: Discord webhook — announce new leaders and deputies #announcements
-
-  const settings = await loadSimulationSettings(supabase);
-  const simStartIso = settings?.simulation_start_at ?? null;
+  // TODO: Discord webhook — leadership session outcomes are tallied when closes_at passes #announcements
 
   const { error } = await supabase.rpc("advance_election_phases_by_schedule");
   if (error) {
@@ -393,16 +270,6 @@ export async function handleLeadershipClose(
     });
     return;
   }
-
-  await assignDeputyFromLeadershipRace(supabase, "speaker", "house_deputy", ctx, "house", simStartIso);
-  await assignDeputyFromLeadershipRace(
-    supabase,
-    "senate_majority_leader",
-    "senate_deputy",
-    ctx,
-    "senate",
-    simStartIso,
-  );
 
   await insertCalendarEventSuccess(supabase, key, {
     kind: ctx.kind,
@@ -662,7 +529,7 @@ async function seatCalendarCycleElections(supabase: SupabaseClient, cycleKey: st
 export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
   const eventKey = `midterms_seated_${rpYear}`;
   if (await calendarSuccessExists(supabase, eventKey)) {
-    await openChamberLeadershipRacesIfNone(supabase);
+    await openChamberLeadershipSessionsIfNone(supabase);
     return;
   }
 
@@ -677,7 +544,7 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
   await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
   await expireOpenBills(supabase, "new_congress");
-  await openChamberLeadershipRacesIfNone(supabase);
+  await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, 25);
 
   await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });
@@ -686,7 +553,7 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
 export async function handlePresidentialCycleSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
   const eventKey = `presidential_seated_${rpYear}`;
   if (await calendarSuccessExists(supabase, eventKey)) {
-    await openChamberLeadershipRacesIfNone(supabase);
+    await openChamberLeadershipSessionsIfNone(supabase);
     return;
   }
 
@@ -699,7 +566,7 @@ export async function handlePresidentialCycleSeating(supabase: SupabaseClient, r
   await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
   await expireOpenBills(supabase, "new_congress");
-  await openChamberLeadershipRacesIfNone(supabase);
+  await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, 25);
 
   await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });

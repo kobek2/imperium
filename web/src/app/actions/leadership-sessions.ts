@@ -14,11 +14,10 @@ import {
   type LeadershipRole,
   type PartyKey,
 } from "@/lib/leadership";
+import { inferMajorityParty } from "@/lib/leadership-majority";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 const SESSION_DURATION_HOURS = 24;
-
-const MAJORITY_PARTIES: PartyKey[] = ["democrat", "republican", "independent"];
 
 /**
  * Detects the schema-cache / missing-relation errors PostgREST throws when the leadership
@@ -61,126 +60,6 @@ function revalidateSession(sessionId: string) {
   revalidatePath(`/congress/leadership/session/${sessionId}`);
   revalidatePath("/admin/elections");
   revalidatePath("/directory");
-}
-
-/**
- * Party that "controls the White House" for tie purposes: the seated President's party
- * (from `government_role_grants` + profile). No president or unknown party → null.
- */
-async function inferControllingExecutiveParty(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<PartyKey | null> {
-  const { data: grant } = await supabase
-    .from("government_role_grants")
-    .select("user_id")
-    .eq("role_key", "president")
-    .order("granted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!grant?.user_id) return null;
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("party")
-    .eq("id", grant.user_id)
-    .maybeSingle();
-  return assertParty(profile?.party ?? null);
-}
-
-/**
- * Among parties tied on seat count, prefer the delegation whose seniority multiset wins:
- * compare earliest chamber-role grant, then second-earliest, etc. (same spirit as
- * `close_leadership_session`). Returns null only if every tied party has an identical
- * multiset (including empty), so callers can fall back to White House party.
- */
-function pickPartyBySeniorityMultiset(
-  leaders: PartyKey[],
-  seniorityByParty: Record<PartyKey, number[]>,
-): PartyKey | null {
-  const lists = Object.fromEntries(
-    leaders.map((p) => [p, [...seniorityByParty[p]].sort((a, b) => a - b)]),
-  ) as Record<PartyKey, number[]>;
-
-  let survivors = [...leaders];
-  while (survivors.length > 1) {
-    const heads = survivors
-      .map((p) => lists[p][0])
-      .filter((t): t is number => t !== undefined);
-    if (!heads.length) return null;
-    const minHead = Math.min(...heads);
-    const withMin = survivors.filter((p) => lists[p][0] === minHead);
-    if (withMin.length === survivors.length) {
-      for (const p of survivors) lists[p].shift();
-      if (survivors.every((p) => lists[p].length === 0)) return null;
-      continue;
-    }
-    survivors = withMin;
-  }
-  return survivors[0] ?? null;
-}
-
-/**
- * Determine which party holds the majority of the given chamber right now. Used at session
- * creation to lock in majority / minority caucus membership for the duration of the vote.
- *
- * Rules: highest seat count (members with a chamber grant and a known party). Ties on
- * count break by seniority depth (earliest `granted_at` on that chamber role, then peel
- * matching heads until one party is strictly more senior). If still tied, the seated
- * President's party wins (White House / VP analogue). Empty chamber → democrat.
- */
-async function inferMajorityParty(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  chamber: Chamber,
-): Promise<PartyKey> {
-  const key = chamberRoleKey(chamber);
-  const { data: grants } = await supabase
-    .from("government_role_grants")
-    .select("user_id, granted_at")
-    .eq("role_key", key);
-
-  const firstGrantMs = new Map<string, number>();
-  for (const g of grants ?? []) {
-    const t = new Date(g.granted_at).getTime();
-    const cur = firstGrantMs.get(g.user_id);
-    if (cur === undefined || t < cur) firstGrantMs.set(g.user_id, t);
-  }
-
-  const ids = [...firstGrantMs.keys()];
-  if (!ids.length) return "democrat";
-
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, party")
-    .in("id", ids);
-
-  const counts: Record<PartyKey, number> = { democrat: 0, republican: 0, independent: 0 };
-  const seniorityByParty: Record<PartyKey, number[]> = {
-    democrat: [],
-    republican: [],
-    independent: [],
-  };
-
-  for (const p of profiles ?? []) {
-    const party = assertParty(p.party);
-    if (!party) continue;
-    const grantedMs = firstGrantMs.get(p.id);
-    if (grantedMs === undefined) continue;
-    counts[party]++;
-    seniorityByParty[party].push(grantedMs);
-  }
-
-  const max = Math.max(counts.democrat, counts.republican, counts.independent);
-  if (max <= 0) return "democrat";
-
-  const leaders = MAJORITY_PARTIES.filter((pk) => counts[pk] === max);
-  if (leaders.length === 1) return leaders[0]!;
-
-  const seniorityPick = pickPartyBySeniorityMultiset(leaders, seniorityByParty);
-  if (seniorityPick) return seniorityPick;
-
-  const whiteHouse = await inferControllingExecutiveParty(supabase);
-  if (whiteHouse && leaders.includes(whiteHouse)) return whiteHouse;
-
-  return [...leaders].sort()[0]!;
 }
 
 /** Admin: open a new 24-hour leadership session for a chamber. */

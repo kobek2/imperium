@@ -115,6 +115,15 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     });
   }
 
+  const { error: lsAdvErr } = await supabase.rpc("advance_leadership_sessions_by_schedule");
+  if (lsAdvErr) {
+    await insertCalendarEventError(supabase, {
+      event_key: "cron_advance_leadership_sessions",
+      error_message: lsAdvErr.message,
+      metadata: { source: "calendar_tick", rpc: "advance_leadership_sessions_by_schedule" },
+    });
+  }
+
   await runCalendarStep(supabase, "cron_presidential_autoclose", () => autoCloseCalendarPresidentElectionsIfDue(supabase), {
     step: "autoCloseCalendarPresidentElectionsIfDue",
   });

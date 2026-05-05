@@ -12,8 +12,9 @@
  * depth (same grant-based rule as leadership races), then by the seated President's party
  * as a stand-in for White House / VP tiebreak.
  *
- * Older machinery that used a leadership_role column on `public.elections` is deprecated
- * and no longer surfaced in the admin UI, but the helpers stay here for reference.
+ * Calendar-driven chamber leadership uses `leadership_sessions` (see migration
+ * `20260428000000_leadership_sessions.sql`). The `elections.leadership_role` column remains for
+ * admin-created one-off races and SQL closeout logic.
  */
 
 export const LEADERSHIP_ROLES = [
