@@ -1,8 +1,8 @@
+import { HardResetCalendarForm } from "@/components/hard-reset-calendar-form";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import {
   adminUnfreezeEconomy,
   manualFireCalendarEvent,
-  resetCalendarV2ToJanuary2029AndActivate,
   setCalendarIsActive,
   unlockSimulationStartForSuperAdmin,
   updateSimulationStartAt,
@@ -137,19 +137,7 @@ export function CalendarSystemAdminPanel({
           <code className="font-mono">last_auto_open_rp_key</code>, then runs one calendar tick (so{" "}
           <code className="font-mono">inauguration_2029</code> and anything else already due can fire again).
         </p>
-        <form action={resetCalendarV2ToJanuary2029AndActivate} className="mt-2 grid max-w-xl gap-2 text-xs">
-          <label className="flex cursor-pointer items-start gap-2 font-semibold">
-            <input type="checkbox" name="confirm_rp_calendar_reset" value="1" className="mt-0.5 h-4 w-4" />
-            <span className="font-normal text-[var(--psc-ink)]">
-              I understand this wipes the calendar event log and re-bases RP time; production impact is immediate.
-            </span>
-          </label>
-          <FormSubmitButton
-            idleLabel="Reset calendar + activate (Jan 2029 now)"
-            pendingLabel="Resetting…"
-            className="justify-self-start rounded border border-rose-900 bg-rose-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-          />
-        </form>
+        <HardResetCalendarForm />
       </div>
 
       <div className="border-t border-[var(--psc-border)] pt-4">

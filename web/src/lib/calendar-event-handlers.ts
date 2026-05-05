@@ -28,6 +28,60 @@ const NON_TERMINAL_BILL_STATUSES = [
   "oval",
 ] as const;
 
+/** Congressional leadership keys in government_role_grants (see congress-composition + legislation deputy rotation). */
+const CONGRESSIONAL_LEADERSHIP_GRANT_KEYS = [
+  "speaker",
+  "house_deputy",
+  "house_majority_leader",
+  "house_majority_whip",
+  "house_minority_leader",
+  "house_minority_whip",
+  "president_pro_tempore",
+  "senate_deputy",
+  "senate_majority_leader",
+  "senate_majority_whip",
+  "senate_minority_leader",
+  "senate_minority_whip",
+] as const;
+
+/**
+ * Clears prior-term congressional leadership so a new Congress is not stuck with old Speakers / whips / PPT.
+ * Closes Hopper leadership_sessions and abandons stale Speaker / SML election rows that block
+ * openChamberLeadershipRacesIfNone. Re-runs deputy rotation from economy collects.
+ */
+async function resetCongressionalLeadershipForNewTerm(
+  supabase: SupabaseClient,
+  _simStartIso: string | null,
+): Promise<void> {
+  void _simStartIso;
+  const keys = [...CONGRESSIONAL_LEADERSHIP_GRANT_KEYS];
+
+  const { error: delErr } = await supabase.from("government_role_grants").delete().in("role_key", keys);
+  if (delErr) console.warn("[calendar] clear leadership grants:", delErr.message);
+
+  const { error: profErr } = await supabase
+    .from("profiles")
+    .update({ office_role: null, updated_at: new Date().toISOString() })
+    .in("office_role", keys);
+  if (profErr) console.warn("[calendar] clear leadership office_role:", profErr.message);
+
+  const { error: sessErr } = await supabase
+    .from("leadership_sessions")
+    .update({ phase: "closed", closed_at: new Date().toISOString() })
+    .eq("phase", "open");
+  if (sessErr) console.warn("[calendar] close leadership_sessions:", sessErr.message);
+
+  const { error: abErr } = await supabase
+    .from("elections")
+    .update({ phase: "closed" })
+    .not("leadership_role", "is", null)
+    .in("phase", ["filing", "primary", "general"]);
+  if (abErr) console.warn("[calendar] abandon stale leadership elections:", abErr.message);
+
+  const { error: dcErr } = await supabase.rpc("legislation_run_maintenance");
+  if (dcErr) console.warn("[calendar] legislation_run_maintenance:", dcErr.message);
+}
+
 async function expireOpenBills(supabase: SupabaseClient, reason: string): Promise<void> {
   await supabase
     .from("bills")
@@ -119,8 +173,10 @@ async function openChamberLeadershipRacesIfNone(supabase: SupabaseClient): Promi
   const { filing_opens_at, filing_closes_at, general_closes_at } = sched;
   const primary_closes_at = filing_closes_at;
 
+  const errors: string[] = [];
+
   if ((await countActiveChamberLeadershipRace(supabase, "speaker")) === 0) {
-    await supabase.from("elections").insert({
+    const { error } = await supabase.from("elections").insert({
       office: "house",
       leadership_role: "speaker",
       phase: "filing",
@@ -131,10 +187,11 @@ async function openChamberLeadershipRacesIfNone(supabase: SupabaseClient): Promi
       primary_party_wide: true,
       filing_window_started_at: filing_opens_at,
     });
+    if (error) errors.push(`Speaker leadership race: ${error.message}`);
   }
 
   if ((await countActiveChamberLeadershipRace(supabase, "senate_majority_leader")) === 0) {
-    await supabase.from("elections").insert({
+    const { error } = await supabase.from("elections").insert({
       office: "senate",
       leadership_role: "senate_majority_leader",
       phase: "filing",
@@ -145,6 +202,11 @@ async function openChamberLeadershipRacesIfNone(supabase: SupabaseClient): Promi
       primary_party_wide: true,
       filing_window_started_at: filing_opens_at,
     });
+    if (error) errors.push(`Senate majority leader leadership race: ${error.message}`);
+  }
+
+  if (errors.length) {
+    throw new Error(`[calendar] Could not open chamber leadership races: ${errors.join(" · ")}`);
   }
 }
 
@@ -168,7 +230,13 @@ export async function handleInauguration(supabase: SupabaseClient, year: number)
 
   await seatInaugurationCalendarElections(supabase, simStart);
 
-  if (await calendarSuccessExists(supabase, key)) return;
+  if (await calendarSuccessExists(supabase, key)) {
+    // Milestone already logged (e.g. after a prior reset) but DB can be missing races if inserts failed earlier.
+    await openChamberLeadershipRacesIfNone(supabase);
+    return;
+  }
+
+  await resetCongressionalLeadershipForNewTerm(supabase, simStart);
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipRacesIfNone(supabase);
@@ -593,7 +661,10 @@ async function seatCalendarCycleElections(supabase: SupabaseClient, cycleKey: st
 
 export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
   const eventKey = `midterms_seated_${rpYear}`;
-  if (await calendarSuccessExists(supabase, eventKey)) return;
+  if (await calendarSuccessExists(supabase, eventKey)) {
+    await openChamberLeadershipRacesIfNone(supabase);
+    return;
+  }
 
   const cycleKey = `midterms_${rpYear}`;
   if (!(await allCycleSeatRacesClosed(supabase, cycleKey))) return;
@@ -601,6 +672,9 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
   // TODO: Discord webhook — midterm results certified #announcements
 
   await seatCalendarCycleElections(supabase, cycleKey);
+
+  const settings = await loadSimulationSettings(supabase);
+  await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipRacesIfNone(supabase);
@@ -611,12 +685,18 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
 
 export async function handlePresidentialCycleSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
   const eventKey = `presidential_seated_${rpYear}`;
-  if (await calendarSuccessExists(supabase, eventKey)) return;
+  if (await calendarSuccessExists(supabase, eventKey)) {
+    await openChamberLeadershipRacesIfNone(supabase);
+    return;
+  }
 
   const cycleKey = `presidential_${rpYear}`;
   if (!(await allCycleSeatRacesClosed(supabase, cycleKey))) return;
 
   await seatCalendarCycleElections(supabase, cycleKey);
+
+  const settings = await loadSimulationSettings(supabase);
+  await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipRacesIfNone(supabase);

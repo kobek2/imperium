@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useFormStatus } from "react-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { endSelectedElections } from "@/app/actions/elections";
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 
@@ -149,7 +149,23 @@ function OperateChip({
   selected?: boolean;
   onToggleSelect?: (id: string, next: boolean) => void;
 }) {
-  const cd = countdown(r);
+  /** Avoid Date.now() on SSR + first paint — deadlines vs "now" drift between server and client. */
+  const [mounted, setMounted] = useState(false);
+  const [, setMinuteBump] = useState(0);
+  useEffect(() => {
+    setMounted(true);
+    const id = window.setInterval(() => setMinuteBump((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, [
+    r.id,
+    r.phase,
+    r.leadership_role,
+    r.filing_window_started_at,
+    r.filing_closes_at,
+    r.primary_closes_at,
+    r.general_closes_at,
+  ]);
+  const cd = mounted ? countdown(r) : null;
   const selectable = !!endSelection && canSelectRaceForEnd(r);
   const link = (
     <Link

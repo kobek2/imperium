@@ -106,7 +106,7 @@ export default async function CongressOverviewPage() {
             </Link>
           </div>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Newly filed measures await Speaker / Majority Leader (or Deputy / Clerk) action. If nothing happens within{" "}
+            Newly filed measures await Speaker / Majority Leader (or Deputy) action. If nothing happens within{" "}
             {HOPPER_LEADERSHIP_HOURS} hours, each measure auto-advances to debate. Receiving-chamber review uses a{" "}
             {OTHER_CHAMBER_REVIEW_HOURS}-hour clock; on-docket bills use {ON_DOCKET_AUTO_FLOOR_HOURS} hours before a
             floor vote opens automatically. Debate runs on a {DEBATE_AUTO_FLOOR_HOURS}-hour window before a default
@@ -222,14 +222,14 @@ export default async function CongressOverviewPage() {
       <section className="grid gap-8 lg:grid-cols-2 lg:items-start">
         <CongressLeadersPanel
           heading="House leadership"
-          subheading="Deputy and Clerk rotate to the two Representatives with the most personal economy collects (hourly income rows), excluding the Speaker. They may move hopper bills and open floor votes alongside the Speaker when timers fire."
+          subheading="Deputy rotates to the Representative with the most personal economy collects (hourly income rows), excluding the Speaker. They may move hopper bills and open floor votes alongside the Speaker when timers fire."
           slots={snapshot.houseLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         />
         <CongressLeadersPanel
           heading="Senate leadership"
-          subheading="Deputy and Clerk rotate to the two Senators with the most personal economy collects, excluding the Majority Leader. They backstop hopper review and floor scheduling the same way."
+          subheading="Deputy rotates to the Senator with the most personal economy collects, excluding the Majority Leader. They backstop hopper review and floor scheduling the same way."
           slots={snapshot.senateLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"

@@ -7,12 +7,10 @@ const FLOOR_SCHEDULERS = new Set([
   "admin",
   "speaker",
   "house_deputy",
-  "house_clerk",
   "house_majority_leader",
   "house_majority_whip",
   "senate_majority_leader",
   "senate_deputy",
-  "senate_clerk",
   "senate_majority_whip",
   "president_pro_tempore",
 ]);
@@ -53,11 +51,11 @@ export function isPartyRepublican(roleKeys: string[]): boolean {
   return roleKeys.includes("party_republican");
 }
 
-/** Accept/reject bills in the hopper for the House — Speaker, Deputy, Clerk (plus admin). */
-const HOUSE_HOPPER_ACCEPT_REJECT = new Set(["admin", "speaker", "house_deputy", "house_clerk"]);
+/** Accept/reject bills in the hopper for the House — Speaker, Deputy (plus admin). */
+const HOUSE_HOPPER_ACCEPT_REJECT = new Set(["admin", "speaker", "house_deputy"]);
 
-/** Accept/reject bills in the hopper for the Senate — Majority Leader, Deputy, Clerk (plus admin). */
-const SENATE_HOPPER_ACCEPT_REJECT = new Set(["admin", "senate_majority_leader", "senate_deputy", "senate_clerk"]);
+/** Accept/reject bills in the hopper for the Senate — Majority Leader, Deputy (plus admin). */
+const SENATE_HOPPER_ACCEPT_REJECT = new Set(["admin", "senate_majority_leader", "senate_deputy"]);
 
 /** Whether this user may accept or reject hopper bills for the given originating chamber. */
 export function canAcceptRejectHopperForChamber(roleKeys: string[], chamber: "house" | "senate"): boolean {
@@ -72,7 +70,7 @@ const SENATE_LEADER_OR_DEPUTY = new Set(["admin", "senate_majority_leader", "sen
 
 /**
  * `leadership_review`: first 12h speaker/ML only; next 12h speaker/ML + deputy (first action wins).
- * Legacy `submitted` hopper keeps Speaker/Deputy/Clerk behaviour.
+ * Legacy `submitted` hopper keeps Speaker/Deputy behaviour.
  */
 export function canActLeadershipReviewHopper(
   roleKeys: string[],

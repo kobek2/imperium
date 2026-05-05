@@ -650,8 +650,8 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
   if (!canAcceptRejectHopperForChamber(roleKeys, floorChamber)) {
     throw new Error(
       floorChamber === "house"
-        ? "Only the Speaker, House Deputy, or House Clerk may open this House floor vote."
-        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may open this Senate floor vote.",
+        ? "Only the Speaker or House Deputy may open this House floor vote."
+        : "Only the Senate Majority Leader or Senate Deputy may open this Senate floor vote.",
     );
   }
 
@@ -743,7 +743,7 @@ export async function updateBillContent(formData: FormData): Promise<void> {
   );
   if (!editChamber || !canLeadershipEditBillContent(roleKeys, editChamber)) {
     throw new Error(
-      "Only the Speaker, House Deputy, House Clerk, Senate Majority Leader, Senate Deputy, or Senate Clerk may edit this bill during the current leadership-edit phase.",
+      "Only the Speaker, House Deputy, Senate Majority Leader, or Senate Deputy may edit this bill during the current leadership-edit phase.",
     );
   }
 
@@ -910,8 +910,8 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
   if (!canAcceptRejectHopperForChamber(roleKeys, receiving)) {
     throw new Error(
       receiving === "house"
-        ? "Only the Speaker, House Deputy, or House Clerk may accept or reject bills for the House at this stage."
-        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may accept or reject bills for the Senate at this stage.",
+        ? "Only the Speaker or House Deputy may accept or reject bills for the House at this stage."
+        : "Only the Senate Majority Leader or Senate Deputy may accept or reject bills for the Senate at this stage.",
     );
   }
 

@@ -33,7 +33,6 @@ export type CongressOverviewSnapshot = {
 const HOUSE_LEADER_KEYS = [
   "speaker",
   "house_deputy",
-  "house_clerk",
   "house_majority_leader",
   "house_majority_whip",
   "house_minority_leader",
@@ -43,7 +42,6 @@ const HOUSE_LEADER_KEYS = [
 const SENATE_LEADER_KEYS = [
   "president_pro_tempore",
   "senate_deputy",
-  "senate_clerk",
   "senate_majority_leader",
   "senate_majority_whip",
   "senate_minority_leader",

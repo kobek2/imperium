@@ -240,8 +240,8 @@ export default async function LeadershipPage() {
                   ) : (
                     <p className="mt-4 text-xs text-[var(--psc-muted)]">
                       {bill.originating_chamber === "house"
-                        ? "Only the Speaker, House Deputy, or House Clerk may accept or reject House bills in review."
-                        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may accept or reject Senate bills in review."}
+                        ? "Only the Speaker or House Deputy may accept or reject House bills in review."
+                        : "Only the Senate Majority Leader or Senate Deputy may accept or reject Senate bills in review."}
                     </p>
                   )}
                 </li>
@@ -310,8 +310,8 @@ export default async function LeadershipPage() {
                   ) : (
                     <p className="mt-4 text-xs text-[var(--psc-muted)]">
                       {bill.originating_chamber === "house"
-                        ? "Only the Speaker, House Deputy, or House Clerk may open a House floor vote."
-                        : "Only the Senate Majority Leader, Senate Deputy, or Senate Clerk may open a Senate floor vote."}
+                        ? "Only the Speaker or House Deputy may open a House floor vote."
+                        : "Only the Senate Majority Leader or Senate Deputy may open a Senate floor vote."}
                     </p>
                   )}
                 </li>
