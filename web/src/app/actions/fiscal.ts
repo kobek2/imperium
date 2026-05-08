@@ -22,32 +22,12 @@ function canActorFileAppropriationsBill(params: {
   roleKeys: string[];
   isAdmin: boolean;
   fiscal: {
-    budget_initial_window_ends_at?: string | null;
     appropriations_act_bill_id?: string | null;
-    budget_treasury_override_until?: string | null;
   } | null;
 }): boolean {
   const { roleKeys, isAdmin, fiscal } = params;
   if (isAdmin || roleKeys.includes("staff_super")) return true;
   if (!fiscal || fiscal.appropriations_act_bill_id) return false;
-  const now = Date.now();
-  const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
-    ? new Date(fiscal.budget_initial_window_ends_at).getTime()
-    : null;
-
-  if (presidentialWindowEndsAt != null && Number.isFinite(presidentialWindowEndsAt)) {
-    if (now <= presidentialWindowEndsAt) {
-      return roleKeys.includes("president");
-    }
-    const treasuryUntil = fiscal.budget_treasury_override_until
-      ? new Date(fiscal.budget_treasury_override_until).getTime()
-      : null;
-    if (treasuryUntil != null && Number.isFinite(treasuryUntil) && now <= treasuryUntil) {
-      return roleKeys.includes(TREASURY_ROLE_KEY);
-    }
-    return false;
-  }
-
   return roleKeys.includes("president");
 }
 
@@ -119,7 +99,14 @@ export async function saveFiscalBudgetDraft(input: {
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "Not signed in." };
   const pres = await isPresident(supabase, user.id);
-  if (!pres) return { ok: false, message: "Only the President may edit the federal budget." };
+  const staff = await getStaffAccess();
+  const canEdit = pres || staff?.hasFullStaff;
+  if (!canEdit) {
+    return {
+      ok: false,
+      message: "Only the President or a full staff operator (admin / staff_super) may edit the federal budget.",
+    };
+  }
 
   const { error } = await supabase.rpc("fiscal_save_budget_draft", {
     p_fiscal_year_id: input.fiscalYearId,
@@ -145,7 +132,14 @@ export async function applyServerGdpInflationToLineMinima(): Promise<{ ok: boole
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "Not signed in." };
   const pres = await isPresident(supabase, user.id);
-  if (!pres) return { ok: false, message: "Only the President may run this adjustment." };
+  const staff = await getStaffAccess();
+  const canEdit = pres || staff?.hasFullStaff;
+  if (!canEdit) {
+    return {
+      ok: false,
+      message: "Only the President or a full staff operator (admin / staff_super) may run this adjustment.",
+    };
+  }
 
   const { data, error } = await supabase.rpc("fiscal_apply_server_gdp_inflation_to_line_minima");
   if (error) return { ok: false, message: error.message };
@@ -185,7 +179,14 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, message: "Not signed in." };
   const pres = await isPresident(supabase, user.id);
-  if (!pres) return { ok: false, message: "Only the President may close the fiscal year." };
+  const staff = await getStaffAccess();
+  const canClose = pres || staff?.hasFullStaff;
+  if (!canClose) {
+    return {
+      ok: false,
+      message: "Only the President or a full staff operator (admin / staff_super) may close the fiscal year.",
+    };
+  }
 
   const { data, error } = await supabase.rpc("fiscal_close_year");
   if (error) return { ok: false, message: error.message };
@@ -201,6 +202,38 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   return {
     ok: true,
     message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
+  };
+}
+
+/** Staff-only: wipe transactional economy + fiscal state except personal wallet balances; restart FY1 with seeded budget/metrics. */
+export async function adminEconomyFullResetKeepWallets(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return { ok: false, message: "Only full staff operators (admin / staff_super) may run a full economy reset." };
+  }
+
+  const { data, error } = await supabase.rpc("admin_economy_full_reset_keep_wallets");
+  if (error) return { ok: false, message: error.message };
+
+  const d = (data ?? {}) as {
+    gdp_opening_total?: number;
+    wallet_rows?: number;
+  };
+  const gdp = Number(d.gdp_opening_total ?? 0);
+  const nWallets = Number(d.wallet_rows ?? 0);
+  revalidateFiscal();
+  revalidatePath("/cabinet/treasury");
+  revalidatePath("/directory");
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  return {
+    ok: true,
+    message: `Economy reset: FY1 restarted with seeded federal budget and metrics; player wallet balances kept (${nWallets.toLocaleString()} wallets; GDP opening ~$${gdp.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Ledger, PACs, ads inventory, blackjack, party treasuries, federal treasury, and FY2+ cleared.`,
   };
 }
 
@@ -316,7 +349,7 @@ export async function fileFederalBudgetAppropriationsBill(input: {
     return {
       ok: false,
       message:
-        "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
+        "Appropriations filing is restricted to the President (or admin / staff_super override) while no appropriations act is enrolled for the active fiscal year.",
     };
   }
   const canHouseMember = canFileLegislationInChamber(roleKeys, "house");

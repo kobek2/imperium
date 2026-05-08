@@ -75,6 +75,11 @@ export default async function CongressSenatePage() {
           Senate-originated bills follow review → docket → floor vote. When a bill is on the Senate floor, members vote
           here; Vice Presidential tie-breaks follow the usual rules shown on each bill.
         </p>
+        <p className="mt-3 max-w-3xl rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)]/80 px-3 py-2 text-xs leading-relaxed text-[var(--psc-muted)]">
+          <strong className="text-[var(--psc-ink)]">House-passed bills</strong> that crossed over appear here under{" "}
+          <strong className="text-[var(--psc-ink)]">other chamber review</strong> while Senate leadership decides whether
+          to accept them to debate — check Congress overview for a shortcut list.
+        </p>
         {observeSenate ? (
           <p className="mt-4 rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
             You&apos;re viewing the Senate docket as a visitor. File and most floor votes are limited to seated
@@ -153,7 +158,7 @@ export default async function CongressSenatePage() {
         isRunningMate={isRunningMate}
         canBreakSenateTie={canBreakSenateTie}
         suppressVoteForms={observeSenate}
-        emptyLabel="No bills are currently in the Senate docket view. Check Congress overview for submitted leadership review items and other-chamber debate cards."
+        emptyLabel="No bills are currently in the Senate docket view. Check Congress overview for submitted leadership review items, or the “Awaiting receiving chamber” section when the House has sent bills over."
       />
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
         <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Senate pipeline snapshot</h3>

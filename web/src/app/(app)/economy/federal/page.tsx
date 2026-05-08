@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
 import { buildBracketAnalytics, loadAnnualInflowsForFiscalYear, loadAnnualInflowsForFiscalYearWindow } from "@/lib/load-fiscal-tax-analytics";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { parseTaxBrackets } from "@/lib/fiscal-tax";
@@ -22,19 +23,22 @@ export default async function FederalEconomyPage() {
 
   if (!user) redirect("/login");
 
-  const [{ data: activeYear }, { data: wallets }, { data: treasuryRow }, pres, isAdmin] = await Promise.all([
+  const [{ data: activeYear }, { data: wallets }, { data: treasuryRow }, pres, isAdmin, staff] = await Promise.all([
     supabase.from("rp_fiscal_years").select("*").eq("status", "active").maybeSingle(),
     supabase.from("economy_wallets").select("balance"),
     supabase.from("federal_treasury").select("balance").eq("id", 1).maybeSingle(),
     isPresident(supabase, user.id),
     getIsAdmin(),
+    getStaffAccess(),
   ]);
 
-  if (!pres && !isAdmin) {
+  const staffFull = Boolean(staff?.hasFullStaff);
+  if (!pres && !isAdmin && !staffFull) {
     redirect("/economy");
   }
 
-  const showFiscalHistory = pres || isAdmin;
+  const budgetStaffCapabilities = isAdmin || staffFull;
+  const showFiscalHistory = pres || isAdmin || staffFull;
   const { data: closedFiscalYears } = showFiscalHistory
     ? await supabase
         .from("rp_fiscal_years")
@@ -54,13 +58,10 @@ export default async function FederalEconomyPage() {
     gdp_opening_total: number | null;
     appropriation_deadline_at?: string | null;
     appropriations_act_bill_id?: string | null;
+    economy_activity_frozen?: boolean | null;
   } | null;
 
-  const governmentShutdown = Boolean(
-    fy?.appropriation_deadline_at &&
-      !fy?.appropriations_act_bill_id &&
-      new Date(fy.appropriation_deadline_at) < new Date(),
-  );
+  const governmentShutdown = Boolean(fy?.economy_activity_frozen);
 
   const { data: budgetRow } = fy
     ? await supabase.from("federal_budgets").select("*").eq("fiscal_year_id", fy.id).maybeSingle()
@@ -143,18 +144,19 @@ export default async function FederalEconomyPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 xl:relative xl:left-1/2 xl:w-[min(1400px,calc(100vw-3rem))] xl:max-w-none xl:-translate-x-1/2">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Economy</p>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Federal budget &amp; GDP</h1>
-          <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
+          <p className="mt-2 max-w-4xl text-sm text-[var(--psc-muted)]">
             One fiscal year is active at a time. Tax uses marginal brackets on each player&apos;s{" "}
             <strong>employment income</strong> for that fiscal year (scheduled role salary plus PAC hourly collects), not donations
             or transfers.
-            Economy actions stay frozen until a full staff operator marks the budget submitted after Congress acts. Fiscal
-            year-end tax, spending execution, and rollovers are intended to run through cabinet offices (e.g. Treasury), not a
-            manual &quot;close year&quot; control on this page.
+            Wallet activity is blocked only when staff freeze the economy (manual shutdown). Appropriations still follow the
+            statutory clock; missing the deadline does not auto-freeze the simulation. Fiscal year-end tax, spending execution,
+            and rollovers are intended to run through cabinet offices (e.g. Treasury), not a manual &quot;close year&quot;
+            control on this page.
           </p>
         </div>
         <NavRouteButton href="/economy">Back to economy</NavRouteButton>
@@ -166,7 +168,7 @@ export default async function FederalEconomyPage() {
         <div
           className={
             priorYearSnapshot
-              ? "flex flex-col gap-8 lg:grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start"
+              ? "flex flex-col gap-8 xl:grid xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] xl:items-start"
               : ""
           }
         >
@@ -194,7 +196,8 @@ export default async function FederalEconomyPage() {
               }
               treasuryBalance={treasuryBalance}
               isPresident={pres}
-              isAdmin={isAdmin}
+              isAdmin={budgetStaffCapabilities}
+              showFiscalSimulationReset={staffFull}
               closedFiscalYears={
                 (closedFiscalYears ?? []) as Array<{
                   year_index: number;

@@ -121,8 +121,6 @@ export function EconomyDashboard({
   viewerId,
   treasuryPartyKey,
   economyFrozen,
-  governmentShutdown,
-  calendarBudgetFreeze,
   appropriationDeadlineAt,
   federalEstimatedTax,
   taxAccount,
@@ -135,8 +133,6 @@ export function EconomyDashboard({
   viewerId: string;
   treasuryPartyKey: "democrat" | "republican" | null;
   economyFrozen: boolean;
-  governmentShutdown?: boolean;
-  calendarBudgetFreeze?: boolean;
   appropriationDeadlineAt?: string | null;
   federalEstimatedTax?: number | null;
   taxAccount?: {
@@ -190,32 +186,11 @@ export function EconomyDashboard({
     <div className="space-y-10">
       {economyFrozen ? (
         <div className="rounded border border-rose-400/80 bg-rose-50 p-4 text-sm text-rose-950">
-          <p className="font-semibold">
-            {governmentShutdown
-              ? "Government shutdown"
-              : calendarBudgetFreeze
-                ? "Economy frozen (budget deadline)"
-                : "Economy frozen"}
-          </p>
+          <p className="font-semibold">Government shutdown</p>
           <p className="mt-2 leading-relaxed">
-            {governmentShutdown ? (
-              <>
-                The annual appropriations act was not enrolled before the statutory deadline (one IRL day after the fiscal year
-                opened). Collects, purchases, and other economy debits are suspended until Congress enrolls appropriations and
-                the President signs the bill into law.
-              </>
-            ) : calendarBudgetFreeze ? (
-              <>
-                The simulation calendar marked the federal budget deadline without an enrolled appropriations act. Wallet
-                mutations stay blocked until the President signs appropriations into law or staff uses the emergency unfreeze
-                tool.
-              </>
-            ) : (
-              <>
-                The active fiscal year&apos;s federal budget must be marked <strong>submitted</strong> (after the appropriations
-                act is adopted in Congress) before wallets, gambling, PACs, and party treasury actions work.
-              </>
-            )}{" "}
+            Staff have frozen economic activity for this simulation (manual shutdown). Collects, purchases, gambling, PACs,
+            and party treasury actions stay blocked until administrators clear the freeze on the active fiscal year.
+            Appropriations deadlines alone no longer auto-stop the economy — shutdown is staff-controlled.{" "}
             {showFederalBudgetLink ? (
               <NavRouteButton
                 href="/economy/federal"
@@ -280,13 +255,13 @@ export function EconomyDashboard({
           )}
         </section>
       ) : null}
-      {!economyFrozen && appropriationDeadlineAt && !governmentShutdown ? (
+      {!economyFrozen && appropriationDeadlineAt ? (
         <p className="text-xs text-[var(--psc-muted)]">
-          Appropriations deadline (IRL):{" "}
+          Appropriations window (IRL):{" "}
           <span className="font-mono font-semibold text-[var(--psc-ink)]">
             {new Date(appropriationDeadlineAt).toLocaleString()}
           </span>
-          . If the appropriations act is not enrolled by then, the economy shuts down until it passes.
+          . Missing the deadline does not auto-freeze the economy — staff may shut down manually if needed.
         </p>
       ) : null}
       <section className="grid gap-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 sm:grid-cols-2">

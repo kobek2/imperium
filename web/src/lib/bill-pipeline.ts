@@ -136,7 +136,7 @@ async function tallySenateYeasNays(
 }
 
 /** After a successful floor vote: route to other chamber review or Oval. */
-async function transitionAfterChamberPass(
+export async function transitionAfterChamberPass(
   supabase: SupabaseClient,
   bill: { id: string; originating_chamber: string },
   floorChamber: BillChamber,
@@ -220,6 +220,89 @@ export async function resolveSenateAfterTiebreakVote(
   } catch (e) {
     console.warn("[resolveSenateAfterTiebreakVote] advance:", e);
   }
+}
+
+/**
+ * Resolve an active floor vote using only cast **yea** vs **nay** counts (ignores abstain/present and
+ * remaining unelected members). Used when staff ends voting early so a 3–2 yea–nay vote passes.
+ * Appointment confirmations still use `apply_appointment_confirmation` when applicable.
+ */
+export async function finalizeFloorVoteByCastYeaNayPlurality(
+  supabase: SupabaseClient,
+  billId: string,
+): Promise<void> {
+  const { data: bill } = await supabase
+    .from("bills")
+    .select("id, status, originating_chamber, vp_tie_break_pending")
+    .eq("id", billId)
+    .maybeSingle();
+
+  if (!bill) throw new Error("Bill not found.");
+  if (bill.status !== "house_floor" && bill.status !== "senate_floor") {
+    throw new Error("Bill is not on the chamber floor.");
+  }
+  if (bill.vp_tie_break_pending) {
+    throw new Error("VP tie-break is pending — resolve that vote first.");
+  }
+
+  const floorChamber: BillChamber = bill.status === "house_floor" ? "house" : "senate";
+
+  if (floorChamber === "senate") {
+    const { data: pendingAppt } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("confirmation_bill_id", billId)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (pendingAppt) {
+      const { error: rpcErr } = await supabase.rpc("apply_appointment_confirmation", {
+        p_bill_id: billId,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      return;
+    }
+  }
+
+  if (floorChamber === "house") {
+    const { yea, nay } = await tallyFloorYeasNaysAbstain(supabase, billId, "house");
+    if (yea > nay) {
+      await processVoteApproval(supabase, billId, "house", true);
+      try {
+        await transitionAfterChamberPass(supabase, bill, "house");
+      } catch (e) {
+        console.warn("[finalizeFloorVoteByCastYeaNayPlurality] house advance:", e);
+      }
+      return;
+    }
+    await setBillFailed(supabase, billId, "house");
+    return;
+  }
+
+  const { yea, nay } = await tallySenateYeasNays(supabase, billId);
+  if (yea > nay) {
+    await processVoteApproval(supabase, billId, "senate", true);
+    try {
+      await transitionAfterChamberPass(supabase, bill, "senate");
+    } catch (e) {
+      console.warn("[finalizeFloorVoteByCastYeaNayPlurality] senate advance:", e);
+    }
+    return;
+  }
+  if (nay > yea) {
+    await setBillFailed(supabase, billId, "senate");
+    return;
+  }
+
+  let { error: tieErr } = await supabase
+    .from("bills")
+    .update({ vp_tie_break_pending: true, chamber_vote_deadline_at: null })
+    .eq("id", billId);
+  if (tieErr && isMissingVpTieColumn(tieErr.message)) {
+    const retry = await supabase.from("bills").update({ status: "failed", chamber_vote_deadline_at: null }).eq("id", billId);
+    tieErr = retry.error;
+  }
+  if (tieErr) console.warn("[finalizeFloorVoteByCastYeaNayPlurality] senate tie:", tieErr.message);
 }
 
 /** Advance bills whose chamber voting clocks have expired. */

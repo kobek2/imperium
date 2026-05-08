@@ -5,6 +5,7 @@ import { addHours } from "date-fns";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
+  finalizeFloorVoteByCastYeaNayPlurality,
   processBillDeadlines,
   resolveSenateAfterTiebreakVote,
   tryClinchFloorVoteAfterBallotChange,
@@ -30,7 +31,7 @@ import {
 import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
-import { getIsAdmin } from "@/lib/is-admin";
+import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
 import { applyApprovalDelta } from "@/lib/approval-ratings";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
@@ -73,33 +74,12 @@ function canActorFileAppropriationsBill(params: {
   /** True when the actor has site admin or full staff operator grants (`admin` / `staff_super`). */
   isAdmin: boolean;
   fiscal: {
-    budget_initial_window_ends_at?: string | null;
     appropriations_act_bill_id?: string | null;
-    budget_treasury_override_until?: string | null;
   } | null;
 }): boolean {
   const { roleKeys, isAdmin, fiscal } = params;
   if (isAdmin || roleKeys.includes("staff_super")) return true;
   if (!fiscal || fiscal.appropriations_act_bill_id) return false;
-  const now = Date.now();
-  const presidentialWindowEndsAt = fiscal.budget_initial_window_ends_at
-    ? new Date(fiscal.budget_initial_window_ends_at).getTime()
-    : null;
-
-  if (presidentialWindowEndsAt != null && Number.isFinite(presidentialWindowEndsAt)) {
-    if (now <= presidentialWindowEndsAt) {
-      return roleKeys.includes("president");
-    }
-    const treasuryUntil = fiscal.budget_treasury_override_until
-      ? new Date(fiscal.budget_treasury_override_until).getTime()
-      : null;
-    if (treasuryUntil != null && Number.isFinite(treasuryUntil) && now <= treasuryUntil) {
-      return roleKeys.includes(TREASURY_ROLE_KEY);
-    }
-    return false;
-  }
-
-  // Pre-cycle fallback for legacy data.
   return roleKeys.includes("president");
 }
 
@@ -298,7 +278,7 @@ export async function submitBill(formData: FormData): Promise<void> {
 
   if (wantsAppropriations && !appropriationsActor) {
     throw new Error(
-      "Appropriations filing is restricted to the President during the 24h September window, then to the Treasury Secretary until the next September cycle (admins always override).",
+      "Appropriations filing is restricted to the President (or admin / staff_super override) while no appropriations act is enrolled for the active fiscal year.",
     );
   }
   const needsAppropriationsGate =
@@ -1190,5 +1170,40 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   revalidatePath("/oval");
   revalidateCongressPages();
   revalidatePath("/directory");
+  revalidateBillPage(bill_id);
+}
+
+/** Expire the chamber floor vote clock now and run the pipeline (same as when the countdown ends). Admin only. */
+export async function adminCloseBillFloorVotePeriod(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const bill_id = String(formData.get("bill_id") ?? "").trim();
+  if (!bill_id) throw new Error("Missing bill id.");
+
+  const { data: bill } = await supabase
+    .from("bills")
+    .select("id, status, chamber_vote_deadline_at, vp_tie_break_pending")
+    .eq("id", bill_id)
+    .maybeSingle();
+
+  if (!bill) throw new Error("Bill not found.");
+  if (bill.status !== "house_floor" && bill.status !== "senate_floor") {
+    throw new Error("Floor vote is not open on this bill.");
+  }
+  if (bill.vp_tie_break_pending) {
+    throw new Error(
+      "The Senate is waiting on a Vice Presidential tie-break — there is no timed voting period to close.",
+    );
+  }
+  if (!bill.chamber_vote_deadline_at) {
+    throw new Error("No active chamber vote deadline.");
+  }
+
+  const pastIso = new Date(Date.now() - 60_000).toISOString();
+  const { error } = await supabase.from("bills").update({ chamber_vote_deadline_at: pastIso }).eq("id", bill_id);
+  throwIfPostgrestError(error);
+
+  await finalizeFloorVoteByCastYeaNayPlurality(supabase, bill_id);
+
+  revalidateCongressPagesAndLeadership();
   revalidateBillPage(bill_id);
 }

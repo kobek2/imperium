@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
 import { isPresident } from "@/lib/president";
 import { OrientationTourPanelEconomy } from "@/components/orientation-tour-panel";
 import { EconomyDashboard } from "./economy-dashboard";
@@ -27,6 +28,7 @@ export default async function EconomyPage() {
     { data: activeFy },
     pres,
     isAdmin,
+    staffAccess,
   ] = await Promise.all([
     supabase.from("economy_wallets").select("balance, last_collected_at").eq("user_id", user.id).maybeSingle(),
     supabase.from("economy_pacs").select("level").eq("user_id", user.id).maybeSingle(),
@@ -48,6 +50,7 @@ export default async function EconomyPage() {
       .maybeSingle(),
     isPresident(supabase, user.id),
     getIsAdmin(),
+    getStaffAccess(),
   ]);
 
   await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
@@ -59,27 +62,9 @@ export default async function EconomyPage() {
     economy_activity_frozen?: boolean | null;
   } | null;
 
-  const governmentShutdown = Boolean(
-    fyRow?.appropriation_deadline_at &&
-      !fyRow?.appropriations_act_bill_id &&
-      new Date(fyRow.appropriation_deadline_at) < new Date(),
-  );
-
-  const calendarBudgetFreeze = Boolean(fyRow?.economy_activity_frozen);
-
-  let economyFrozen = true;
-  if (fyRow?.id) {
-    const { data: fyBudget } = await supabase
-      .from("federal_budgets")
-      .select("status")
-      .eq("fiscal_year_id", fyRow.id)
-      .maybeSingle();
-    economyFrozen =
-      governmentShutdown ||
-      calendarBudgetFreeze ||
-      !fyBudget ||
-      (fyBudget as { status: string }).status !== "submitted";
-  }
+  /** Matches server `_economy_require_active_budget`: only manual freeze blocks wallet activity. */
+  const manualShutdown = Boolean(fyRow?.economy_activity_frozen);
+  const economyFrozen = manualShutdown;
 
   let federalEstimatedTax: number | null = null;
   const { data: taxRpcData, error: taxRpcErr } = await supabase.rpc("fiscal_estimate_ytd_income_tax");
@@ -125,7 +110,9 @@ export default async function EconomyPage() {
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          {pres || isAdmin ? <NavRouteButton href="/economy/federal">Federal budget</NavRouteButton> : null}
+          {pres || isAdmin || Boolean(staffAccess?.hasFullStaff) ? (
+            <NavRouteButton href="/economy/federal">Federal budget</NavRouteButton>
+          ) : null}
           <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
         </div>
       </header>
@@ -138,8 +125,6 @@ export default async function EconomyPage() {
         viewerId={user.id}
         treasuryPartyKey={treasuryPartyKey}
         economyFrozen={economyFrozen}
-        governmentShutdown={governmentShutdown}
-        calendarBudgetFreeze={calendarBudgetFreeze}
         appropriationDeadlineAt={fyRow?.appropriation_deadline_at ?? null}
         federalEstimatedTax={federalEstimatedTax}
         taxAccount={
@@ -152,7 +137,7 @@ export default async function EconomyPage() {
             status?: string;
           } | null) ?? null
         }
-        showFederalBudgetLink={pres || isAdmin}
+        showFederalBudgetLink={pres || isAdmin || Boolean(staffAccess?.hasFullStaff)}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { leadershipOpenFloorVote, otherChamberLeadershipReviewBill } from "@/app/actions/bills";
+import { adminCloseBillFloorVotePeriod, leadershipOpenFloorVote, otherChamberLeadershipReviewBill } from "@/app/actions/bills";
 import { setBillWhipInstruction } from "@/app/actions/whips";
 import { getServerAuth } from "@/lib/supabase/server";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
@@ -132,6 +132,11 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     whipChamber === "house"
       ? roleKeys.some((k) => ["admin", "speaker", "house_majority_leader", "house_majority_whip", "house_minority_whip"].includes(k))
       : roleKeys.some((k) => ["admin", "senate_majority_leader", "senate_majority_whip", "senate_minority_whip"].includes(k));
+  const floorVoteClockActive =
+    (bill.status === "house_floor" || bill.status === "senate_floor") &&
+    Boolean(bill.chamber_vote_deadline_at) &&
+    !bill.vp_tie_break_pending &&
+    new Date(String(bill.chamber_vote_deadline_at)) > new Date();
   const { data: whipRows } = await supabase
     .from("bill_whip_instructions")
     .select("party, instructed_vote, rationale, set_at, set_by")
@@ -196,7 +201,12 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         ) : null}
         {bill.status === "other_chamber_review" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
-            The {receiving === "house" ? "House" : "Senate"} must accept or reject this bill before debate.
+            The {receiving === "house" ? "House" : "Senate"} must accept or reject this bill before debate. Track it on
+            the{" "}
+            <Link href={`/congress/${receiving}`} className="text-[var(--psc-accent)] underline">
+              {receiving === "house" ? "House" : "Senate"}
+            </Link>{" "}
+            tab or Congress overview (&quot;Awaiting receiving chamber&quot;).
           </p>
         ) : null}
         {bill.status === "other_chamber_debate" ? (
@@ -213,6 +223,24 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
           <BillVoteCountdown endsAtIso={bill.chamber_vote_deadline_at} />
         ) : null}
       </header>
+
+      {isAdminActor && floorVoteClockActive ? (
+        <section className="rounded-lg border border-amber-800/30 bg-amber-50 p-4 text-sm text-amber-950">
+          <h2 className="text-sm font-semibold">Admin</h2>
+          <p className="mt-1 text-xs leading-relaxed">
+            End the floor voting period now and tally the vote (same result as when the countdown reaches zero).
+          </p>
+          <form action={adminCloseBillFloorVotePeriod} className="mt-3">
+            <input type="hidden" name="bill_id" value={bill.id} />
+            <SubmitButton
+              pendingLabel="Closing vote…"
+              className="rounded border border-amber-900 bg-amber-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+            >
+              Close voting period
+            </SubmitButton>
+          </form>
+        </section>
+      ) : null}
 
       <BillBody content_html={bill.content_html} content_md={bill.content_md} />
 

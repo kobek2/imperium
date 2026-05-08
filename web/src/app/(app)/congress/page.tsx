@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { fetchCongressOverviewSnapshot } from "@/lib/congress-composition";
+import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 import { OrientationTourPanelCongress } from "@/components/orientation-tour-panel";
@@ -42,7 +43,13 @@ export default async function CongressOverviewPage() {
   const isRep = roleKeys.includes("representative");
   const isSen = roleKeys.includes("senator");
 
-  const [{ data: leadershipSessions }, snapshot, { data: reviewBills }, { data: docketBills }] = await Promise.all([
+  const [
+    { data: leadershipSessions },
+    snapshot,
+    { data: reviewBills },
+    { data: docketBills },
+    { data: crossChamberReviewRows },
+  ] = await Promise.all([
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     fetchCongressOverviewSnapshot(supabase),
     supabase
@@ -55,6 +62,12 @@ export default async function CongressOverviewPage() {
       .select("id, title, originating_chamber")
       .eq("status", "on_docket")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("bills")
+      .select("id, title, originating_chamber, leadership_deadline_at")
+      .eq("status", "other_chamber_review")
+      .order("created_at", { ascending: false })
+      .limit(15),
   ]);
 
   const sessions = (leadershipSessions ?? []) as Array<{ id: string; chamber: string; closes_at: string }>;
@@ -72,6 +85,13 @@ export default async function CongressOverviewPage() {
     id: string;
     title: string;
     originating_chamber: "house" | "senate";
+  }>;
+
+  const crossChamberRows = (crossChamberReviewRows ?? []) as Array<{
+    id: string;
+    title: string;
+    originating_chamber: "house" | "senate";
+    leadership_deadline_at: string | null;
   }>;
 
   if (!snapshot) {
@@ -171,6 +191,53 @@ export default async function CongressOverviewPage() {
                 </Link>
               </li>
             ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {crossChamberRows.length > 0 ? (
+        <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Awaiting receiving chamber</h2>
+            <Link href="/congress/leadership" className={congressActionBtnPrimary}>
+              Open leadership desk →
+            </Link>
+          </div>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">
+            These bills already passed the originating chamber&apos;s floor vote and now sit in{" "}
+            <strong className="text-[var(--psc-ink)]">other chamber review</strong> until that chamber&apos;s
+            leadership accepts or rejects them ({OTHER_CHAMBER_REVIEW_HOURS}-hour clock). House-passed bills appear on the{" "}
+            <strong className="text-[var(--psc-ink)]">Senate</strong> page; Senate-passed bills on the{" "}
+            <strong className="text-[var(--psc-ink)]">House</strong> page.
+          </p>
+          <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
+            {crossChamberRows.map((b) => {
+              const receiving = receivingChamberForOrigination(b.originating_chamber);
+              const chamberLabel = receiving === "senate" ? "Senate" : "House";
+              return (
+                <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/bill/${b.id}`}
+                      className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
+                    >
+                      {b.title}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                      Passed {b.originating_chamber === "house" ? "House" : "Senate"} floor → needs{" "}
+                      {chamberLabel} leadership · receiving chamber:{" "}
+                      <strong className="text-[var(--psc-ink)]">{chamberLabel}</strong>
+                      {b.leadership_deadline_at
+                        ? ` · Auto ${new Date(b.leadership_deadline_at).toLocaleString()}`
+                        : null}
+                    </p>
+                  </div>
+                  <Link href={`/congress/${receiving}`} className={congressActionBtn}>
+                    {chamberLabel} tab →
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

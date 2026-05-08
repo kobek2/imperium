@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
+  adminEconomyFullResetKeepWallets,
   applyServerGdpInflationToLineMinima,
+  closeFiscalYear,
   fileFederalBudgetAppropriationsBill,
   saveFiscalBudgetDraft,
   type FiscalLineItemRow,
@@ -53,6 +55,7 @@ export function FederalBudgetPanel({
   salaryAnnualIncomes,
   nationalMetrics,
   priorYearBudgetSummary,
+  showFiscalSimulationReset,
 }: {
   fiscalYearId: string;
   yearLabel: string;
@@ -67,6 +70,8 @@ export function FederalBudgetPanel({
   treasuryBalance: number;
   isPresident: boolean;
   isAdmin: boolean;
+  /** Full staff only: run `admin_economy_full_reset_keep_wallets` (destructive simulation reset). */
+  showFiscalSimulationReset?: boolean;
   closedFiscalYears: Array<{
     year_index: number;
     label: string;
@@ -80,7 +85,7 @@ export function FederalBudgetPanel({
   /** Latest closed FY appropriations + estimated tax (for YoY). Null if no closed year on file. */
   priorYearBudgetSummary: PriorFiscalYearBudgetSummary | null;
 }) {
-  const canEdit = isPresident;
+  const canEdit = isPresident || isAdmin;
   const showFullProcess = isPresident || isAdmin;
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -198,8 +203,8 @@ export function FederalBudgetPanel({
         <div className="rounded border border-slate-400/80 bg-slate-50 p-4 text-sm text-slate-900">
           <p className="font-semibold text-[var(--psc-ink)]">Admin view</p>
           <p className="mt-2 leading-relaxed text-slate-800">
-            You can see the full budget process, tax brackets, line items, metrics, and fiscal history. Only the President
-            can save drafts and file appropriations bills (RPCs enforce this).
+            You can see the full budget process, tax brackets, line items, metrics, and fiscal history. Admins may edit
+            drafts, file appropriations, and close fiscal years alongside the President.
           </p>
         </div>
       ) : null}
@@ -222,10 +227,11 @@ export function FederalBudgetPanel({
               </>
             ) : (
               <>
-                For this fiscal year, other federal legislation is blocked until the annual appropriations act is enrolled. The
-                President must file the House bill and move it through Congress. If it is not signed into law by{" "}
+                Members may still propose and vote on ordinary bills in Congress; the economy stays gated until the annual
+                appropriations act is enrolled. The President has the first 24 hours of this window to file the House
+                appropriations measure, then the Treasury Secretary may file if needed. If it is not signed into law by{" "}
                 <span className="font-mono font-semibold">{new Date(appropriationDeadlineAt).toLocaleString()}</span> (IRL), the
-                economy shuts down until it passes. Signing the enrolled bill also marks the budget submitted automatically.
+                economy shuts down until it passes. Signing the enrolled bill also marks the budget workbook submitted automatically.
               </>
             )}
           </p>
@@ -275,10 +281,39 @@ export function FederalBudgetPanel({
           <span className="font-mono font-semibold text-[var(--psc-ink)]">${totalAllocated.toLocaleString()}</span>
         </p>
         <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          File the appropriations bill from this page. After the President signs the enrolled act, the budget is marked submitted
+          File the appropriations bill from this page (or use Congress → file in the House). After the President signs the enrolled act, the budget is marked submitted
           automatically. Until then, a full staff operator can still use{" "}
           <strong className="text-[var(--psc-ink)]">Admin → Economy overview</strong> if a manual override is required.
         </p>
+        {canEdit ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={pending}
+              className="rounded border border-rose-800 bg-rose-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Close ${yearLabel}? This will settle taxes/spending, mark the year closed, and create the next fiscal year.`,
+                  )
+                ) {
+                  return;
+                }
+                start(async () => {
+                  setFlash(null);
+                  const r = await closeFiscalYear();
+                  setFlash({ ok: r.ok, message: r.message });
+                  if (r.ok) router.refresh();
+                });
+              }}
+            >
+              {pending ? "Closing…" : "Close fiscal year"}
+            </button>
+            <p className="text-xs text-[var(--psc-muted)]">
+              President-only. Requires the active fiscal year budget to already be submitted.
+            </p>
+          </div>
+        ) : null}
       </section>
 
       {showFullProcess ? (
@@ -641,6 +676,27 @@ export function FederalBudgetPanel({
 
           {isAdmin ? (
             <NationalMetricsAdminForm fiscalYearId={fiscalYearId} initial={nationalMetrics} />
+          ) : null}
+
+          {showFiscalSimulationReset ? (
+            <section className="rounded border border-amber-800/40 bg-amber-50 p-4 text-sm text-amber-950">
+              <h2 className="text-base font-semibold text-amber-950">Staff: full economy reset</h2>
+              <p className="mt-2 text-xs leading-relaxed">
+                Restarts the simulation at <strong className="text-amber-950">FY 1</strong> with the default federal budget and
+                national metrics. <strong className="text-amber-950">Personal wallet balances are kept.</strong> Clears the
+                economy ledger, PAC levels, campaign ad inventory, blackjack sessions, party organization treasuries and
+                election-grant records, federal treasury, all fiscal years after FY1, FY1 tax/close artifacts, and replaces the
+                FY1 workbook and metrics snapshot. Sets a fresh 24-hour appropriations clock.
+              </p>
+              <button
+                type="button"
+                disabled={pending}
+                className="mt-3 rounded border border-amber-950 bg-amber-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-50 disabled:opacity-50"
+                onClick={() => run(() => adminEconomyFullResetKeepWallets())}
+              >
+                {pending ? "Resetting…" : "Reset economy (keep wallets)"}
+              </button>
+            </section>
           ) : null}
 
           <div className="flex flex-wrap gap-3">

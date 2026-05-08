@@ -76,6 +76,11 @@ export default async function CongressHousePage() {
           chosen duration. Other chambers still act in sequence — cards show both House and Senate tallies when
           relevant.
         </p>
+        <p className="mt-3 max-w-3xl rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)]/80 px-3 py-2 text-xs leading-relaxed text-[var(--psc-muted)]">
+          <strong className="text-[var(--psc-ink)]">After the House passes a bill,</strong> it leaves this House list and
+          moves to the <strong className="text-[var(--psc-ink)]">Senate</strong> (plus Congress overview &quot;Awaiting
+          receiving chamber&quot;) until Senate leadership accepts or rejects it — it is not deleted.
+        </p>
         {observeHouse ? (
           <p className="mt-4 rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
             You&apos;re viewing the House docket as a visitor. File and floor votes stay limited to seated
@@ -154,7 +159,7 @@ export default async function CongressHousePage() {
         isRunningMate={isRunningMate}
         canBreakSenateTie={canBreakSenateTie}
         suppressVoteForms={observeHouse}
-        emptyLabel="No bills are currently in the House docket view. Check Congress overview for submitted leadership review items and other-chamber debate cards."
+        emptyLabel="No bills are currently in the House docket view. After the House passes a bill it moves to the Senate for receiving-chamber review — open the Senate tab or Congress overview. Bills awaiting leadership also appear on the Leadership desk."
       />
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
         <h3 className="text-sm font-semibold text-[var(--psc-ink)]">House pipeline snapshot</h3>

@@ -176,6 +176,11 @@ export default async function TreasuryCabinetPage() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Treasury operations</h1>
         </div>
+        <p className="max-w-3xl text-sm text-[var(--psc-muted)]">
+          Track the appropriations bill below. After it is signed into law, the enrolled act marks the federal budget submitted
+          and unlocks the economy gate; you can then run tax warnings, penalties, and collections for the active fiscal year
+          (same rules as the economy dashboard).
+        </p>
       </header>
 
       {fyActive ? (

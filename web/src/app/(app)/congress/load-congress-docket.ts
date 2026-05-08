@@ -31,7 +31,7 @@ const NON_CHAMBER_BILL_STATUSES = new Set([
   "rejected",
 ]);
 
-/** Positive filter so terminal bills do not consume the PostgREST row cap (default 1000). */
+/** Pipeline statuses only — terminal bills are queried separately so they do not consume row caps. */
 const CONGRESS_PIPELINE_STATUSES = [
   "submitted",
   "leadership_review",
@@ -80,21 +80,48 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, userId, profile);
 
-  const [{ data: bills }, { data: leadershipSessions }, isRunningMate, canBreakSenateTie] = await Promise.all([
+  const pipelineStatuses = [...CONGRESS_PIPELINE_STATUSES];
+
+  const [
+    { data: billsWithVoteClock },
+    { data: billsWithoutVoteClock },
+    { data: leadershipSessions },
+    isRunningMate,
+    canBreakSenateTie,
+  ] = await Promise.all([
     supabase
       .from("bills")
       .select(
         "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
       )
-      .in("status", [...CONGRESS_PIPELINE_STATUSES])
-      .order("chamber_vote_deadline_at", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false }),
+      .in("status", pipelineStatuses)
+      .not("chamber_vote_deadline_at", "is", null)
+      .order("chamber_vote_deadline_at", { ascending: true })
+      .order("created_at", { ascending: false })
+      .limit(2500),
+    supabase
+      .from("bills")
+      .select(
+        "id, title, author_id, content_html, content_md, status, originating_chamber, created_at, expires_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending",
+      )
+      .in("status", pipelineStatuses)
+      .is("chamber_vote_deadline_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1500),
     supabase.from("leadership_sessions").select("id, chamber, closes_at").eq("phase", "open"),
     isActivePresidentialRunningMate(supabase, userId),
     userCanBreakSenateTie(supabase, userId, roleKeys),
   ]);
 
-  const billList = (bills ?? []) as BillForCard[];
+  /** Merge floor-clock bills first (soonest vote), then bills without a clock (other chamber review, etc.). */
+  const seen = new Set<string>();
+  const billList: BillForCard[] = [];
+  for (const row of [...(billsWithVoteClock ?? []), ...(billsWithoutVoteClock ?? [])]) {
+    const b = row as BillForCard;
+    if (seen.has(b.id)) continue;
+    seen.add(b.id);
+    billList.push(b);
+  }
   const billIds = billList.map((b) => b.id);
 
   let votes: BillVote[] = [];

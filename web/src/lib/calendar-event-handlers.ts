@@ -286,20 +286,44 @@ export async function handleBudgetCycleOpen(supabase: SupabaseClient, rpYear: nu
   // TODO: Discord webhook — budget window open, deadline approaching #announcements
 
   const hoursPerRpMonth = (10.5 / 48) * 24;
+  const now = new Date();
+  const deadlineAt = addHours(now, hoursPerRpMonth);
+  const deadlineIso = deadlineAt.toISOString();
+  /** First 24h real time: President-only appropriations filing (matches September RPC semantics). */
+  const presidentWindowEndMs = Math.min(deadlineAt.getTime(), now.getTime() + 24 * 60 * 60 * 1000);
+  const presidentWindowEndIso = new Date(presidentWindowEndMs).toISOString();
+  const cycleKey = `${rpYear}-09`;
 
-  const { data: fy } = await supabase.from("rp_fiscal_years").select("id").eq("status", "active").maybeSingle();
-  if (fy?.id) {
-    const deadline = addHours(new Date(), hoursPerRpMonth).toISOString();
-    await supabase
+  const { data: fy } = await supabase
+    .from("rp_fiscal_years")
+    .select("id, appropriations_act_bill_id")
+    .eq("status", "active")
+    .maybeSingle();
+
+  const fyRow = fy as { id?: string; appropriations_act_bill_id?: string | null } | null;
+  if (fyRow?.id && !fyRow.appropriations_act_bill_id) {
+    const { error } = await supabase
       .from("rp_fiscal_years")
       .update({
-        appropriation_deadline_at: deadline,
-        appropriation_clock_started_at: new Date().toISOString(),
+        appropriation_deadline_at: deadlineIso,
+        appropriation_clock_started_at: now.toISOString(),
+        budget_initial_window_ends_at: presidentWindowEndIso,
+        budget_initial_window_missed_at: null,
+        budget_treasury_override_until: deadlineIso,
+        budget_cycle_rp_key: cycleKey,
+        economy_activity_frozen: false,
       })
-      .eq("id", fy.id);
+      .eq("id", fyRow.id);
+    if (error) {
+      throw new Error(`[calendar] budget_open fiscal year update: ${error.message}`);
+    }
   }
 
-  await insertCalendarEventSuccess(supabase, key, { rpYear });
+  await insertCalendarEventSuccess(supabase, key, {
+    rpYear,
+    appropriation_deadline_at: deadlineIso,
+    budget_initial_window_ends_at: presidentWindowEndIso,
+  });
 }
 
 export async function handleBudgetDeadlineMiss(supabase: SupabaseClient, rpYear: number): Promise<void> {
@@ -317,13 +341,8 @@ export async function handleBudgetDeadlineMiss(supabase: SupabaseClient, rpYear:
     return;
   }
 
-  if (fy?.id) {
-    await supabase.from("rp_fiscal_years").update({ economy_activity_frozen: true }).eq("id", fy.id);
-  }
-
-  // TODO: Discord webhook — government shutdown, economy frozen #announcements
-
-  await insertCalendarEventSuccess(supabase, key, { rpYear });
+  // Do not auto-freeze the economy — staff shut down manually via rp_fiscal_years.economy_activity_frozen.
+  await insertCalendarEventSuccess(supabase, key, { rpYear, manual_shutdown_only: true });
 }
 
 async function loadAllDistrictCodes(supabase: SupabaseClient): Promise<string[]> {
