@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
+import { BillBody } from "@/components/bill-body";
 
 export default async function ExecutiveOrderPublicPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,6 +36,8 @@ export default async function ExecutiveOrderPublicPage({ params }: { params: Pro
     String(issuer?.character_name ?? "").trim() ||
     String(issuer?.discord_username ?? "").trim() ||
     "President";
+  const bodyText = String(eo.body ?? "").trim();
+  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(bodyText);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -50,7 +53,7 @@ export default async function ExecutiveOrderPublicPage({ params }: { params: Pro
         </p>
 
         <div className="mt-8 border-t border-[var(--psc-border)] pt-8">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--psc-ink)]">{eo.body}</p>
+          <BillBody content_html={looksLikeHtml ? bodyText : null} content_md={looksLikeHtml ? null : bodyText} className="mt-0" />
         </div>
 
         <div className="mt-10 border-t border-dashed border-[var(--psc-border)] pt-8">

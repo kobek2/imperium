@@ -141,13 +141,6 @@ export default async function LeadershipPage() {
       </Link>
       <header>
         <h1 className="text-3xl font-semibold">Leadership</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[var(--psc-muted)]">
-          <strong className="text-[var(--psc-ink)]">Review</strong> newly filed bills, then{" "}
-          <strong className="text-[var(--psc-ink)]">move them into debate</strong>. After debate (and any
-          amendments), <strong className="text-[var(--psc-ink)]">open the floor vote</strong>. The{" "}
-          <strong className="text-[var(--psc-ink)]">Speaker</strong> acts for House bills; the{" "}
-          <strong className="text-[var(--psc-ink)]">Senate Majority Leader</strong> acts for Senate bills.
-        </p>
       </header>
 
       {schemaWarning ? (
@@ -324,10 +317,6 @@ export default async function LeadershipPage() {
       {inDebate.length > 0 ? (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">3 · Debate — push to vote</h2>
-          <p className="text-xs text-[var(--psc-muted)]">
-            Resolve amendments on the bill page, then open a 24-hour floor vote when ready. If nothing is scheduled
-            before the debate window ends, the floor vote opens automatically with a 24-hour ballot.
-          </p>
           <ul className="space-y-6">
             {inDebate.map((bill) => {
               const canAct =
@@ -360,7 +349,7 @@ export default async function LeadershipPage() {
                     </form>
                   ) : (
                     <p className="mt-4 text-xs text-[var(--psc-muted)]">
-                      Only the originating chamber&apos;s leadership may open this vote.
+                      Only {bill.originating_chamber === "house" ? "House" : "Senate"} leadership may open this vote.
                     </p>
                   )}
                 </li>

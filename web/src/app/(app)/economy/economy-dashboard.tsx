@@ -16,7 +16,6 @@ import {
   CAMPAIGN_AD_UNIT_PRICE,
   PAC_LEVEL_1_COST,
   PAC_LEVEL_2_UPGRADE_COST,
-  PAC_LEVEL_3_UPGRADE_COST,
   PAC_HOURLY_BY_LEVEL,
 } from "@/lib/economy-config";
 import { NavRouteButton } from "@/components/nav-route-button";
@@ -26,8 +25,17 @@ import { EconomyBlackjack } from "./economy-blackjack";
 type WalletRow = { balance: number; last_collected_at: string };
 type PacRow = { level: number } | null;
 type InvRow = { sku: string; quantity: number } | null;
-type LedgerRow = { id: string; wallet_user_id: string; delta: number; kind: string; detail: unknown; created_at: string };
-type FlashSection = "balance" | "pac" | "ads" | "payments";
+type LedgerRow = {
+  id: string;
+  wallet_user_id: string;
+  walletName: string;
+  relatedName: string | null;
+  delta: number;
+  kind: string;
+  detail: unknown;
+  created_at: string;
+};
+type FlashSection = "balance" | "pac" | "ads" | "payments" | "tax";
 type FlashDetail = { label: string; value: string; tone?: "positive" | "negative" | "neutral" };
 
 const INCOME_COOLDOWN_MS = 60 * 60 * 1000;
@@ -82,6 +90,15 @@ function formatCollectWait(ms: number): string {
   return `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
+function formatMoney(amount: number | null | undefined): string {
+  return `$${Number(amount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatSignedMoney(amount: number): string {
+  const sign = amount >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(amount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
 function useIncomeCollectGate(lastCollectedAtIso: string | undefined) {
   /** `null` until after mount so SSR and the first client paint match (no Date.now() split). */
   const [now, setNow] = useState<number | null>(null);
@@ -118,10 +135,8 @@ export function EconomyDashboard({
   pac,
   inventory,
   recentLedger,
-  viewerId,
   treasuryPartyKey,
   economyFrozen,
-  appropriationDeadlineAt,
   federalEstimatedTax,
   taxAccount,
   showFederalBudgetLink,
@@ -130,10 +145,8 @@ export function EconomyDashboard({
   pac: PacRow;
   inventory: InvRow;
   recentLedger: LedgerRow[];
-  viewerId: string;
   treasuryPartyKey: "democrat" | "republican" | null;
   economyFrozen: boolean;
-  appropriationDeadlineAt?: string | null;
   federalEstimatedTax?: number | null;
   taxAccount?: {
     assessed_tax?: number;
@@ -162,10 +175,12 @@ export function EconomyDashboard({
   const adLineTotal = adQty * CAMPAIGN_AD_UNIT_PRICE;
   const collectGate = useIncomeCollectGate(wallet?.last_collected_at);
   const currentPacHourly = pac ? PAC_HOURLY_BY_LEVEL[pac.level as 1 | 2 | 3] ?? 0 : 0;
-  const nextPacLevel = pac && pac.level < 3 ? ((pac.level + 1) as 2 | 3) : null;
+  const nextPacLevel = pac && pac.level < 2 ? 2 : null;
   const nextPacHourly = nextPacLevel ? PAC_HOURLY_BY_LEVEL[nextPacLevel] : null;
-  const nextPacUpgradeCost =
-    pac?.level === 1 ? PAC_LEVEL_2_UPGRADE_COST : pac?.level === 2 ? PAC_LEVEL_3_UPGRADE_COST : null;
+  const nextPacUpgradeCost = pac?.level === 1 ? PAC_LEVEL_2_UPGRADE_COST : null;
+  const taxOwed = Number(taxAccount?.outstanding_amount ?? taxAccount?.assessed_tax ?? 0);
+  const taxPaid = Number(taxAccount?.paid_amount ?? 0);
+  const taxPrediction = Number(federalEstimatedTax ?? 0);
 
   function run(
     section: FlashSection,
@@ -202,35 +217,28 @@ export function EconomyDashboard({
           </p>
         </div>
       ) : null}
-      {!economyFrozen && Number.isFinite(federalEstimatedTax ?? NaN) ? (
-        <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
-          <p className="font-semibold">Estimated federal income tax (if year closed now)</p>
-          <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
-            ${Number(federalEstimatedTax ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
-        </div>
-      ) : null}
       {!economyFrozen ? (
-        <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
-          <p className="font-semibold">Tax account</p>
-          {taxAccount ? (
-            <>
-              <p className="mt-2 text-[var(--psc-muted)]">
-                Assessed: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.assessed_tax ?? 0).toLocaleString()}</span>
-                {" · "}Paid: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.paid_amount ?? 0).toLocaleString()}</span>
-                {" · "}Outstanding:{" "}
-                <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.outstanding_amount ?? 0).toLocaleString()}</span>
-                {" · "}Penalties: <span className="font-mono text-[var(--psc-ink)]">${Number(taxAccount.total_penalties ?? 0).toLocaleString()}</span>
-              </p>
-              <p className="mt-1 text-xs text-[var(--psc-muted)]">
-                Status: <strong className="text-[var(--psc-ink)]">{taxAccount.status ?? "pending"}</strong>
-                {taxAccount.due_at ? ` · Due ${new Date(taxAccount.due_at).toLocaleString()}` : ""}
-              </p>
+        <section className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 text-sm text-[var(--psc-ink)]">
+          {sectionFlash(flash, "tax")}
+          <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(220px,1.25fr)] md:items-end">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Owe</p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxOwed)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Paid</p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPaid)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Next Year Prediction</p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPrediction)}</p>
+            </div>
+            {taxAccount ? (
               <form
-                className="mt-3 flex flex-wrap gap-2"
+                className="flex flex-wrap gap-2 md:justify-end"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  run("payments", "tax", () => payFiscalTax(new FormData(e.currentTarget)));
+                  run("tax", "tax", () => payFiscalTax(new FormData(e.currentTarget)));
                 }}
               >
                 <input
@@ -238,31 +246,29 @@ export function EconomyDashboard({
                   type="number"
                   min={1}
                   step={1}
-                  placeholder="Payment amount"
-                  className="w-44 border border-[var(--psc-border)] px-2 py-1.5 font-mono"
+                  placeholder="Pay amount"
+                  className="min-w-0 flex-1 border border-[var(--psc-border)] px-2 py-2 font-mono md:max-w-44"
                 />
                 <button
                   type="submit"
                   disabled={pending}
-                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-canvas)] px-3 py-1.5 text-xs font-semibold uppercase disabled:opacity-60"
+                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
                 >
-                  Pay tax
+                  Pay
                 </button>
               </form>
-            </>
-          ) : (
-            <p className="mt-2 text-[var(--psc-muted)]">No assessed tax account yet for this fiscal year.</p>
-          )}
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)] md:text-right">No assessed tax account yet.</p>
+            )}
+          </div>
+          {taxAccount?.due_at || taxAccount?.status ? (
+            <p className="mt-3 text-xs text-[var(--psc-muted)]">
+              {taxAccount.status ? `Status: ${taxAccount.status}` : ""}
+              {taxAccount.status && taxAccount.due_at ? " · " : ""}
+              {taxAccount.due_at ? `Due ${new Date(taxAccount.due_at).toLocaleString()}` : ""}
+            </p>
+          ) : null}
         </section>
-      ) : null}
-      {!economyFrozen && appropriationDeadlineAt ? (
-        <p className="text-xs text-[var(--psc-muted)]">
-          Appropriations window (IRL):{" "}
-          <span className="font-mono font-semibold text-[var(--psc-ink)]">
-            {new Date(appropriationDeadlineAt).toLocaleString()}
-          </span>
-          . Missing the deadline does not auto-freeze the economy — staff may shut down manually if needed.
-        </p>
       ) : null}
       <section className="grid gap-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 sm:grid-cols-2">
         <div className="sm:col-span-2">{sectionFlash(flash, "balance")}</div>
@@ -299,10 +305,8 @@ export function EconomyDashboard({
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="min-w-0 max-w-xl">
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Campaign ads</h2>
-            <p className="mt-2 text-sm leading-relaxed text-[var(--psc-muted)]">
-              TV spots for your races. Spending one ad on an active candidacy adds{" "}
-              <span className="font-semibold text-[var(--psc-ink)]">+{CAMPAIGN_AD_POINTS} campaign point</span> to that
-              campaign.
+            <p className="mt-2 text-sm leading-relaxed text-[var(--psc-muted)] md:whitespace-nowrap">
+              TV spots for your races. Spending one ad on an active candidacy adds +{CAMPAIGN_AD_POINTS} campaign point to that campaign.
             </p>
           </div>
           <div className="flex shrink-0 flex-col rounded-xl border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-5 py-4 text-right shadow-sm">
@@ -336,19 +340,19 @@ export function EconomyDashboard({
                 name="qty"
                 type="number"
                 min={1}
-                  max={5000}
-                  value={adQtyInput}
+                max={5000}
+                value={adQtyInput}
                 onChange={(e) => {
                   setAdQtyInput(e.target.value);
                 }}
-                  onBlur={() => {
-                    const n = Number(adQtyInput);
-                    if (!Number.isFinite(n) || n < 1) {
-                      setAdQtyInput("1");
-                      return;
-                    }
-                    setAdQtyInput(String(Math.min(5000, Math.floor(n))));
-                  }}
+                onBlur={() => {
+                  const n = Number(adQtyInput);
+                  if (!Number.isFinite(n) || n < 1) {
+                    setAdQtyInput("1");
+                    return;
+                  }
+                  setAdQtyInput(String(Math.min(5000, Math.floor(n))));
+                }}
                 className="mt-2 w-full border border-[var(--psc-border)] bg-white px-3 py-2.5 text-center font-mono text-lg font-semibold tabular-nums text-[var(--psc-ink)] outline-none ring-[var(--psc-accent)] focus:ring-2"
               />
             </div>
@@ -453,71 +457,86 @@ export function EconomyDashboard({
         ) : null}
       </section>
 
-      <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+      <section className="space-y-5 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         {sectionFlash(flash, "pac")}
-        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">PAC</h2>
-        {pac ? (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-[var(--psc-ink)]">
-              Your PAC is level <span className="font-mono">{pac.level}</span>.
-            </p>
-            <p className="text-xs text-[var(--psc-muted)]">
-              Current PAC hourly income:{" "}
-              <span className="font-mono font-semibold text-[var(--psc-ink)]">
-                ${currentPacHourly.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </span>
-            </p>
-            {nextPacLevel && nextPacHourly && nextPacUpgradeCost ? (
-              <p className="text-xs text-[var(--psc-muted)]">
-                Next level (<span className="font-mono">{nextPacLevel}</span>) costs{" "}
-                <span className="font-mono font-semibold text-[var(--psc-ink)]">
-                  ${nextPacUpgradeCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>{" "}
-                and raises hourly income to{" "}
-                <span className="font-mono font-semibold text-[var(--psc-ink)]">
-                  ${nextPacHourly.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>
-                .
-              </p>
-            ) : (
-              <p className="text-xs text-[var(--psc-muted)]">You are at max PAC level.</p>
-            )}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--psc-ink)]">PAC Storefront</h2>
+            <p className="mt-1 text-sm text-[var(--psc-muted)]">Buy a PAC and upgrade it for higher hourly income.</p>
           </div>
-        ) : (
-          <button
-            type="button"
-            disabled={pending || freezeDisabled}
-            onClick={() => run("pac", "pac", buyPac)}
-            className="rounded border border-[var(--psc-accent)] bg-[var(--psc-accent)]/15 px-4 py-2 text-sm font-semibold text-[var(--psc-ink)] disabled:opacity-60"
-          >
-            Buy PAC (${PAC_LEVEL_1_COST.toLocaleString()})
-          </button>
-        )}
-        {pac && pac.level < 3 ? (
-          <button
-            type="button"
-            disabled={pending || freezeDisabled}
-            onClick={() => run("pac", "up", upgradePac)}
-            className="ml-0 rounded border border-[var(--psc-border)] px-4 py-2 text-sm font-semibold disabled:opacity-60 sm:ml-2"
-          >
-            Upgrade PAC
-          </button>
-        ) : null}
+          <p className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-xs text-[var(--psc-muted)]">
+            Current level: <span className="font-mono font-semibold text-[var(--psc-ink)]">{pac?.level ?? 0}</span>
+            {" · "}Hourly: <span className="font-mono font-semibold text-[var(--psc-ink)]">{formatMoney(currentPacHourly)}</span>
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Level 1 PAC</p>
+                <h3 className="mt-1 text-lg font-semibold text-[var(--psc-ink)]">{formatMoney(PAC_LEVEL_1_COST)}</h3>
+                <p className="mt-1 text-xs text-[var(--psc-muted)]">Adds {formatMoney(PAC_HOURLY_BY_LEVEL[1])} hourly PAC income.</p>
+              </div>
+              {pac ? <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-800">Owned</span> : null}
+            </div>
+            {!pac ? (
+              <button
+                type="button"
+                disabled={pending || freezeDisabled}
+                onClick={() => run("pac", "pac", buyPac)}
+                className="mt-4 w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Buy Level 1
+              </button>
+            ) : null}
+          </article>
+          <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Level 2 PAC</p>
+                <h3 className="mt-1 text-lg font-semibold text-[var(--psc-ink)]">{formatMoney(PAC_LEVEL_2_UPGRADE_COST)}</h3>
+                <p className="mt-1 text-xs text-[var(--psc-muted)]">Raises hourly PAC income to {formatMoney(PAC_HOURLY_BY_LEVEL[2])}.</p>
+              </div>
+              {pac && pac.level >= 2 ? <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-800">Owned</span> : null}
+            </div>
+            {nextPacLevel && nextPacHourly && nextPacUpgradeCost ? (
+              <button
+                type="button"
+                disabled={pending || freezeDisabled}
+                onClick={() => run("pac", "up", upgradePac)}
+                className="mt-4 w-full rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Upgrade to Level 2
+              </button>
+            ) : !pac ? (
+              <p className="mt-4 rounded border border-dashed border-[var(--psc-border)] px-3 py-2 text-center text-xs text-[var(--psc-muted)]">
+                Buy Level 1 first
+              </p>
+            ) : pac.level >= 2 ? (
+              <p className="mt-4 rounded border border-dashed border-[var(--psc-border)] px-3 py-2 text-center text-xs text-[var(--psc-muted)]">
+                Storefront max reached
+              </p>
+            ) : null}
+          </article>
+        </div>
       </section>
 
       <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Recent public ledger</h2>
-          <p className="text-xs text-[var(--psc-muted)]">Your id (for reading rows): {viewerId.slice(0, 8)}…</p>
+          <p className="text-xs text-[var(--psc-muted)]">Showing latest public transactions</p>
         </div>
         <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto font-mono text-[11px] text-[var(--psc-muted)]">
           {recentLedger.map((row) => (
-            <li key={row.id} className="flex flex-wrap justify-between gap-2 border-b border-[var(--psc-border)]/60 py-2">
+            <li key={row.id} className="grid gap-1 border-b border-[var(--psc-border)]/60 py-2 md:grid-cols-[150px_minmax(0,1fr)_150px_120px] md:items-center">
               <span>{new Date(row.created_at).toLocaleString()}</span>
+              <span className="min-w-0">
+                <span className="font-semibold text-[var(--psc-ink)]">{row.walletName}</span>
+                {row.relatedName ? <span className="ml-2 text-[var(--psc-muted)]">with {row.relatedName}</span> : null}
+              </span>
               <span className="text-[var(--psc-ink)]">{row.kind}</span>
-              <span className={row.delta >= 0 ? "text-emerald-700" : "text-rose-700"}>
-                {row.delta >= 0 ? "+" : ""}
-                {Number(row.delta).toLocaleString()}
+              <span className={`md:text-right ${row.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                {formatSignedMoney(Number(row.delta))}
               </span>
             </li>
           ))}

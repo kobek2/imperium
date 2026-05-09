@@ -160,7 +160,7 @@ export async function depositPartyTreasury(formData: FormData): Promise<{ ok: bo
 
 export async function buyCampaignAds(formData: FormData): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
-  const qty = Math.max(1, Math.min(99, Math.floor(Number(String(formData.get("qty") ?? "1")))));
+  const qty = Math.max(1, Math.min(5000, Math.floor(Number(String(formData.get("qty") ?? "1")))));
   const { error } = await supabase.rpc("economy_buy_campaign_ads", { p_qty: qty });
   if (error) return { ok: false, message: error.message };
   revalidateEconomy();
@@ -202,6 +202,19 @@ export async function buyPac(): Promise<{ ok: boolean; message: string }> {
 
 export async function upgradePac(): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: pacRow, error: pacError } = await supabase
+    .from("economy_pacs")
+    .select("level")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (pacError) return { ok: false, message: pacError.message };
+  if ((pacRow as { level?: number } | null)?.level && Number((pacRow as { level: number }).level) >= 2) {
+    return { ok: false, message: "PAC storefront currently supports up to level 2." };
+  }
   const { error } = await supabase.rpc("economy_upgrade_pac", {});
   if (error) return { ok: false, message: error.message };
   revalidateEconomy();

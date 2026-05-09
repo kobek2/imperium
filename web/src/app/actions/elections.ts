@@ -1363,7 +1363,7 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     }
     if (msg.includes("campaign_rallies") || msg.toLowerCase().includes("schema cache")) {
       throw new Error(
-        `${msg} Fix: Supabase → SQL Editor → open and run the whole file supabase/migrations/20260421000000_ensure_campaign_events.sql from this repo (creates campaign_rallies + policies + NOTIFY reload). If \`supabase db push\` works on your machine, run that instead. Still stuck? Run supabase/migrations/20260421100000_pgrst_reload_schema.sql or Dashboard → Settings → API → reload schema.`,
+        `${msg} Fix: Supabase → SQL Editor → open and run the whole file supabase/migrations/20260421000000_ensure_campaign_events.sql from this repo (creates campaign_rallies + policies + NOTIFY reload). If \`supabase db push\` works on your machine, run that instead. Still stuck? In SQL Editor run \`NOTIFY pgrst, 'reload schema';\` or use Dashboard → Settings → API → reload schema.`,
       );
     }
     throw new Error(msg);

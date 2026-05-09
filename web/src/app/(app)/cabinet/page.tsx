@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { cabinetPortalCards, canAccessCabinetHub } from "@/lib/cabinet-hub";
+import { cabinetPortalCards, canAccessCabinetOverview } from "@/lib/cabinet-hub";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -13,7 +13,7 @@ export default async function CabinetOverviewPage() {
 
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canAccessCabinetHub(roleKeys)) redirect("/");
+  if (!canAccessCabinetOverview(roleKeys)) redirect("/");
 
   const cards = cabinetPortalCards();
 
@@ -23,8 +23,8 @@ export default async function CabinetOverviewPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Department overview</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Step into each cabinet portfolio. Treasury is live today; other departments will gain their own workspaces as
-          we ship them.
+          Step into each cabinet portfolio. Treasury handles fiscal ops; State, Defense, Homeland Security, and Justice
+          have lightweight weekly engagement dashboards for RP flavor.
         </p>
       </header>
 

@@ -942,7 +942,7 @@ export function ElectionDetail({
           {!isLeadership ? (
             <div className="shrink-0 sm:pl-6 sm:text-right">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                Campaign spend (this race)
+                Campaign spend
               </p>
               <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-[var(--psc-ink)]">
                 {new Intl.NumberFormat("en-US", {
@@ -950,9 +950,6 @@ export function ElectionDetail({
                   currency: "USD",
                   maximumFractionDigits: 0,
                 }).format(totalCampaignAdSpendUsd)}
-              </p>
-              <p className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
-                At list price per ad placed
               </p>
             </div>
           ) : null}
@@ -994,20 +991,6 @@ export function ElectionDetail({
           <div className="flex flex-wrap items-start justify-between gap-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <div className="min-w-0 max-w-2xl">
               <h2 className="text-lg font-semibold">Filing window</h2>
-              <p className="mt-1 text-sm text-[var(--psc-muted)]">
-                Candidates file as their current party automatically.{" "}
-                {isLeadership
-                  ? `Only sitting ${election.office === "house" ? "representatives" : "senators"}${
-                      leadershipMeta?.restricted_party
-                        ? ` in the ${leadershipMeta.restricted_party} caucus`
-                        : ""
-                    } can file.`
-                  : election.office === "house"
-                    ? "Anyone whose Character home district matches this seat may file; multiple candidates can run here. You may only be active in one House or Senate race at a time (President is separate)."
-                    : election.office === "senate"
-                      ? "Anyone whose Character residence state matches this seat may file. One House or Senate race at a time; President is separate."
-                      : "Any eligible player can file for president."}
-              </p>
             </div>
             <div className="flex flex-col items-stretch gap-2">
               {myRow ? (

@@ -3,7 +3,7 @@ import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { getStaffAccess } from "@/lib/staff-access";
-import { buildBracketAnalytics, loadAnnualInflowsForFiscalYear, loadAnnualInflowsForFiscalYearWindow } from "@/lib/load-fiscal-tax-analytics";
+import { buildBracketAnalytics, loadAnnualInflowsForFiscalYearWindow } from "@/lib/load-fiscal-tax-analytics";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { parseTaxBrackets } from "@/lib/fiscal-tax";
 import { isPresident } from "@/lib/president";
@@ -33,12 +33,13 @@ export default async function FederalEconomyPage() {
   ]);
 
   const staffFull = Boolean(staff?.hasFullStaff);
-  if (!pres && !isAdmin && !staffFull) {
+  const isTreasurySecretary = Boolean(staff?.roleKeys.includes("secretary_of_treasury"));
+  if (!pres && !isAdmin && !staffFull && !isTreasurySecretary) {
     redirect("/economy");
   }
 
   const budgetStaffCapabilities = isAdmin || staffFull;
-  const showFiscalHistory = pres || isAdmin || staffFull;
+  const showFiscalHistory = pres || isAdmin || staffFull || isTreasurySecretary;
   const { data: closedFiscalYears } = showFiscalHistory
     ? await supabase
         .from("rp_fiscal_years")
@@ -71,14 +72,7 @@ export default async function FederalEconomyPage() {
     ? await supabase.from("national_metrics").select("*").eq("fiscal_year_id", fy.id).maybeSingle()
     : { data: null };
 
-  let salaryAnnualIncomes: number[] = [];
-  if (fy) {
-    try {
-      salaryAnnualIncomes = await loadAnnualInflowsForFiscalYear(supabase, fy.started_at);
-    } catch {
-      salaryAnnualIncomes = [];
-    }
-  }
+  const walletBalances = (wallets ?? []).map((w) => Number((w as { balance?: number }).balance ?? 0));
 
   const nationalMetrics = (nationalMetricsRow as NationalMetricsRow | null) ?? null;
 
@@ -149,15 +143,6 @@ export default async function FederalEconomyPage() {
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Economy</p>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Federal budget &amp; GDP</h1>
-          <p className="mt-2 max-w-4xl text-sm text-[var(--psc-muted)]">
-            One fiscal year is active at a time. Tax uses marginal brackets on each player&apos;s{" "}
-            <strong>employment income</strong> for that fiscal year (scheduled role salary plus PAC hourly collects), not donations
-            or transfers.
-            Wallet activity is blocked only when staff freeze the economy (manual shutdown). Appropriations still follow the
-            statutory clock; missing the deadline does not auto-freeze the simulation. Fiscal year-end tax, spending execution,
-            and rollovers are intended to run through cabinet offices (e.g. Treasury), not a manual &quot;close year&quot;
-            control on this page.
-          </p>
         </div>
         <NavRouteButton href="/economy">Back to economy</NavRouteButton>
       </header>
@@ -197,7 +182,7 @@ export default async function FederalEconomyPage() {
               treasuryBalance={treasuryBalance}
               isPresident={pres}
               isAdmin={budgetStaffCapabilities}
-              showFiscalSimulationReset={staffFull}
+              showFirstYearPresidentTutorial={pres && (closedFiscalYears ?? []).length === 0}
               closedFiscalYears={
                 (closedFiscalYears ?? []) as Array<{
                   year_index: number;
@@ -207,7 +192,7 @@ export default async function FederalEconomyPage() {
                   gdp_closing_total: number | null;
                 }>
               }
-              salaryAnnualIncomes={salaryAnnualIncomes}
+              taxBaseWalletBalances={walletBalances}
               nationalMetrics={nationalMetrics}
               priorYearBudgetSummary={priorYearBudgetSummary}
             />

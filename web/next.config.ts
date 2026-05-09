@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
     // Pin Turbopack to this app when the editor workspace root is the monorepo (Imperium/).
     root: webRoot,
   },
+  experimental: {
+    // Server actions cap request bodies at 1MB by default, which silently rejects
+    // portrait uploads (we accept up to 5MB). Raise the cap to leave headroom for
+    // multipart form overhead.
+    serverActions: {
+      bodySizeLimit: "6mb",
+    },
+  },
 };
 
 export default nextConfig;

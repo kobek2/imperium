@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { publishExecutiveOrder, savePresidentialSignature } from "@/app/actions/executive-orders";
+import { BillRichTextEditorWithHiddenInput } from "@/components/bill-rich-text-editor";
 import { SubmitButton } from "@/components/submit-button";
 
 export function ExecutiveOrdersPanel({
@@ -65,14 +66,10 @@ export function ExecutiveOrdersPanel({
           </label>
           <label className="grid gap-1 text-sm font-semibold text-[var(--psc-ink)]">
             Body
-            <textarea
-              name="body"
-              rows={10}
-              maxLength={8000}
-              required
-              placeholder="Full text of the order…"
-              className="w-full max-w-2xl rounded border border-[var(--psc-border)] bg-white px-3 py-2 font-normal text-[var(--psc-ink)]"
-            />
+            <span className="text-xs font-normal text-[var(--psc-muted)]">
+              Use the same rich formatting controls as chamber bill filing.
+            </span>
+            <BillRichTextEditorWithHiddenInput fieldName="body_html" />
           </label>
           <SubmitButton
             disabled={!hasSignature}

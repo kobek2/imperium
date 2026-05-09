@@ -63,10 +63,26 @@ export default async function CharacterPage() {
     discord_username: profile.discord_username,
   };
 
+  let districtPvi: number | null = null;
+  if (profile.home_district_code) {
+    const { data: districtRow } = await supabase
+      .from("districts")
+      .select("pvi")
+      .eq("code", profile.home_district_code)
+      .maybeSingle();
+    const raw = (districtRow as { pvi?: number | null } | null)?.pvi;
+    districtPvi = typeof raw === "number" ? raw : null;
+  }
+
   const setupMode = !isProfileOnboardingComplete(profile);
 
-  const recentAuthored: { bills: RecentAuthoredBill[]; votes: AuthorBillVote[] } = setupMode
-    ? { bills: [], votes: [] }
+  const recentAuthored = setupMode
+    ? {
+        bills: [] as RecentAuthoredBill[],
+        votes: [] as AuthorBillVote[],
+        floorTallies: new Map(),
+        confirmationBillIds: new Set<string>(),
+      }
     : await fetchRecentAuthoredBillsWithSubjectVotes(supabase, user.id, 5);
 
   return (
@@ -74,16 +90,16 @@ export default async function CharacterPage() {
       <PersonnelEditShell
         primaryTitle={primaryTitle}
         profile={personnelProfile}
+        districtPvi={districtPvi}
         setupMode={setupMode}
       />
       {!setupMode ? (
-        <>
-          <RecentAuthoredBillsPanel
-            bills={recentAuthored.bills}
-            votes={recentAuthored.votes}
-            caption="Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
-          />
-        </>
+        <RecentAuthoredBillsPanel
+          bills={recentAuthored.bills}
+          votes={recentAuthored.votes}
+          floorTallies={recentAuthored.floorTallies}
+          confirmationBillIds={recentAuthored.confirmationBillIds}
+        />
       ) : null}
     </div>
   );

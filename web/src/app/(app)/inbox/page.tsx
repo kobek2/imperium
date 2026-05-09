@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BriefingInbox } from "@/components/briefing-inbox";
 import { fetchBriefingMoments, INBOX_FULL_PAGE_LIMIT } from "@/lib/briefing-inbox";
@@ -25,11 +24,8 @@ export default async function InboxPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-3">
+      <header>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Inbox</h1>
-        <Link href="/" className="text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline">
-          ← Home
-        </Link>
       </header>
 
       <BriefingInbox moments={moments} heading="All mail" />

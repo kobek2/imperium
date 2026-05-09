@@ -1,19 +1,17 @@
 import type { PartyCounts } from "@/lib/congress-composition";
 
-type SeatParty = "democrat" | "republican" | "independent" | "other";
+type SeatParty = "democrat" | "republican" | "independent";
 
 const PARTY_FILL: Record<SeatParty, string> = {
   democrat: "var(--ch-hemi-dem, #1d4ed8)",
   republican: "var(--ch-hemi-gop, #b91c1c)",
   independent: "var(--ch-hemi-ind, #a16207)",
-  other: "var(--ch-hemi-other, #64748b)",
 };
 
 const PARTY_LABEL: Record<SeatParty, string> = {
   democrat: "Democrats",
   republican: "Republicans",
   independent: "Independents",
-  other: "Other / unaffiliated",
 };
 
 function distributeAcrossRows(total: number, rowCount: number): number[] {
@@ -23,13 +21,12 @@ function distributeAcrossRows(total: number, rowCount: number): number[] {
   return Array.from({ length: rowCount }, (_, i) => base + (i < rem ? 1 : 0));
 }
 
-/** Left-to-right block order along the arc (Democrats, Independents, Republicans, other). */
+/** Left-to-right block order along the arc (Democrats, Independents, Republicans). Unset party counts as independent. */
 function buildSeatParties(counts: PartyCounts): SeatParty[] {
   const out: SeatParty[] = [];
   for (let j = 0; j < counts.democrat; j++) out.push("democrat");
-  for (let j = 0; j < counts.independent; j++) out.push("independent");
+  for (let j = 0; j < counts.independent + counts.other; j++) out.push("independent");
   for (let j = 0; j < counts.republican; j++) out.push("republican");
-  for (let j = 0; j < counts.other; j++) out.push("other");
   return out;
 }
 
@@ -96,7 +93,7 @@ export function ChamberHemicycle({
             strokeWidth="1"
           />
           {geom.map((pt, idx) => {
-            const party = seats[idx] ?? "other";
+            const party = seats[idx] ?? "independent";
             return (
               <circle
                 key={`${idx}-${pt.x.toFixed(2)}`}
@@ -111,8 +108,8 @@ export function ChamberHemicycle({
           })}
         </svg>
       )}
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-        {(["democrat", "republican", "independent", "other"] as const).map((k) => (
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+        {(["democrat", "republican", "independent"] as const).map((k) => (
           <div key={k} className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
             <dt className="flex items-center gap-1.5 font-semibold text-[var(--psc-muted)]">
               <span
@@ -122,7 +119,9 @@ export function ChamberHemicycle({
               />
               <span className="truncate">{PARTY_LABEL[k]}</span>
             </dt>
-            <dd className="font-mono tabular-nums text-[var(--psc-ink)]">{counts[k]}</dd>
+            <dd className="font-mono tabular-nums text-[var(--psc-ink)]">
+              {k === "independent" ? counts.independent + counts.other : counts[k]}
+            </dd>
           </div>
         ))}
       </dl>

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { sanitizeBillHtml } from "@/lib/sanitize-bill-html";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 export async function savePresidentialSignature(formData: FormData): Promise<void> {
@@ -25,7 +26,9 @@ export async function publishExecutiveOrder(formData: FormData): Promise<void> {
   if (!user) throw new Error("Unauthorized");
 
   const title = String(formData.get("title") ?? "").trim();
-  const body = String(formData.get("body") ?? "").trim();
+  const bodyHtmlRaw = String(formData.get("body_html") ?? "").trim();
+  const bodyFallback = String(formData.get("body") ?? "").trim();
+  const body = bodyHtmlRaw ? sanitizeBillHtml(bodyHtmlRaw) : bodyFallback;
   const { error } = await supabase.rpc("publish_executive_order", { p_title: title, p_body: body });
   throwIfPostgrestError(error);
   revalidatePath("/oval");

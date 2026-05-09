@@ -31,7 +31,7 @@ import {
 import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
-import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
+import { getIsAdmin } from "@/lib/is-admin";
 import { applyApprovalDelta } from "@/lib/approval-ratings";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
@@ -596,7 +596,6 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
   const bill_id = String(formData.get("bill_id"));
   const preset = String(formData.get("duration_preset") ?? "24").trim();
   const customRaw = String(formData.get("duration_custom_hours") ?? "").trim();
-  const adminCloseNow = String(formData.get("admin_close_now") ?? "") === "1";
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -639,10 +638,7 @@ export async function leadershipOpenFloorVote(formData: FormData): Promise<void>
   let hours = fixedDebate ? 24 : preset === "custom" ? Number(customRaw) : Number(preset);
   if (!Number.isFinite(hours) || hours < 1) hours = 24;
   if (!fixedDebate && hours > 336) hours = 336;
-  const voteDeadlineIso =
-    isAdminActor && adminCloseNow
-      ? new Date(Date.now() - 1_000).toISOString()
-      : addHours(new Date(), hours).toISOString();
+  const voteDeadlineIso = addHours(new Date(), hours).toISOString();
 
   const floorStatus = floorChamber === "house" ? "house_floor" : "senate_floor";
   let { error } = await supabase
@@ -787,6 +783,14 @@ export async function castBillVote(formData: FormData): Promise<void> {
 
   await assertFloorVoteOpen(supabase, bill_id, chamber);
 
+  const { data: existingVote } = await supabase
+    .from("bill_votes")
+    .select("vote")
+    .eq("bill_id", bill_id)
+    .eq("voter_id", user.id)
+    .eq("chamber", chamber)
+    .maybeSingle();
+
   const allowed = billGate?.vp_tie_break_pending ? ["yea", "nay"] : ["yea", "nay", "abstain", "present"];
   if (!allowed.includes(vote)) {
     throw new Error("Invalid vote.");
@@ -840,6 +844,16 @@ export async function castBillVote(formData: FormData): Promise<void> {
   });
 
   throwIfPostgrestError(error);
+
+  const priorVote = String((existingVote as { vote?: string } | null)?.vote ?? "").toLowerCase();
+  if (priorVote && priorVote !== vote.toLowerCase()) {
+    await applyApprovalDelta(
+      supabase,
+      user.id,
+      -1,
+      `Changed a floor vote on ${chamber === "house" ? "House" : "Senate"} legislation`,
+    );
+  }
 
   if (chamber === "senate" && billGate?.vp_tie_break_pending) {
     await resolveSenateAfterTiebreakVote(supabase, bill_id);
@@ -1173,11 +1187,23 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   revalidateBillPage(bill_id);
 }
 
-/** Expire the chamber floor vote clock now and run the pipeline (same as when the countdown ends). Admin only. */
-export async function adminCloseBillFloorVotePeriod(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
+/** Expire the chamber floor vote clock now and run the pipeline (same as when the countdown ends). */
+export async function leadershipCloseBillFloorVotePeriod(formData: FormData): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
   const bill_id = String(formData.get("bill_id") ?? "").trim();
   if (!bill_id) throw new Error("Missing bill id.");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("office_role")
+    .eq("id", user.id)
+    .maybeSingle();
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  const isAdminActor = roleKeys.includes("admin");
 
   const { data: bill } = await supabase
     .from("bills")
@@ -1188,6 +1214,14 @@ export async function adminCloseBillFloorVotePeriod(formData: FormData): Promise
   if (!bill) throw new Error("Bill not found.");
   if (bill.status !== "house_floor" && bill.status !== "senate_floor") {
     throw new Error("Floor vote is not open on this bill.");
+  }
+  const floorChamber = bill.status === "house_floor" ? "house" : "senate";
+  if (!isAdminActor && !canAcceptRejectHopperForChamber(roleKeys, floorChamber)) {
+    throw new Error(
+      floorChamber === "house"
+        ? "Only the Speaker or House Deputy may close this House floor vote."
+        : "Only the Senate Majority Leader or Senate Deputy may close this Senate floor vote.",
+    );
   }
   if (bill.vp_tie_break_pending) {
     throw new Error(

@@ -14,6 +14,7 @@ export type CongressDocketPayload = {
   votesByBill: Map<string, BillVote[]>;
   voterById: Map<string, VoterProfile>;
   roleKeys: string[];
+  viewerParty: string | null;
   leadershipSessions: CongressLeadershipSession[];
   isRunningMate: boolean;
   canBreakSenateTie: boolean;
@@ -74,7 +75,7 @@ export function filterBillsForSenateDocket(bills: BillForCard[]): BillForCard[] 
 export async function loadCongressDocket(supabase: SupabaseClient, userId: string): Promise<CongressDocketPayload> {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("office_role")
+    .select("office_role, party")
     .eq("id", userId)
     .maybeSingle();
 
@@ -156,6 +157,7 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
     votesByBill,
     voterById,
     roleKeys,
+    viewerParty: ((profile as { party?: string | null } | null)?.party ?? null),
     leadershipSessions: (leadershipSessions ?? []) as CongressLeadershipSession[],
     isRunningMate,
     canBreakSenateTie,

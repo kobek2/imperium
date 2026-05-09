@@ -146,13 +146,13 @@ export default async function ImperiumLandingPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 text-center">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Hall of Fame</h2>
-        <p className="mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
+        <p className="mx-auto mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
           Explore presidential legacies, term timelines, and defining achievements from Imperium&apos;s
           most influential leaders.
         </p>
-        <div className="mt-4">
+        <div className="mt-4 flex justify-center">
           <Link
             href="/history"
             className="inline-flex items-center rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"

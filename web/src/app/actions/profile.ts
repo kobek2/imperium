@@ -64,18 +64,35 @@ export async function saveCharacter(formData: FormData): Promise<void> {
       .from("face_claims")
       .upload(path, portrait, { upsert: true, contentType: portrait.type });
     if (uploadErr) {
-      if (
-        uploadErr.message.toLowerCase().includes("bucket") ||
-        uploadErr.message.toLowerCase().includes("not found")
-      ) {
+      console.error("[saveCharacter] portrait upload failed", {
+        path,
+        contentType: portrait.type,
+        sizeBytes: portrait.size,
+        message: uploadErr.message,
+      });
+      const lower = uploadErr.message.toLowerCase();
+      if (lower.includes("bucket") || lower.includes("not found")) {
         throw new Error(
-          "Avatar storage is not set up on this project yet. Ask an admin to run the latest Supabase migration (face_claims storage bucket).",
+          "Portrait storage is not set up on this project yet. Ask an admin to run the latest Supabase migration (face_claims storage bucket).",
         );
       }
-      throw new Error(uploadErr.message);
+      if (lower.includes("row-level security") || lower.includes("rls") || lower.includes("policy")) {
+        throw new Error(
+          "Portrait upload was blocked by storage permissions. Please sign out and back in, then try again.",
+        );
+      }
+      if (lower.includes("payload") || lower.includes("too large") || lower.includes("exceeded")) {
+        throw new Error(
+          "Portrait upload exceeded the server limit. Please try a smaller image (under 5MB).",
+        );
+      }
+      throw new Error(`Portrait upload failed: ${uploadErr.message}`);
     }
     const { data: pub } = supabase.storage.from("face_claims").getPublicUrl(path);
-    face_claim_url = pub.publicUrl;
+    // Append a cache-busting version param. The storage path is always
+    // `{user_id}/face.{ext}`, so without this every browser keeps showing
+    // the previous portrait it cached at the same URL.
+    face_claim_url = `${pub.publicUrl}?v=${Date.now()}`;
   }
 
   if (!character_name) {

@@ -339,7 +339,7 @@ export const BILL_TEMPLATE_REGISTRY: BillTemplateDefinition[] = [
       },
       {
         stance_key: "living_wage_indexed",
-        label: "Living Wage + Indexing",
+        label: "Living Wage and Indexing",
         summary: "Tie minimum to county median rent and index automatically.",
         policy_value: 2,
         full_text: act(

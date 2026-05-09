@@ -17,15 +17,12 @@ export async function addHallOfFameEntry(formData: FormData): Promise<void> {
   const userId = String(formData.get("user_id") ?? "").trim();
   const honorTitle = String(formData.get("honor_title") ?? "").trim() || "Hall of Fame";
   const noteRaw = String(formData.get("note") ?? "").trim();
-  const sortOrderRaw = Number(String(formData.get("sort_order") ?? "100").trim());
-  const sortOrder = Number.isFinite(sortOrderRaw) ? Math.trunc(sortOrderRaw) : 100;
   if (!userId) throw new Error("User id is required.");
 
   const { error } = await supabase.from("hall_of_fame_entries").insert({
     user_id: userId,
     honor_title: honorTitle,
     note: noteRaw.length ? noteRaw : null,
-    sort_order: sortOrder,
     is_active: true,
     created_by: user.id,
   });

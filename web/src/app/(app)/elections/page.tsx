@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
-import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
-import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
+import {
+  computeSimulationRpInstant,
+  formatRpCalendarShort,
+  type SimulationSettingsRow,
+} from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { OrientationTourPanelElections } from "@/components/orientation-tour-panel";
+import { RpDatePill } from "@/components/rp-date-pill";
 import {
   ElectionsDashboard,
   type DashboardElection,
@@ -130,18 +134,15 @@ export default async function ElectionsPage() {
   const rpNow = simSettingsForDisplay
     ? computeSimulationRpInstant(simSettingsForDisplay, new Date())
     : null;
-  const rpBanner =
-    rpNow && simSettingsForDisplay ? (
-      <SimulationRpBanner settings={simSettingsForDisplay} rp={rpNow} />
-    ) : null;
+  const rpDateLabel = rpNow ? formatRpCalendarShort(rpNow) : null;
 
   if (!all.length) {
     return (
       <div className="space-y-8">
         {orientationElectionBlock}
-        {rpBanner}
-        <header>
+        <header className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
+          {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
         </header>
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <p className="text-sm text-[var(--psc-muted)]">
@@ -163,14 +164,14 @@ export default async function ElectionsPage() {
     return (
       <div className="space-y-8">
         {orientationElectionBlock}
-        {rpBanner}
-        <header className="flex flex-wrap items-end justify-between gap-3">
+        <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
               No active races right now.
             </p>
           </div>
+          {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
         </header>
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <p className="text-sm text-[var(--psc-muted)]">
@@ -204,11 +205,11 @@ export default async function ElectionsPage() {
   return (
     <div className="space-y-6">
       {orientationElectionBlock}
-      {rpBanner}
       <ElectionsDashboard
         elections={dashboardRows}
         userDistrict={profile?.home_district_code ?? null}
         userState={profile?.residence_state ?? null}
+        rpDateLabel={rpDateLabel}
       />
     </div>
   );

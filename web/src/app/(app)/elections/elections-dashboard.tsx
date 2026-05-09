@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { RpDatePill } from "@/components/rp-date-pill";
 
 export type DashboardElection = {
   id: string;
@@ -25,6 +26,7 @@ type Props = {
   elections: DashboardElection[];
   userDistrict: string | null;
   userState: string | null;
+  rpDateLabel?: string | null;
 };
 
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
@@ -346,6 +348,7 @@ export function ElectionsDashboard({
   elections,
   userDistrict,
   userState,
+  rpDateLabel = null,
 }: Props) {
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
@@ -397,7 +400,7 @@ export function ElectionsDashboard({
 
   return (
     <div className="space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
@@ -405,6 +408,7 @@ export function ElectionsDashboard({
             Senate, and President.
           </p>
         </div>
+        {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
       </header>
 
       {/* Your ballot: hero cards */}

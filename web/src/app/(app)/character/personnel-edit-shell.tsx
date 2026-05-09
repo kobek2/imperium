@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CharacterForm } from "./character-form";
 import { PersonnelRecord, type PersonnelProfile } from "./personnel-record";
@@ -7,12 +8,15 @@ import { PersonnelRecord, type PersonnelProfile } from "./personnel-record";
 export function PersonnelEditShell({
   profile,
   primaryTitle,
+  districtPvi,
   setupMode = false,
 }: {
   profile: PersonnelProfile;
   primaryTitle: string;
+  districtPvi: number | null;
   setupMode?: boolean;
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(setupMode);
 
   // When a first-time user finishes setup (setupMode flips true → false after router.refresh()),
@@ -53,9 +57,17 @@ export function PersonnelEditShell({
             {editing ? "Close" : "Edit"}
           </button>
         ) : null}
-        <PersonnelRecord primaryTitle={primaryTitle} profile={profile} />
+        <PersonnelRecord primaryTitle={primaryTitle} profile={profile} districtPvi={districtPvi} />
       </div>
-        {editing ? <CharacterForm profile={profile} /> : null}
+        {editing ? (
+          <CharacterForm
+            profile={profile}
+            onSaved={() => {
+              setEditing(false);
+              router.refresh();
+            }}
+          />
+        ) : null}
     </div>
   );
 }

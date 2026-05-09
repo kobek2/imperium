@@ -3,9 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
-  adminEconomyFullResetKeepWallets,
   applyServerGdpInflationToLineMinima,
-  closeFiscalYear,
   fileFederalBudgetAppropriationsBill,
   saveFiscalBudgetDraft,
   type FiscalLineItemRow,
@@ -28,7 +26,6 @@ import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { computeMarginalIncomeTax, type FiscalTaxBracket } from "@/lib/fiscal-tax";
 import { computeBudgetInfluencedNationalMetrics } from "@/lib/national-metrics-from-budget";
 import { sanitizeBillHtml } from "@/lib/sanitize-bill-html";
-import { NationalMetricsAdminForm } from "./national-metrics-admin-form";
 import { TaxBracketAnalyticsTable } from "./tax-bracket-analytics-table";
 
 type BudgetRow = {
@@ -52,10 +49,10 @@ export function FederalBudgetPanel({
   isPresident,
   isAdmin,
   closedFiscalYears,
-  salaryAnnualIncomes,
+  taxBaseWalletBalances,
   nationalMetrics,
   priorYearBudgetSummary,
-  showFiscalSimulationReset,
+  showFirstYearPresidentTutorial = false,
 }: {
   fiscalYearId: string;
   yearLabel: string;
@@ -70,8 +67,6 @@ export function FederalBudgetPanel({
   treasuryBalance: number;
   isPresident: boolean;
   isAdmin: boolean;
-  /** Full staff only: run `admin_economy_full_reset_keep_wallets` (destructive simulation reset). */
-  showFiscalSimulationReset?: boolean;
   closedFiscalYears: Array<{
     year_index: number;
     label: string;
@@ -79,11 +74,12 @@ export function FederalBudgetPanel({
     gdp_opening_total: number | null;
     gdp_closing_total: number | null;
   }>;
-  /** Per-player totals of `hourly_income` since this fiscal year began (same basis as year-end tax; not projected). */
-  salaryAnnualIncomes: number[];
+  /** Per-player wallet balances for the current server state (all players, not only hourly collectors). */
+  taxBaseWalletBalances: number[];
   nationalMetrics: NationalMetricsRow | null;
   /** Latest closed FY appropriations + estimated tax (for YoY). Null if no closed year on file. */
   priorYearBudgetSummary: PriorFiscalYearBudgetSummary | null;
+  showFirstYearPresidentTutorial?: boolean;
 }) {
   const canEdit = isPresident || isAdmin;
   const showFullProcess = isPresident || isAdmin;
@@ -129,8 +125,8 @@ export function FederalBudgetPanel({
   const [billPreviewOpen, setBillPreviewOpen] = useState(false);
 
   const liveBracketAnalytics = useMemo(
-    () => buildBracketAnalytics(salaryAnnualIncomes, brackets as FiscalTaxBracket[]),
-    [salaryAnnualIncomes, brackets],
+    () => buildBracketAnalytics(taxBaseWalletBalances, brackets as FiscalTaxBracket[]),
+    [taxBaseWalletBalances, brackets],
   );
 
   const appropriationsPreviewHtml = useMemo(() => {
@@ -285,47 +281,44 @@ export function FederalBudgetPanel({
           automatically. Until then, a full staff operator can still use{" "}
           <strong className="text-[var(--psc-ink)]">Admin → Economy overview</strong> if a manual override is required.
         </p>
-        {canEdit ? (
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={pending}
-              className="rounded border border-rose-800 bg-rose-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    `Close ${yearLabel}? This will settle taxes/spending, mark the year closed, and create the next fiscal year.`,
-                  )
-                ) {
-                  return;
-                }
-                start(async () => {
-                  setFlash(null);
-                  const r = await closeFiscalYear();
-                  setFlash({ ok: r.ok, message: r.message });
-                  if (r.ok) router.refresh();
-                });
-              }}
-            >
-              {pending ? "Closing…" : "Close fiscal year"}
-            </button>
-            <p className="text-xs text-[var(--psc-muted)]">
-              President-only. Requires the active fiscal year budget to already be submitted.
-            </p>
-          </div>
-        ) : null}
       </section>
 
       {showFullProcess ? (
         <>
+          {showFirstYearPresidentTutorial ? (
+            <section className="rounded border border-sky-300 bg-sky-50 p-6">
+              <h2 className="text-lg font-semibold text-sky-950">First-year President budget walkthrough</h2>
+              <ol className="mt-3 space-y-2 text-sm text-sky-950">
+                <li>
+                  1. Start with <strong>tax bands</strong>: set ceilings and rates, then confirm the projected tax intake
+                  cards look plausible for current wallet totals.
+                </li>
+                <li>
+                  2. Set each program&apos;s <strong>minimum</strong> first, then set <strong>allocated</strong> values to
+                  express priorities. Watch surplus-over-minimum to avoid accidental overreach.
+                </li>
+                <li>
+                  3. Check <strong>Budget analytics</strong>: make sure estimated tax vs appropriations is politically and
+                  fiscally defensible for your agenda.
+                </li>
+                <li>
+                  4. Open <strong>Review as appropriations bill</strong>, read it like floor legislation, then save and
+                  file to the House hopper.
+                </li>
+                <li>
+                  5. In Congress, leadership moves it to debate and floor vote. After passage, sign it on the Oval desk to
+                  enroll the budget for the fiscal year.
+                </li>
+              </ol>
+            </section>
+          ) : null}
+
           <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Progressive income tax (fiscal year)</h2>
             <p className="text-sm text-[var(--psc-muted)]">
-              At year-end, tax is computed on each player&apos;s total <strong className="text-[var(--psc-ink)]">employment income</strong>{" "}
-              for that fiscal year: scheduled role salary plus PAC hourly collects (ledger{" "}
-              <code className="text-xs">hourly_income</code> only). Donations, transfers, and other credits are excluded. Marginal
-              bands apply to consecutive slices of income. Previews below use income <strong className="text-[var(--psc-ink)]">earned so far this FY</strong>{" "}
-              (not a forecast of full-year earnings).
+              Draft tax analytics on this page use <strong className="text-[var(--psc-ink)]">all player wallet balances</strong>{" "}
+              across the server so the budget reflects the full economy, not only players who ran income collects.
+              Marginal bands apply to consecutive slices of each player&apos;s modeled base.
             </p>
             <p className="text-xs text-[var(--psc-muted)]">
               Bracket impact below uses your <strong className="text-[var(--psc-ink)]">draft</strong> ceilings and rates and
@@ -404,7 +397,7 @@ export function FederalBudgetPanel({
             {liveBracketAnalytics.bands.length > 0 ? (
               <div className="mt-6 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--psc-ink)]">
-                  Bracket impact (salary / PAC income this FY × draft brackets)
+                  Bracket impact (all player wallet balances × draft brackets)
                 </h3>
                 <TaxBracketAnalyticsTable
                   bands={liveBracketAnalytics.bands}
@@ -494,10 +487,8 @@ export function FederalBudgetPanel({
             <div className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Budget analytics (this draft)</h3>
               <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
-                Employment income and tax here are <strong className="text-[var(--psc-ink)]">FY-to-date through now</strong> (same
-                basis as bracket impact above). Appropriations are the sum of your line items. Totals rise as players collect more;
-                year-end close settles tax on the <strong className="text-[var(--psc-ink)]">full</strong> fiscal year. Net (tax −
-                appropriations) is a simple operating snapshot, not a full cash-flow model.
+                Tax analytics here are modeled from the current wallet distribution across all players. Appropriations are the
+                sum of your line items. Net (tax − appropriations) is a planning snapshot, not a full cash-flow model.
               </p>
               <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -526,7 +517,7 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Est. income tax (draft brackets × FY-to-date employment income)
+                    Est. income tax (draft brackets × all player wallet balances)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${estimatedTaxYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -534,14 +525,14 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Taxable salary / PAC income (FY-to-date)
+                    Tax base (all player wallet balances)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${taxableSalaryIncomeYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </dd>
                   <dd className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
-                    {liveBracketAnalytics.playerCountWithIncome} player
-                    {liveBracketAnalytics.playerCountWithIncome === 1 ? "" : "s"} with income
+                    {taxBaseWalletBalances.length} player
+                    {taxBaseWalletBalances.length === 1 ? "" : "s"} included
                   </dd>
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -628,7 +619,7 @@ export function FederalBudgetPanel({
                     </div>
                     <div className="rounded border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-ink)_4%,transparent)] px-3 py-2.5">
                       <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                        Their taxable employment income (closed year, actual)
+                        Their taxable base (closed year, historical)
                       </dt>
                       <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                         $
@@ -673,31 +664,6 @@ export function FederalBudgetPanel({
               feedback, or scripted events instead of linear bumps.
             </p>
           </section>
-
-          {isAdmin ? (
-            <NationalMetricsAdminForm fiscalYearId={fiscalYearId} initial={nationalMetrics} />
-          ) : null}
-
-          {showFiscalSimulationReset ? (
-            <section className="rounded border border-amber-800/40 bg-amber-50 p-4 text-sm text-amber-950">
-              <h2 className="text-base font-semibold text-amber-950">Staff: full economy reset</h2>
-              <p className="mt-2 text-xs leading-relaxed">
-                Restarts the simulation at <strong className="text-amber-950">FY 1</strong> with the default federal budget and
-                national metrics. <strong className="text-amber-950">Personal wallet balances are kept.</strong> Clears the
-                economy ledger, PAC levels, campaign ad inventory, blackjack sessions, party organization treasuries and
-                election-grant records, federal treasury, all fiscal years after FY1, FY1 tax/close artifacts, and replaces the
-                FY1 workbook and metrics snapshot. Sets a fresh 24-hour appropriations clock.
-              </p>
-              <button
-                type="button"
-                disabled={pending}
-                className="mt-3 rounded border border-amber-950 bg-amber-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-amber-50 disabled:opacity-50"
-                onClick={() => run(() => adminEconomyFullResetKeepWallets())}
-              >
-                {pending ? "Resetting…" : "Reset economy (keep wallets)"}
-              </button>
-            </section>
-          ) : null}
 
           <div className="flex flex-wrap gap-3">
             <button

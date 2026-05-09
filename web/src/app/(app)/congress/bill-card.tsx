@@ -1,9 +1,18 @@
 import Link from "next/link";
-import { castBillVote } from "@/app/actions/bills";
+import {
+  castBillVote,
+  leadershipCloseBillFloorVotePeriod,
+  leadershipOpenFloorVote,
+  leadershipReviewBill,
+  otherChamberLeadershipReviewBill,
+} from "@/app/actions/bills";
+import { setBillWhipInstruction } from "@/app/actions/whips";
 import { BillBody } from "@/components/bill-body";
 import { BillVoteCountdown } from "@/components/bill-vote-countdown";
 import { SubmitButton } from "@/components/submit-button";
 import { billStatusDisplay } from "@/lib/bill-display-status";
+import { receivingChamberForOrigination } from "@/lib/legislative-helpers";
+import { canAcceptRejectHopperForChamber } from "@/lib/role-capabilities";
 
 export type VoteKind = "yea" | "nay" | "abstain" | "present";
 export type BillVote = {
@@ -36,6 +45,23 @@ export type BillForCard = {
 };
 
 const VOTE_ORDER: readonly VoteKind[] = ["yea", "nay", "abstain", "present"] as const;
+
+const HOUSE_WHIP_SET = new Set([
+  "admin",
+  "speaker",
+  "house_majority_leader",
+  "house_majority_whip",
+  "house_minority_leader",
+  "house_minority_whip",
+]);
+
+const SENATE_WHIP_SET = new Set([
+  "admin",
+  "senate_majority_leader",
+  "senate_majority_whip",
+  "senate_minority_leader",
+  "senate_minority_whip",
+]);
 
 function fmt(ts: string | null | undefined) {
   if (!ts) return "—";
@@ -267,6 +293,8 @@ export function BillCard({
   votes,
   voterById,
   userId,
+  roleKeys,
+  viewerParty,
   userChambers,
   isPresidentialRunningMate = false,
   canBreakSenateTie = false,
@@ -277,6 +305,8 @@ export function BillCard({
   votes: BillVote[];
   voterById: Map<string, VoterProfile>;
   userId: string;
+  roleKeys: string[];
+  viewerParty: string | null;
   /** Chambers the viewer holds a floor-voting role in. */
   userChambers: Array<"house" | "senate">;
   isPresidentialRunningMate?: boolean;
@@ -296,6 +326,26 @@ export function BillCard({
 
   const showHouseForm = bill.status === "house_floor";
   const showSenateForm = bill.status === "senate_floor";
+  const originatingChamber = bill.originating_chamber;
+  const receivingChamber = receivingChamberForOrigination(originatingChamber);
+  const whipChamber = showHouseForm ? "house" : showSenateForm ? "senate" : null;
+  const canSetWhip =
+    whipChamber === "house"
+      ? roleKeys.some((k) => HOUSE_WHIP_SET.has(k))
+      : whipChamber === "senate"
+        ? roleKeys.some((k) => SENATE_WHIP_SET.has(k))
+        : false;
+  const canActOriginatingLeadership = canAcceptRejectHopperForChamber(roleKeys, originatingChamber);
+  const canActReceivingLeadership = canAcceptRejectHopperForChamber(roleKeys, receivingChamber);
+  const openVoteChamber =
+    bill.status === "other_chamber_debate"
+      ? receivingChamber
+      : bill.status === "on_docket" || bill.status === "debate"
+        ? originatingChamber
+        : null;
+  const canOpenVote = openVoteChamber != null && canAcceptRejectHopperForChamber(roleKeys, openVoteChamber);
+  const closeVoteChamber = bill.status === "house_floor" ? "house" : bill.status === "senate_floor" ? "senate" : null;
+  const canCloseVote = closeVoteChamber != null && canAcceptRejectHopperForChamber(roleKeys, closeVoteChamber);
 
   const canCastHouseFloorVote = userChambers.includes("house");
   const canCastSenateFloorVote = bill.vp_tie_break_pending
@@ -312,7 +362,7 @@ export function BillCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            {billStatusDisplay(bill.status)}
+            {billStatusDisplay(bill.status, { originatingChamber: bill.originating_chamber })}
           </p>
           <h3 className="text-lg font-semibold text-[var(--psc-ink)]">
             <Link href={`/bill/${bill.id}`} className="hover:underline">
@@ -357,6 +407,98 @@ export function BillCard({
       </div>
 
       <BillBody content_html={bill.content_html} content_md={bill.content_md} />
+
+      {(bill.status === "submitted" ||
+        bill.status === "leadership_review" ||
+        bill.status === "other_chamber_review" ||
+        bill.status === "on_docket" ||
+        bill.status === "debate" ||
+        bill.status === "other_chamber_debate" ||
+        bill.status === "house_floor" ||
+        bill.status === "senate_floor") ? (
+        <section className="mt-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--psc-muted)]">
+            Leadership actions
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(bill.status === "submitted" || bill.status === "leadership_review") && canActOriginatingLeadership ? (
+              <>
+                <form action={leadershipReviewBill}>
+                  <input type="hidden" name="bill_id" value={bill.id} />
+                  <input type="hidden" name="decision" value="accept" />
+                  <SubmitButton
+                    pendingLabel="Starting debate…"
+                    className="rounded border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Start debate
+                  </SubmitButton>
+                </form>
+                <form action={leadershipReviewBill}>
+                  <input type="hidden" name="bill_id" value={bill.id} />
+                  <input type="hidden" name="decision" value="reject" />
+                  <SubmitButton
+                    pendingLabel="Rejecting…"
+                    className="rounded border border-rose-700 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800"
+                  >
+                    Reject
+                  </SubmitButton>
+                </form>
+              </>
+            ) : null}
+
+            {bill.status === "other_chamber_review" && canActReceivingLeadership ? (
+              <>
+                <form action={otherChamberLeadershipReviewBill}>
+                  <input type="hidden" name="bill_id" value={bill.id} />
+                  <input type="hidden" name="decision" value="accept" />
+                  <SubmitButton
+                    pendingLabel="Starting debate…"
+                    className="rounded border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Start debate
+                  </SubmitButton>
+                </form>
+                <form action={otherChamberLeadershipReviewBill}>
+                  <input type="hidden" name="bill_id" value={bill.id} />
+                  <input type="hidden" name="decision" value="reject" />
+                  <SubmitButton
+                    pendingLabel="Rejecting…"
+                    className="rounded border border-rose-700 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800"
+                  >
+                    Reject
+                  </SubmitButton>
+                </form>
+              </>
+            ) : null}
+
+            {(bill.status === "on_docket" || bill.status === "debate" || bill.status === "other_chamber_debate") &&
+            canOpenVote ? (
+              <form action={leadershipOpenFloorVote}>
+                <input type="hidden" name="bill_id" value={bill.id} />
+                <input type="hidden" name="duration_preset" value="24" />
+                <SubmitButton
+                  pendingLabel="Opening…"
+                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Push to vote
+                </SubmitButton>
+              </form>
+            ) : null}
+
+            {(bill.status === "house_floor" || bill.status === "senate_floor") && canCloseVote ? (
+              <form action={leadershipCloseBillFloorVotePeriod}>
+                <input type="hidden" name="bill_id" value={bill.id} />
+                <SubmitButton
+                  pendingLabel="Closing…"
+                  className="rounded border border-[var(--psc-ink)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--psc-ink)]"
+                >
+                  Close vote
+                </SubmitButton>
+              </form>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {houseVotes.length > 0 ||
       senateVotes.length > 0 ||
@@ -409,6 +551,37 @@ export function BillCard({
                 : "Only Senators may cast this vote."
           }
         />
+      ) : null}
+
+      {canSetWhip && whipChamber ? (
+        <section className="mt-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--psc-muted)]">
+              Leadership whip
+            </p>
+            <p className="text-[11px] text-[var(--psc-muted)]">
+              Send caucus guidance for this {whipChamber === "house" ? "House" : "Senate"} floor vote
+            </p>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <form action={setBillWhipInstruction}>
+              <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="party" value={viewerParty ?? "independent"} />
+              <input type="hidden" name="instructed_vote" value="yea" />
+              <SubmitButton className="rounded border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
+                Whip Aye
+              </SubmitButton>
+            </form>
+            <form action={setBillWhipInstruction}>
+              <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="party" value={viewerParty ?? "independent"} />
+              <input type="hidden" name="instructed_vote" value="nay" />
+              <SubmitButton className="rounded border border-rose-700 bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white">
+                Whip Nay
+              </SubmitButton>
+            </form>
+          </div>
+        </section>
       ) : null}
 
       {houseVotes.length + senateVotes.length > 0 ? (

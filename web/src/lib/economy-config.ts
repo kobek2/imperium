@@ -12,7 +12,7 @@ export const ECONOMY_VP_ADDON_HOURLY = 230_000;
 /** Capped accrual window (matches Postgres `economy_collect_income`). */
 export const ECONOMY_MAX_OFFLINE_HOURS = 24;
 
-export const CAMPAIGN_AD_UNIT_PRICE = 50_000;
+export const CAMPAIGN_AD_UNIT_PRICE = 1_000_000;
 export const CAMPAIGN_AD_POINTS = 1;
 
 export const PAC_LEVEL_1_COST = 5_000_000;

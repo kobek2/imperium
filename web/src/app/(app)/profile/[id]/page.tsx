@@ -294,10 +294,12 @@ export default async function ProfilePage({
       <RecentAuthoredBillsPanel
         bills={recentAuthored.bills}
         votes={recentAuthored.votes}
+        floorTallies={recentAuthored.floorTallies}
+        confirmationBillIds={recentAuthored.confirmationBillIds}
         caption={
           isSelf
-            ? "Your five most recently filed bills and your House/Senate floor votes on each (when recorded)."
-            : "Five most recently filed bills and this member’s House/Senate floor votes on each (when recorded)."
+            ? "Your five most recently filed bills: House/Senate yea–nay margins when a floor vote ran, plus your own votes when recorded."
+            : "Five most recently filed bills: House/Senate yea–nay margins when a floor vote ran, plus this member’s votes when recorded."
         }
       />
 

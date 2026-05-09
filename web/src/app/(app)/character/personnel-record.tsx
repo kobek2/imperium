@@ -1,4 +1,5 @@
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
+import { formatDistrictLean } from "@/lib/district-lean";
 import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
 
 export type PersonnelProfile = {
@@ -27,11 +28,18 @@ function displayName(name: string | null) {
 export function PersonnelRecord({
   profile,
   primaryTitle,
+  districtPvi,
 }: {
   profile: PersonnelProfile;
   primaryTitle: string;
+  districtPvi: number | null;
 }) {
   const name = displayName(profile.character_name);
+  const districtLine = profile.home_district_code
+    ? districtPvi !== null
+      ? `${profile.home_district_code} (${formatDistrictLean(districtPvi)})`
+      : profile.home_district_code
+    : null;
   return (
     <section
       className="mb-10 border-2 border-[var(--psc-ink)] bg-[var(--psc-panel)] p-8 pr-24 shadow-sm"
@@ -65,6 +73,12 @@ export function PersonnelRecord({
       <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Current office
+          </dt>
+          <dd className="mt-1 text-[var(--psc-ink)]">{primaryTitle}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
             Date of birth
           </dt>
           <dd className="mt-1 font-mono text-[var(--psc-ink)]">
@@ -85,12 +99,12 @@ export function PersonnelRecord({
             )}
           </dd>
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
             Home congressional district
           </dt>
           <dd className="mt-1 font-mono text-[var(--psc-ink)]">
-            {profile.home_district_code ? profile.home_district_code : <span className="text-[var(--psc-muted)]">—</span>}
+            {districtLine ?? <span className="text-[var(--psc-muted)]">—</span>}
           </dd>
         </div>
         <div className="sm:col-span-2">

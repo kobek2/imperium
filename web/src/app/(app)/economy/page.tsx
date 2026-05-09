@@ -7,6 +7,13 @@ import { isPresident } from "@/lib/president";
 import { OrientationTourPanelEconomy } from "@/components/orientation-tour-panel";
 import { EconomyDashboard } from "./economy-dashboard";
 
+function ledgerRelatedUserId(detail: unknown): string | null {
+  if (!detail || typeof detail !== "object") return null;
+  const d = detail as Record<string, unknown>;
+  const raw = d.to ?? d.from ?? d.from_officer ?? null;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
 export default async function EconomyPage() {
   const { supabase, user } = await getServerAuth();
   if (!supabase) {
@@ -45,7 +52,7 @@ export default async function EconomyPage() {
       .maybeSingle(),
     supabase
       .from("rp_fiscal_years")
-      .select("id, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen")
+      .select("id, appropriations_act_bill_id, economy_activity_frozen")
       .eq("status", "active")
       .maybeSingle(),
     isPresident(supabase, user.id),
@@ -55,9 +62,14 @@ export default async function EconomyPage() {
 
   await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
 
+  const allowFederalBudget =
+    pres ||
+    isAdmin ||
+    Boolean(staffAccess?.hasFullStaff) ||
+    Boolean(staffAccess?.roleKeys.includes("secretary_of_treasury"));
+
   const fyRow = activeFy as {
     id?: string;
-    appropriation_deadline_at?: string | null;
     appropriations_act_bill_id?: string | null;
     economy_activity_frozen?: boolean | null;
   } | null;
@@ -91,6 +103,41 @@ export default async function EconomyPage() {
   const inventory =
     (invRows ?? []).find((r) => (r as { sku: string }).sku === "campaign_ad") ?? null;
 
+  const ledgerRows = (ledger ?? []) as Array<{
+    id: string;
+    wallet_user_id: string;
+    delta: number;
+    kind: string;
+    detail: unknown;
+    created_at: string;
+  }>;
+  const ledgerProfileIds = new Set<string>();
+  for (const row of ledgerRows) {
+    ledgerProfileIds.add(row.wallet_user_id);
+    const related = ledgerRelatedUserId(row.detail);
+    if (related) ledgerProfileIds.add(related);
+  }
+  const { data: ledgerProfiles } = ledgerProfileIds.size
+    ? await supabase
+        .from("profiles")
+        .select("id, character_name, discord_username")
+        .in("id", [...ledgerProfileIds])
+    : { data: [] as Array<{ id: string; character_name: string | null; discord_username: string | null }> };
+  const ledgerProfileById = new Map(
+    (ledgerProfiles ?? []).map((p) => [
+      p.id as string,
+      ((p.character_name as string | null)?.trim() || (p.discord_username as string | null)?.trim() || (p.id as string).slice(0, 8)),
+    ]),
+  );
+  const recentLedger = ledgerRows.map((row) => {
+    const relatedUserId = ledgerRelatedUserId(row.detail);
+    return {
+      ...row,
+      walletName: ledgerProfileById.get(row.wallet_user_id) ?? row.wallet_user_id.slice(0, 8),
+      relatedName: relatedUserId ? ledgerProfileById.get(relatedUserId) ?? relatedUserId.slice(0, 8) : null,
+    };
+  });
+
   const inTour = !me?.orientation_completed_at;
   const onStep2 = inTour && (me?.orientation_step ?? 1) === 2;
   const { count: economyLedgerCount } = await supabase
@@ -110,7 +157,7 @@ export default async function EconomyPage() {
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          {pres || isAdmin || Boolean(staffAccess?.hasFullStaff) ? (
+          {allowFederalBudget ? (
             <NavRouteButton href="/economy/federal">Federal budget</NavRouteButton>
           ) : null}
           <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
@@ -121,11 +168,9 @@ export default async function EconomyPage() {
         wallet={wallet as { balance: number; last_collected_at: string } | null}
         pac={pac as { level: number } | null}
         inventory={inventory as { sku: string; quantity: number } | null}
-        recentLedger={(ledger ?? []) as never}
-        viewerId={user.id}
+        recentLedger={recentLedger}
         treasuryPartyKey={treasuryPartyKey}
         economyFrozen={economyFrozen}
-        appropriationDeadlineAt={fyRow?.appropriation_deadline_at ?? null}
         federalEstimatedTax={federalEstimatedTax}
         taxAccount={
           (taxAccount as {

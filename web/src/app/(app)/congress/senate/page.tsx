@@ -2,10 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { FileBillForm } from "../file-bill-form";
-import {
-  canFileFederalLegislation,
-  canFileLegislationInChamber,
-} from "@/lib/legislative-eligibility";
+import { canFileLegislationInChamber } from "@/lib/legislative-eligibility";
 import { CongressDocketSection } from "../congress-docket-section";
 import { filterBillsForSenateDocket, loadCongressDocket } from "../load-congress-docket";
 
@@ -39,14 +36,11 @@ export default async function CongressSenatePage() {
   if (!user) redirect("/login");
 
   const docket = await loadCongressDocket(supabase, user.id);
-  const { billList, votesByBill, voterById, roleKeys, leadershipSessions, isRunningMate, canBreakSenateTie } =
+  const { billList, votesByBill, voterById, roleKeys, viewerParty, leadershipSessions, isRunningMate, canBreakSenateTie } =
     docket;
 
   const senateBills = filterBillsForSenateDocket(billList);
-  const canFile = canFileFederalLegislation(roleKeys);
   const showSenateFiling = canFileLegislationInChamber(roleKeys, "senate");
-  const canFileHouseOnly =
-    canFileLegislationInChamber(roleKeys, "house") && !canFileLegislationInChamber(roleKeys, "senate");
 
   const userChambers: ("house" | "senate")[] = [];
   const rk = new Set(roleKeys);
@@ -60,26 +54,8 @@ export default async function CongressSenatePage() {
 
   return (
     <div className="space-y-10">
-      <p>
-        <Link
-          href="/congress"
-          className="inline-flex items-center rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-1.5 text-sm font-semibold text-[var(--psc-ink)] shadow-sm hover:bg-[var(--psc-canvas)]"
-        >
-          ← Congress overview
-        </Link>
-      </p>
-
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-sm">
         <h2 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">United States Senate</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Senate-originated bills follow review → docket → floor vote. When a bill is on the Senate floor, members vote
-          here; Vice Presidential tie-breaks follow the usual rules shown on each bill.
-        </p>
-        <p className="mt-3 max-w-3xl rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)]/80 px-3 py-2 text-xs leading-relaxed text-[var(--psc-muted)]">
-          <strong className="text-[var(--psc-ink)]">House-passed bills</strong> that crossed over appear here under{" "}
-          <strong className="text-[var(--psc-ink)]">other chamber review</strong> while Senate leadership decides whether
-          to accept them to debate — check Congress overview for a shortcut list.
-        </p>
         {observeSenate ? (
           <p className="mt-4 rounded-md border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2 text-sm text-[var(--psc-muted)]">
             You&apos;re viewing the Senate docket as a visitor. File and most floor votes are limited to seated
@@ -114,51 +90,32 @@ export default async function CongressSenatePage() {
         </section>
       ) : null}
 
-      <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h3 className="text-lg font-semibold text-[var(--psc-ink)]">File Senate legislation</h3>
-        {showSenateFiling ? (
-          <>
-            <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the Senate.</p>
-            <FileBillForm originatingChamber="senate" />
-          </>
-        ) : (
-          <div className="mt-3 space-y-2 text-sm text-[var(--psc-muted)]">
-            {canFileHouseOnly ? (
-              <p>
-                Your seated role files House-originated measures. Use the{" "}
-                <Link href="/congress/house" className="font-semibold text-[var(--psc-accent)] underline">
-                  House
-                </Link>{" "}
-                page to file.
-              </p>
-            ) : !canFile ? (
-              <p>
-                Filing unlocks when your profile has a <strong className="text-[var(--psc-ink)]">Representative</strong>
-                , <strong className="text-[var(--psc-ink)]">Senator</strong>, or{" "}
-                <strong className="text-[var(--psc-ink)]">President</strong> role (via Discord role sync / grants).
-              </p>
-            ) : (
-              <p>You can&apos;t file Senate legislation with your current roles.</p>
-            )}
-          </div>
-        )}
-      </section>
+      {showSenateFiling ? (
+        <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+          <h3 className="text-lg font-semibold text-[var(--psc-ink)]">File Senate legislation</h3>
+          <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the Senate.</p>
+          <FileBillForm originatingChamber="senate" />
+        </section>
+      ) : null}
 
       <CongressDocketSection
         sectionId="senate-docket"
+        chamber="senate"
         heading="Senate docket"
-        subheading="Shows Senate pipeline items in chamber workflow: submitted, on_docket, and Senate-floor cards. Bills can also appear in overview sections under leadership review or other-chamber debate depending on stage."
+        subheading=""
         shellClassName="border-[var(--psc-border)] bg-white"
         headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         bills={senateBills}
         votesByBill={votesByBill}
         voterById={voterById}
         userId={user.id}
+        roleKeys={roleKeys}
+        viewerParty={viewerParty}
         userChambers={userChambers}
         isRunningMate={isRunningMate}
         canBreakSenateTie={canBreakSenateTie}
         suppressVoteForms={observeSenate}
-        emptyLabel="No bills are currently in the Senate docket view. Check Congress overview for submitted leadership review items, or the “Awaiting receiving chamber” section when the House has sent bills over."
+        emptyLabel="No Senate bills in the active pipeline."
       />
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
         <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Senate pipeline snapshot</h3>

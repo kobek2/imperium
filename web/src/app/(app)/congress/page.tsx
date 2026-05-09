@@ -94,6 +94,13 @@ export default async function CongressOverviewPage() {
     leadership_deadline_at: string | null;
   }>;
 
+  const crossChamberAwaitingHouse = crossChamberRows.filter(
+    (b) => receivingChamberForOrigination(b.originating_chamber) === "house",
+  );
+  const crossChamberAwaitingSenate = crossChamberRows.filter(
+    (b) => receivingChamberForOrigination(b.originating_chamber) === "senate",
+  );
+
   if (!snapshot) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
@@ -149,11 +156,8 @@ export default async function CongressOverviewPage() {
                       : null}
                   </p>
                 </div>
-                <Link
-                  href={b.originating_chamber === "house" ? "/congress/house" : "/congress/senate"}
-                  className={congressActionBtn}
-                >
-                  Chamber tab →
+                <Link href={`/bill/${b.id}`} className={congressActionBtn}>
+                  Bill page →
                 </Link>
               </li>
             ))}
@@ -196,49 +200,75 @@ export default async function CongressOverviewPage() {
       ) : null}
 
       {crossChamberRows.length > 0 ? (
-        <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
+        <section className="space-y-6 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Awaiting receiving chamber</h2>
             <Link href="/congress/leadership" className={congressActionBtnPrimary}>
               Open leadership desk →
             </Link>
           </div>
-          <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            These bills already passed the originating chamber&apos;s floor vote and now sit in{" "}
-            <strong className="text-[var(--psc-ink)]">other chamber review</strong> until that chamber&apos;s
-            leadership accepts or rejects them ({OTHER_CHAMBER_REVIEW_HOURS}-hour clock). House-passed bills appear on the{" "}
-            <strong className="text-[var(--psc-ink)]">Senate</strong> page; Senate-passed bills on the{" "}
-            <strong className="text-[var(--psc-ink)]">House</strong> page.
-          </p>
-          <ul className="mt-4 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
-            {crossChamberRows.map((b) => {
-              const receiving = receivingChamberForOrigination(b.originating_chamber);
-              const chamberLabel = receiving === "senate" ? "Senate" : "House";
-              return (
-                <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/bill/${b.id}`}
-                      className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
-                    >
-                      {b.title}
+
+          {crossChamberAwaitingHouse.length > 0 ? (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                House leadership
+              </h3>
+              <ul className="mt-2 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
+                {crossChamberAwaitingHouse.map((b) => (
+                  <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/bill/${b.id}`}
+                        className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
+                      >
+                        {b.title}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                        Passed Senate. House leadership.
+                        {b.leadership_deadline_at
+                          ? ` · Auto ${new Date(b.leadership_deadline_at).toLocaleString()}`
+                          : null}
+                      </p>
+                    </div>
+                    <Link href={`/bill/${b.id}`} className={congressActionBtn}>
+                      Bill page →
                     </Link>
-                    <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
-                      Passed {b.originating_chamber === "house" ? "House" : "Senate"} floor → needs{" "}
-                      {chamberLabel} leadership · receiving chamber:{" "}
-                      <strong className="text-[var(--psc-ink)]">{chamberLabel}</strong>
-                      {b.leadership_deadline_at
-                        ? ` · Auto ${new Date(b.leadership_deadline_at).toLocaleString()}`
-                        : null}
-                    </p>
-                  </div>
-                  <Link href={`/congress/${receiving}`} className={congressActionBtn}>
-                    {chamberLabel} tab →
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {crossChamberAwaitingSenate.length > 0 ? (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                Senate leadership
+              </h3>
+              <ul className="mt-2 divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/50">
+                {crossChamberAwaitingSenate.map((b) => (
+                  <li key={b.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/bill/${b.id}`}
+                        className="text-sm font-semibold text-[var(--psc-ink)] hover:underline"
+                      >
+                        {b.title}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+                        Passed House. Senate leadership.
+                        {b.leadership_deadline_at
+                          ? ` · Auto ${new Date(b.leadership_deadline_at).toLocaleString()}`
+                          : null}
+                      </p>
+                    </div>
+                    <Link href={`/bill/${b.id}`} className={congressActionBtn}>
+                      Bill page →
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -290,14 +320,12 @@ export default async function CongressOverviewPage() {
       <section className="grid gap-8 lg:grid-cols-2 lg:items-start">
         <CongressLeadersPanel
           heading="House leadership"
-          subheading="Deputy rotates to the Representative with the most personal economy collects (hourly income rows), excluding the Speaker. They may move hopper bills and open floor votes alongside the Speaker when timers fire."
           slots={snapshot.houseLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"
         />
         <CongressLeadersPanel
           heading="Senate leadership"
-          subheading="Deputy rotates to the Senator with the most personal economy collects, excluding the Majority Leader. They backstop hopper review and floor scheduling the same way."
           slots={snapshot.senateLeaders}
           shellClassName="border-[var(--psc-border)] bg-white"
           headingClassName="border-b border-[var(--psc-border)] bg-[var(--psc-panel)] text-[var(--psc-ink)]"

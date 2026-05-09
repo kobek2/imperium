@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   getFilingEligibilityMessage,
@@ -403,9 +402,6 @@ export default async function ElectionDetailPage({
 
   return (
     <div className="space-y-6">
-      <Link href="/elections" className="text-sm font-semibold text-[var(--psc-accent)]">
-        ← All elections
-      </Link>
       {presMapData ? (
         <div className="space-y-3">
           <ElectoralTote

@@ -3,8 +3,11 @@ import { redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPage } from "@/lib/staff-access";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
+import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { EconomyOverviewUnlock } from "./economy-overview-unlock";
 import { EconomyFiscalConfig } from "./economy-fiscal-config";
+import { EconomyFiscalAdminControls } from "./economy-fiscal-admin-controls";
+import { NationalMetricsAdminForm } from "@/app/(app)/economy/federal/national-metrics-admin-form";
 
 export default async function AdminEconomyOverviewPage() {
   const access = await requireStaffPage("economy");
@@ -19,6 +22,9 @@ export default async function AdminEconomyOverviewPage() {
 
   const { data: fyBudget } = activeFy?.id
     ? await supabase.from("federal_budgets").select("status").eq("fiscal_year_id", activeFy.id).maybeSingle()
+    : { data: null };
+  const { data: activeMetrics } = activeFy?.id
+    ? await supabase.from("national_metrics").select("*").eq("fiscal_year_id", activeFy.id).maybeSingle()
     : { data: null };
 
   const [{ data: profiles }, { data: wallets }, { data: pacs }, { data: ledger }] = await Promise.all([
@@ -72,6 +78,18 @@ export default async function AdminEconomyOverviewPage() {
             taxWarningLeadDays: Number((activeFy as { tax_warning_lead_days?: number }).tax_warning_lead_days ?? 2),
           }}
         />
+      ) : null}
+      {activeFy?.id ? (
+        <>
+          <NationalMetricsAdminForm
+            fiscalYearId={activeFy.id}
+            initial={activeMetrics as NationalMetricsRow | null}
+          />
+          <EconomyFiscalAdminControls
+            fiscalYearLabel={String((activeFy as { label?: string } | null)?.label ?? "Active FY")}
+            canRun={access.hasFullStaff}
+          />
+        </>
       ) : null}
 
       <section className="space-y-3">

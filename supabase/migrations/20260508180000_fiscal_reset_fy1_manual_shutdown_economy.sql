@@ -1,5 +1,6 @@
 -- FY1 restoration after mistaken fiscal close; manual-only economy shutdown; simplify economy gate.
 -- Also: stack FY1 close revenue onto national debt while refunding wallets.
+-- When a federal_budgets row already exists for FY1, preserve tax_brackets / line_items / metrics / status (touch updated_at only).
 
 create or replace function public._economy_require_active_budget()
 returns void
@@ -156,13 +157,7 @@ begin
   where not exists (select 1 from public.federal_budgets b where b.fiscal_year_id = v_fy1_id);
 
   update public.federal_budgets
-  set
-    status = 'submitted',
-    submitted_at = coalesce(submitted_at, now()),
-    tax_brackets = v_seed_brackets,
-    line_items = v_seed_lines,
-    president_user_id = coalesce(president_user_id, v_uid),
-    updated_at = now()
+  set updated_at = now()
   where fiscal_year_id = v_fy1_id;
 
   v_debt_bump := coalesce(v_tax_from_close, 0) + coalesce(p_extra_us_debt, 0);

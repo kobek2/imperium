@@ -12,7 +12,6 @@ const FLOOR_SCHEDULERS = new Set([
   "senate_majority_leader",
   "senate_deputy",
   "senate_majority_whip",
-  "president_pro_tempore",
 ]);
 
 const PRESIDENT_OFFICE = new Set(["admin", "president"]);

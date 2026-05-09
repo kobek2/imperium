@@ -24,6 +24,10 @@ function spectrumPct(policyValue: number): number {
   return Math.max(0, Math.min(100, ((policyValue + 2) / 4) * 100));
 }
 
+function normalizeOfficialStanceLabel(label: string): string {
+  return label.replaceAll(" + ", " and ").replaceAll("+", " and ").trim();
+}
+
 export function FileBillForm({ originatingChamber }: { originatingChamber: "house" | "senate" }) {
   const [mode, setMode] = useState<"free" | "template">("free");
   const [templates, setTemplates] = useState<BillTemplateRow[]>([]);
@@ -189,7 +193,7 @@ export function FileBillForm({ originatingChamber }: { originatingChamber: "hous
               key={stance.stance_key}
               name="title"
               required
-              defaultValue={`${selectedTpl.display_name}: ${stance.label}`}
+              defaultValue={`${selectedTpl.display_name} Act — ${normalizeOfficialStanceLabel(stance.label)}`}
               className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
             />
           </label>

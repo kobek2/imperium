@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayManagePartyOrg } from "@/lib/staff-access";
+import { NavRouteButton } from "@/components/nav-route-button";
 import type { ProfileCardData } from "@/components/profile-card";
 import { PartyRoom } from "./party-room";
 
@@ -28,7 +28,6 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     isAdmin,
     { data: viewerProfile },
     { data: myVoteRows },
-    { data: boardSelf },
   ] = await Promise.all([
     supabase
       .from("party_organizations")
@@ -48,7 +47,6 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     getStaffMayManagePartyOrg(),
     supabase.from("profiles").select("party").eq("id", user.id).maybeSingle(),
     supabase.from("party_officer_votes").select("office, candidate_id").eq("party_key", partyKey).eq("voter_id", user.id),
-    supabase.from("party_national_board_members").select("user_id").eq("party_key", partyKey).eq("user_id", user.id).maybeSingle(),
   ]);
 
   const leadershipPhase = (org?.leadership_phase as string | null) ?? "idle";
@@ -143,35 +141,23 @@ export default async function PartyDetailPage({ params }: { params: Promise<{ pa
     (o) =>
       o.user_id === user.id && (o.office === "chair" || o.office === "vice_chair" || o.office === "treasurer"),
   );
-  const showLeadershipDashboardLink = isPartyOfficer || Boolean(boardSelf);
+  const showLeadershipDashboardLink = isPartyOfficer;
 
   const partyTitle =
     partyKey === "democrat" ? "Democratic Party" : partyKey === "republican" ? "Republican Party" : "Independent";
 
-  const leadershipButtonClass =
-    partyKey === "democrat"
-      ? "border-blue-800 bg-blue-600 text-white shadow-md hover:bg-blue-700"
-      : partyKey === "republican"
-        ? "border-red-800 bg-red-600 text-white shadow-md hover:bg-red-700"
-        : "border-[var(--psc-seal)] bg-[var(--psc-seal)] text-white shadow-md hover:opacity-95";
-
   return (
     <div className="space-y-6">
-      <nav className="flex flex-wrap items-center gap-3 text-sm">
-        <Link href="/parties" className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline">
-          ← All parties
-        </Link>
-        {showLeadershipDashboardLink ? (
-          <Link
-            href={`/parties/${partyKey}/leadership`}
-            className={`ml-auto inline-flex items-center justify-center rounded-md border-2 px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-white transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)] active:translate-y-px ${leadershipButtonClass}`}
-          >
-            Leadership dashboard
-          </Link>
-        ) : null}
-      </nav>
-      <header>
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">{partyTitle}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <NavRouteButton href="/parties">All parties</NavRouteButton>
+          {showLeadershipDashboardLink ? (
+            <NavRouteButton href={`/parties/${partyKey}/leadership`}>
+              Leadership dashboard
+            </NavRouteButton>
+          ) : null}
+        </div>
       </header>
       <PartyRoom
         partyKey={partyKey}

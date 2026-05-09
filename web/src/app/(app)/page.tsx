@@ -9,9 +9,10 @@ import { computeSimulationRpInstant, formatRpCalendarShort, type SimulationSetti
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
+import { RpDatePill } from "@/components/rp-date-pill";
 
 /** Home shows this many rows; we fetch one extra to detect a fuller inbox. */
-const INBOX_HOME_PREVIEW = 5;
+const INBOX_HOME_PREVIEW = 3;
 
 export default async function HomePage() {
   // Redirect first-time users to the character setup screen. We do this here (not in a layout)
@@ -64,19 +65,9 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
-        </div>
-        {rpDateLabel ? (
-          <div
-            className="inline-flex items-baseline gap-2 rounded-md border border-[var(--psc-border)] bg-[var(--psc-panel)]/95 px-3 py-2 shadow-sm"
-            title="Simulation calendar date"
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Date</span>
-            <span className="font-mono text-sm font-semibold tabular-nums tracking-tight text-[var(--psc-ink)]">{rpDateLabel}</span>
-          </div>
-        ) : null}
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
+        {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
       </header>
 
       <BriefingInbox moments={inboxPreview} heading="Your inbox (latest)" viewAllHref="/inbox" viewAllLabel="Open inbox →" />

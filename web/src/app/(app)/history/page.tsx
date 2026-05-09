@@ -5,6 +5,7 @@ import { ProfileImageWithFallback } from "@/components/profile-image-with-fallba
 import { profileImageSrc, profilePath } from "@/components/profile-card";
 import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { getIsAdmin } from "@/lib/is-admin";
+import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { getServerAuth } from "@/lib/supabase/server";
 
 type ProfileLite = {
@@ -82,6 +83,15 @@ function dateLabel(iso: string | null) {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 }
 
+function rpDateLabel(settings: SimulationSettingsRow | null, iso: string | null) {
+  if (!settings) return dateLabel(iso);
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const rp = computeSimulationRpInstant(settings, d);
+  return rp.at.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
 function byEarliestFile<T extends { created_at?: string | null; id?: string | null }>(a: T, b: T): number {
   const at = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
   const bt = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
@@ -89,7 +99,7 @@ function byEarliestFile<T extends { created_at?: string | null; id?: string | nu
   return String(a.id ?? "").localeCompare(String(b.id ?? ""));
 }
 
-function renderLeaderCards(cards: LeaderTermCard[], emptyText: string) {
+function renderLeaderCards(cards: LeaderTermCard[], emptyText: string, simulationSettings: SimulationSettingsRow | null) {
   if (!cards.length) {
     return <p className="text-sm text-[var(--psc-muted)]">{emptyText}</p>;
   }
@@ -109,8 +119,8 @@ function renderLeaderCards(cards: LeaderTermCard[], emptyText: string) {
             <div className="space-y-2">
               <h3 className={`text-4xl font-semibold tracking-tight ${partyNameColorClass(card.party)}`}>{card.name}</h3>
               <p className="text-sm text-[var(--psc-muted)]">
-                {dateLabel(card.termStart)}
-                {card.termEnd ? ` - ${dateLabel(card.termEnd)}` : " - Present"}, {card.party} Party
+                {rpDateLabel(simulationSettings, card.termStart)}
+                {card.termEnd ? ` - ${rpDateLabel(simulationSettings, card.termEnd)}` : " - Present"}, {card.party} Party
               </p>
               <div className="space-y-1 text-sm text-[var(--psc-ink)]">
                 <p>
@@ -120,7 +130,8 @@ function renderLeaderCards(cards: LeaderTermCard[], emptyText: string) {
                   <strong>Date of Birth:</strong> {dateLabel(card.dateOfBirth)}
                 </p>
                 <p>
-                  <strong>Term:</strong> {dateLabel(card.termStart)} - {card.termEnd ? dateLabel(card.termEnd) : "Present"}
+                  <strong>Term:</strong> {rpDateLabel(simulationSettings, card.termStart)} -{" "}
+                  {card.termEnd ? rpDateLabel(simulationSettings, card.termEnd) : "Present"}
                 </p>
                 {card.runningMate ? (
                   <p>
@@ -175,7 +186,7 @@ export default async function HistoryPage() {
   if (!user) redirect("/login");
   const isAdmin = await getIsAdmin();
 
-  const [presElectionRes, leadershipSessionRes, hofRes] = await Promise.all([
+  const [presElectionRes, leadershipSessionRes, hofRes, simSettingsRes] = await Promise.all([
     supabase
       .from("elections")
       .select("id, winner_user_id, general_closes_at, created_at")
@@ -190,12 +201,14 @@ export default async function HistoryPage() {
       .order("closed_at", { ascending: true, nullsFirst: false }),
     supabase
       .from("hall_of_fame_entries")
-      .select("id, user_id, honor_title, note, sort_order")
+      .select("id, user_id, honor_title, note")
       .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: true }),
+    supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
   ]);
   const hallOfFameSchemaMissing = Boolean(hofRes.error && isMissingHallOfFameSchema(hofRes.error.message));
+  const simulationSettings =
+    simSettingsRes.error || !simSettingsRes.data ? null : (simSettingsRes.data as SimulationSettingsRow);
 
   const presidentialTermsRaw = (presElectionRes.data ?? []) as Array<{
     id: string;
@@ -214,7 +227,6 @@ export default async function HistoryPage() {
     user_id: string;
     honor_title: string;
     note: string | null;
-    sort_order: number;
   }>;
 
   const presElectionIds = presidentialTermsRaw.map((r) => r.id);
@@ -422,16 +434,13 @@ export default async function HistoryPage() {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-7 shadow-sm">
+      <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-7 text-center shadow-sm">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--psc-muted)]">Imperium Archives</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--psc-ink)]">Hall of Fame</h1>
-        <p className="mt-3 max-w-3xl text-sm text-[var(--psc-muted)]">
-          Admin-curated Hall of Fame plus full historical records for Presidents, Speakers, and Senate Majority Leaders.
-        </p>
       </section>
 
       <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Hall of Fame (Admin curated)</h2>
+        <h2 className="text-center text-xl font-semibold text-[var(--psc-ink)]">Hall of Fame</h2>
         {hallOfFameSchemaMissing ? (
           <div className="rounded border border-amber-700 bg-amber-50 p-3 text-xs text-amber-900">
             Hall of Fame table is not in this database yet. Run
@@ -447,7 +456,7 @@ export default async function HistoryPage() {
             {hallOfFameCards.map(({ entry, name, image, subtitle }) => (
               <article
                 key={entry.id}
-                className="rounded-xl border-2 border-amber-400 bg-gradient-to-r from-amber-100/70 via-white to-amber-100/70 p-4 shadow"
+                className="rounded-xl border-[3px] border-amber-400 bg-[var(--psc-panel)] p-4 shadow-sm ring-1 ring-inset ring-amber-200"
               >
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="h-20 w-20 overflow-hidden rounded border border-amber-500 bg-white">
@@ -479,7 +488,7 @@ export default async function HistoryPage() {
         {isAdmin && !hallOfFameSchemaMissing ? (
           <div className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-4">
             <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Admin controls</h3>
-            <form action={addHallOfFameEntry} className="grid gap-2 md:grid-cols-4">
+            <form action={addHallOfFameEntry} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
               <ProfileTypeaheadInput hiddenName="user_id" required placeholder="Type character name…" />
               <input
                 name="honor_title"
@@ -491,20 +500,12 @@ export default async function HistoryPage() {
                 placeholder="Short note"
                 className="rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm"
               />
-              <div className="flex gap-2">
-                <input
-                  name="sort_order"
-                  type="number"
-                  defaultValue={100}
-                  className="w-24 rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm"
-                />
-                <button
-                  type="submit"
-                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase text-white"
-                >
-                  Add
-                </button>
-              </div>
+              <button
+                type="submit"
+                className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase text-white"
+              >
+                Add
+              </button>
             </form>
             {hofEntries.length ? (
               <div className="space-y-1 text-xs">
@@ -527,17 +528,23 @@ export default async function HistoryPage() {
 
       <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Presidential History</h2>
-        {renderLeaderCards(presidentialTerms, "No closed presidential races yet.")}
+        <div className="max-h-[44rem] overflow-y-auto pr-2">
+          {renderLeaderCards(presidentialTerms, "No closed presidential races yet.", simulationSettings)}
+        </div>
       </section>
 
       <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Speaker History</h2>
-        {renderLeaderCards(speakerHistory, "No closed Speaker leadership sessions yet.")}
+        <div className="max-h-[44rem] overflow-y-auto pr-2">
+          {renderLeaderCards(speakerHistory, "No closed Speaker leadership sessions yet.", simulationSettings)}
+        </div>
       </section>
 
       <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Senate Majority Leader History</h2>
-        {renderLeaderCards(senateMajorityLeaderHistory, "No closed Senate Majority Leader sessions yet.")}
+        <div className="max-h-[44rem] overflow-y-auto pr-2">
+          {renderLeaderCards(senateMajorityLeaderHistory, "No closed Senate Majority Leader sessions yet.", simulationSettings)}
+        </div>
       </section>
     </div>
   );

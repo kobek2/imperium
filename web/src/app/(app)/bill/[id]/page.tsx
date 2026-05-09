@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { adminCloseBillFloorVotePeriod, leadershipOpenFloorVote, otherChamberLeadershipReviewBill } from "@/app/actions/bills";
+import { leadershipCloseBillFloorVotePeriod, leadershipOpenFloorVote, otherChamberLeadershipReviewBill } from "@/app/actions/bills";
 import { setBillWhipInstruction } from "@/app/actions/whips";
 import { getServerAuth } from "@/lib/supabase/server";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
-import { billStatusDisplay } from "@/lib/bill-display-status";
+import { billStatusDisplay, billTerminalOutcomeExplanation } from "@/lib/bill-display-status";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { canAcceptRejectHopperForChamber, canLeadershipEditBillContent } from "@/lib/role-capabilities";
 import {
@@ -62,7 +62,6 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     .maybeSingle();
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const isAdminActor = roleKeys.includes("admin");
   const chamber = bill.originating_chamber as "house" | "senate";
   const editChamber = leadershipEditChamberForBillStatus(String(bill.status), chamber);
   const canEdit =
@@ -99,6 +98,29 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
 
   const amendments = (amendRows ?? []) as AmendmentRow[];
 
+  const st = String(bill.status);
+  const terminalStatuses = new Set(["rejected", "expired", "vetoed", "dead", "failed"]);
+  let billTerminalOutcome: string | null = null;
+  if (terminalStatuses.has(st)) {
+    const [{ data: outcomeVotes }, { data: apptForBill }] = await Promise.all([
+      supabase.from("bill_votes").select("chamber, vote").eq("bill_id", id).in("vote", ["yea", "nay"]),
+      supabase.from("appointments").select("id").eq("confirmation_bill_id", id).maybeSingle(),
+    ]);
+    const floorTally = { house_yea: 0, house_nay: 0, senate_yea: 0, senate_nay: 0 };
+    for (const v of outcomeVotes ?? []) {
+      const row = v as { chamber: string; vote: string };
+      if (row.chamber === "house" && row.vote === "yea") floorTally.house_yea++;
+      else if (row.chamber === "house" && row.vote === "nay") floorTally.house_nay++;
+      else if (row.chamber === "senate" && row.vote === "yea") floorTally.senate_yea++;
+      else if (row.chamber === "senate" && row.vote === "nay") floorTally.senate_nay++;
+    }
+    billTerminalOutcome = billTerminalOutcomeExplanation(st, {
+      originatingChamber: chamber,
+      floorTally,
+      isAppointmentConfirmationBill: Boolean(apptForBill),
+    });
+  }
+
   const receiving = receivingChamberForOrigination(chamber);
   const canOtherChamberReview =
     bill.status === "other_chamber_review" && canAcceptRejectHopperForChamber(roleKeys, receiving);
@@ -120,18 +142,23 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
       return canAcceptRejectHopperForChamber(roleKeys, floorChamber);
     })();
 
-  const whipChamber =
-    bill.status === "other_chamber_review" || bill.status === "other_chamber_debate"
-      ? receiving
-      : bill.status === "house_floor"
-        ? "house"
-        : bill.status === "senate_floor"
-          ? "senate"
-          : chamber;
+  const whipChamber = bill.status === "house_floor" ? "house" : bill.status === "senate_floor" ? "senate" : null;
   const canSetWhip =
     whipChamber === "house"
-      ? roleKeys.some((k) => ["admin", "speaker", "house_majority_leader", "house_majority_whip", "house_minority_whip"].includes(k))
-      : roleKeys.some((k) => ["admin", "senate_majority_leader", "senate_majority_whip", "senate_minority_whip"].includes(k));
+      ? roleKeys.some((k) =>
+          ["admin", "speaker", "house_majority_leader", "house_majority_whip", "house_minority_leader", "house_minority_whip"].includes(k),
+        )
+      : whipChamber === "senate"
+        ? roleKeys.some((k) =>
+            [
+              "admin",
+              "senate_majority_leader",
+              "senate_majority_whip",
+              "senate_minority_leader",
+              "senate_minority_whip",
+            ].includes(k),
+          )
+        : false;
   const floorVoteClockActive =
     (bill.status === "house_floor" || bill.status === "senate_floor") &&
     Boolean(bill.chamber_vote_deadline_at) &&
@@ -141,24 +168,24 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     .from("bill_whip_instructions")
     .select("party, instructed_vote, rationale, set_at, set_by")
     .eq("bill_id", id)
-    .eq("chamber", whipChamber)
+    .eq("chamber", whipChamber ?? chamber)
     .order("set_at", { ascending: false });
   const viewerParty = String((profile as { party?: string | null } | null)?.party ?? "").trim().toLowerCase();
   const viewerWhip = (whipRows ?? []).find((w) => String((w as { party?: string }).party ?? "").toLowerCase() === viewerParty) as
     | { instructed_vote?: string; rationale?: string | null; set_at?: string }
     | undefined;
 
+  const closeFloorChamber = bill.status === "house_floor" ? "house" : bill.status === "senate_floor" ? "senate" : null;
+  const canCloseFloorVote =
+    closeFloorChamber != null &&
+    floorVoteClockActive &&
+    canAcceptRejectHopperForChamber(roleKeys, closeFloorChamber);
+
   return (
     <div className="mx-auto max-w-3xl space-y-8">
-      <p className="text-sm">
-        <Link href="/congress" className="font-semibold text-[var(--psc-accent)] underline">
-          ← Congress
-        </Link>
-      </p>
-
       <header className="space-y-2 border-b border-[var(--psc-border)] pb-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-          {billStatusDisplay(String(bill.status))}
+          {billStatusDisplay(String(bill.status), { originatingChamber: chamber })}
         </p>
         <h1 className="text-3xl font-semibold text-[var(--psc-ink)]">{bill.title}</h1>
         <p className="text-sm text-[var(--psc-muted)]">
@@ -175,13 +202,8 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
             {authorDisplay}
           </Link>
         </p>
-        {(bill as { policy_tags?: unknown }).policy_tags ? (
-          <p className="text-xs text-[var(--psc-muted)]">
-            Policy tracking:{" "}
-            <code className="rounded bg-[var(--psc-canvas)] px-1 py-0.5 font-mono text-[11px]">
-              {JSON.stringify((bill as { policy_tags?: unknown }).policy_tags)}
-            </code>
-          </p>
+        {billTerminalOutcome ? (
+          <p className="text-sm font-medium leading-snug text-[var(--psc-ink)]">{billTerminalOutcome}</p>
         ) : null}
         {bill.status === "leadership_review" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
@@ -201,17 +223,12 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         ) : null}
         {bill.status === "other_chamber_review" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
-            The {receiving === "house" ? "House" : "Senate"} must accept or reject this bill before debate. Track it on
-            the{" "}
-            <Link href={`/congress/${receiving}`} className="text-[var(--psc-accent)] underline">
-              {receiving === "house" ? "House" : "Senate"}
-            </Link>{" "}
-            tab or Congress overview (&quot;Awaiting receiving chamber&quot;).
+            Awaiting {receiving === "house" ? "House" : "Senate"} leadership review.
           </p>
         ) : null}
         {bill.status === "other_chamber_debate" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">
-            Other chamber debate — amendments may be proposed here before a floor vote.
+            {receiving === "house" ? "House" : "Senate"} debate — amendments may be proposed here before a floor vote.
           </p>
         ) : null}
         {bill.vp_tie_break_pending && bill.status === "senate_floor" ? (
@@ -224,19 +241,16 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         ) : null}
       </header>
 
-      {isAdminActor && floorVoteClockActive ? (
-        <section className="rounded-lg border border-amber-800/30 bg-amber-50 p-4 text-sm text-amber-950">
-          <h2 className="text-sm font-semibold">Admin</h2>
-          <p className="mt-1 text-xs leading-relaxed">
-            End the floor voting period now and tally the vote (same result as when the countdown reaches zero).
-          </p>
-          <form action={adminCloseBillFloorVotePeriod} className="mt-3">
+      {canCloseFloorVote ? (
+        <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
+          <h2 className="text-sm font-semibold">Close floor vote</h2>
+          <form action={leadershipCloseBillFloorVotePeriod} className="mt-3">
             <input type="hidden" name="bill_id" value={bill.id} />
             <SubmitButton
               pendingLabel="Closing vote…"
-              className="rounded border border-amber-900 bg-amber-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+              className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
             >
-              Close voting period
+              Close vote now
             </SubmitButton>
           </form>
         </section>
@@ -244,58 +258,46 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
 
       <BillBody content_html={bill.content_html} content_md={bill.content_md} />
 
-      {viewerWhip ? (
-        <section className="rounded-lg border border-blue-300 bg-blue-50 p-4">
-          <h2 className="text-sm font-semibold text-blue-900">Caucus whip guidance</h2>
-          <p className="mt-1 text-sm text-blue-900">
-            Your caucus guidance for this {whipChamber === "house" ? "House" : "Senate"} vote is{" "}
-            <strong>{String(viewerWhip.instructed_vote ?? "").toUpperCase()}</strong>.
-          </p>
-          {viewerWhip.rationale ? <p className="mt-1 text-xs text-blue-900/90">{viewerWhip.rationale}</p> : null}
-          {viewerWhip.set_at ? <p className="mt-1 text-[11px] text-blue-900/70">Updated {fmt(viewerWhip.set_at)}</p> : null}
-        </section>
-      ) : null}
-
       {canSetWhip ? (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
-          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Whip vote guidance</h2>
+          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Whip vote</h2>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Set caucus guidance for {whipChamber === "house" ? "House" : "Senate"} members. Members receive an inbox
-            notification and this reminder on the bill page.
+            Send a caucus-wide whip call for your party ({whipChamber === "house" ? "House" : "Senate"} floor). Members
+            receive an inbox notification.
           </p>
-          <form action={setBillWhipInstruction} className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {viewerWhip?.set_at ? (
+              <p className="text-xs text-[var(--psc-muted)]">Last updated {fmt(viewerWhip.set_at)}</p>
+            ) : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <form action={setBillWhipInstruction}>
+              <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="instructed_vote" value="yea" />
+              <SubmitButton className="rounded border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
+                Whip Aye
+              </SubmitButton>
+            </form>
+            <form action={setBillWhipInstruction}>
+              <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="instructed_vote" value="nay" />
+              <SubmitButton className="rounded border border-rose-700 bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white">
+                Whip Nay
+              </SubmitButton>
+            </form>
+          </div>
+          <form action={setBillWhipInstruction} className="hidden">
             <input type="hidden" name="bill_id" value={bill.id} />
-            <label className="text-xs font-semibold">
-              Party
-              <select name="party" className="ml-1 border border-[var(--psc-border)] bg-white px-2 py-1">
-                <option value="democrat">Democrat</option>
-                <option value="republican">Republican</option>
-                <option value="independent">Independent</option>
-              </select>
-            </label>
-            <label className="text-xs font-semibold">
-              Instructed vote
-              <select name="instructed_vote" className="ml-1 border border-[var(--psc-border)] bg-white px-2 py-1">
-                <option value="yea">Yea</option>
-                <option value="nay">Nay</option>
-                <option value="present">Present</option>
-                <option value="abstain">Abstain</option>
-              </select>
-            </label>
-            <label className="min-w-[14rem] flex-1 text-xs font-semibold">
-              Rationale (optional)
-              <input name="rationale" className="ml-1 w-full border border-[var(--psc-border)] bg-white px-2 py-1" />
-            </label>
-            <SubmitButton className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold text-white">
-              Send whip guidance
-            </SubmitButton>
+            <input type="hidden" name="party" value={viewerParty || "independent"} />
           </form>
         </section>
       ) : null}
 
       {canOtherChamberReview ? (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
-          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Other chamber leadership</h2>
+          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">
+            {receiving === "house" ? "House" : "Senate"} leadership
+          </h2>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Accept to move to debate in the {receiving === "house" ? "House" : "Senate"}, or reject to end the bill.
           </p>
@@ -347,12 +349,6 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
             ) : (
               <input type="hidden" name="duration_preset" value="24" />
             )}
-            {isAdminActor ? (
-              <label className="flex items-center gap-1 text-xs font-semibold text-[var(--psc-muted)]">
-                <input type="checkbox" name="admin_close_now" value="1" className="accent-[var(--psc-ink)]" />
-                Admin: close vote immediately
-              </label>
-            ) : null}
             <SubmitButton className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold text-white">
               Push to vote
             </SubmitButton>

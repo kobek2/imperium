@@ -1,0 +1,130 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { defenseSpendHours } from "@/app/actions/cabinet-portfolios";
+import { SubmitButton } from "@/components/submit-button";
+import { canAccessDefensePortfolio } from "@/lib/cabinet-hub";
+import { cabinetWeekStartIso } from "@/lib/cabinet-week";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { getServerAuth } from "@/lib/supabase/server";
+
+const cardClass =
+  "rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm";
+
+type DefenseBody = {
+  readiness?: number;
+  logistics_stress?: number;
+  alliance_exercises_completed?: number;
+};
+
+export default async function DefenseCabinetPage() {
+  const { supabase, user } = await getServerAuth();
+  if (!supabase || !user) redirect("/login");
+
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  if (!canAccessDefensePortfolio(roleKeys)) redirect("/");
+
+  const weekStart = cabinetWeekStartIso();
+  const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }] = await Promise.all([
+    supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "defense").maybeSingle(),
+    supabase
+      .from("cabinet_weekly_hours")
+      .select("hours_budget, hours_used")
+      .eq("user_id", user.id)
+      .eq("role_key", "secretary_of_defense")
+      .eq("week_start", weekStart)
+      .maybeSingle(),
+  ]);
+
+  const body = ((metrics as { body?: DefenseBody } | null)?.body ?? {}) as DefenseBody;
+  const readiness = Number(body.readiness ?? 0);
+  const logistics = Number(body.logistics_stress ?? 0);
+  const exercises = Number(body.alliance_exercises_completed ?? 0);
+
+  const hoursBudget = hoursRow ? Number((hoursRow as { hours_budget: number }).hours_budget) : 20;
+  const hoursUsed = hoursRow ? Number((hoursRow as { hours_used: number }).hours_used) : 0;
+  const hoursLeft = Math.max(0, hoursBudget - hoursUsed);
+  const dataReady = !mErr && !hErr;
+
+  const actions = [
+    { key: "field_exercise", label: "Alliance field exercise", hours: 5, blurb: "+readiness, +logistics stress" },
+    { key: "acquisition_review", label: "Acquisition & sustainment review", hours: 4, blurb: "+readiness a bit, −logistics stress" },
+    { key: "personnel_surge", label: "Personnel readiness surge", hours: 6, blurb: "+readiness, −logistics stress" },
+  ] as const;
+
+  return (
+    <div className="space-y-8">
+      <header className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Secretary of Defense</h1>
+        <p className="max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
+          Steer attention across readiness, logistics, and exercises. Costs are in weekly engagement hours — numbers are
+          illustrative for RP threads.
+        </p>
+        <Link
+          href="/cabinet"
+          className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+        >
+          ← Cabinet overview
+        </Link>
+      </header>
+
+      {!dataReady ? (
+        <div className="rounded border border-amber-600 bg-amber-50 p-4 text-sm text-amber-950">
+          Defense dashboard data not found. Apply migration{" "}
+          <code className="font-mono">20260513120000_cabinet_portfolio_dashboards.sql</code>.
+        </div>
+      ) : null}
+
+      <section className={cardClass}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Engagement hours</h2>
+        <p className="mt-2 text-3xl font-mono font-bold text-[var(--psc-ink)]">{hoursLeft}</p>
+        <p className="text-sm text-[var(--psc-muted)]">
+          of {hoursBudget} left this week (starts {weekStart} UTC).
+        </p>
+      </section>
+
+      <section className={cardClass}>
+        <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Posture snapshot</h2>
+        <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Readiness</dt>
+            <dd className="font-mono text-2xl text-[var(--psc-ink)]">{readiness}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Logistics stress</dt>
+            <dd className="font-mono text-2xl text-[var(--psc-ink)]">{logistics}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Exercises done</dt>
+            <dd className="font-mono text-2xl text-[var(--psc-ink)]">{exercises}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className={cardClass}>
+        <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Prioritize this week</h2>
+        <ul className="mt-4 space-y-3">
+          {actions.map((a) => (
+            <li key={a.key}>
+              <form action={defenseSpendHours} className="flex flex-col gap-2 rounded border border-[var(--psc-border)] bg-white/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <input type="hidden" name="action" value={a.key} />
+                <div>
+                  <p className="font-semibold text-[var(--psc-ink)]">{a.label}</p>
+                  <p className="text-xs text-[var(--psc-muted)]">{a.blurb}</p>
+                  <p className="mt-1 font-mono text-xs text-[var(--psc-muted)]">{a.hours}h</p>
+                </div>
+                <SubmitButton
+                  disabled={hoursLeft < a.hours}
+                  className="shrink-0 rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,white)] px-3 py-2 text-sm font-bold text-[var(--psc-ink)]"
+                >
+                  Execute
+                </SubmitButton>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}

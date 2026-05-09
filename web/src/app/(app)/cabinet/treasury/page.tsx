@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { treasuryApplyTaxPenalties, treasuryIssueTaxWarnings } from "@/app/actions/fiscal";
-import { canAccessCabinetHub } from "@/lib/cabinet-hub";
+import { canAccessTreasuryCabinet } from "@/lib/cabinet-hub";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { lineItemDefaultLabel } from "@/lib/line-item-budget-effects";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -54,7 +54,7 @@ export default async function TreasuryCabinetPage() {
     .eq("id", user.id)
     .maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canAccessCabinetHub(roleKeys)) redirect("/");
+  if (!canAccessTreasuryCabinet(roleKeys)) redirect("/");
 
   const [{ data: dashboard }, { data: activeFy }, { data: federalTreasuryRow }] = await Promise.all([
     supabase.rpc("fiscal_treasury_dashboard"),
