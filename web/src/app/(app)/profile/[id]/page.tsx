@@ -296,6 +296,7 @@ export default async function ProfilePage({
         votes={recentAuthored.votes}
         floorTallies={recentAuthored.floorTallies}
         confirmationBillIds={recentAuthored.confirmationBillIds}
+        rejectionActorDisplayByBillId={recentAuthored.rejectionActorDisplayByBillId}
         caption={
           isSelf
             ? "Your five most recently filed bills: House/Senate yea–nay margins when a floor vote ran, plus your own votes when recorded."

@@ -25,7 +25,7 @@ export default async function OvalPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("office_role, presidential_signature")
+    .select("office_role, party, presidential_signature")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -86,6 +86,11 @@ export default async function OvalPage() {
   const presidentialSignature =
     (profile as { presidential_signature?: string | null } | null)?.presidential_signature ?? null;
 
+  const viewerParty = String((profile as { party?: string | null } | null)?.party ?? "")
+    .trim()
+    .toLowerCase();
+  const viewerPartyOrNull: string | null = viewerParty || null;
+
   return (
     <div className="space-y-10">
       <header>
@@ -123,7 +128,10 @@ export default async function OvalPage() {
                   votes={votesByBill.get(bill.id) ?? []}
                   voterById={voterById}
                   userId={user.id}
+                  roleKeys={roleKeys}
+                  viewerParty={viewerPartyOrNull}
                   userChambers={[]}
+                  suppressVoteForms
                 />
                 {president ? (
                   <form action={presidentialAction} className="flex gap-3">

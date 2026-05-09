@@ -37,7 +37,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
   const { data: bill } = await supabase
     .from("bills")
     .select(
-      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending, author_id, policy_tags, template_id",
+      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending, author_id, policy_tags, template_id, rejection_actor_id, rejection_at",
     )
     .eq("id", id)
     .maybeSingle();
@@ -67,7 +67,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
   const canEdit =
     editChamber != null &&
     canLeadershipEditBillContent(roleKeys, editChamber) &&
-    !["law", "vetoed", "dead", "failed"].includes(String(bill.status));
+    !["law", "vetoed", "dead", "failed", "rejected"].includes(String(bill.status));
 
   const versionsRes = await supabase
     .from("bill_versions")
@@ -99,6 +99,18 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
   const amendments = (amendRows ?? []) as AmendmentRow[];
 
   const st = String(bill.status);
+  const rejectionActorId = String((bill as { rejection_actor_id?: string | null }).rejection_actor_id ?? "").trim();
+  const rejectionAtIso = String((bill as { rejection_at?: string | null }).rejection_at ?? "").trim();
+
+  const { data: rejectorProfile } = rejectionActorId
+    ? await supabase.from("profiles").select("character_name, discord_username").eq("id", rejectionActorId).maybeSingle()
+    : { data: null as { character_name?: string | null; discord_username?: string | null } | null };
+
+  const rejectionActorDisplay =
+    rejectorProfile?.character_name?.trim() ||
+    rejectorProfile?.discord_username?.trim() ||
+    (rejectionActorId ? "Unknown member" : null);
+
   const terminalStatuses = new Set(["rejected", "expired", "vetoed", "dead", "failed"]);
   let billTerminalOutcome: string | null = null;
   if (terminalStatuses.has(st)) {
@@ -118,6 +130,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
       originatingChamber: chamber,
       floorTally,
       isAppointmentConfirmationBill: Boolean(apptForBill),
+      rejectionActorDisplay: rejectionActorId ? rejectionActorDisplay : null,
     });
   }
 
@@ -204,6 +217,15 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         </p>
         {billTerminalOutcome ? (
           <p className="text-sm font-medium leading-snug text-[var(--psc-ink)]">{billTerminalOutcome}</p>
+        ) : null}
+        {rejectionActorId && rejectionActorDisplay ? (
+          <p className="text-sm text-[var(--psc-muted)]">
+            Leadership actor:{" "}
+            <Link href={`/profile/${rejectionActorId}`} className="font-semibold text-[var(--psc-ink)] hover:underline">
+              {rejectionActorDisplay}
+            </Link>
+            {rejectionAtIso ? <span className="font-mono text-xs"> · {fmt(rejectionAtIso)}</span> : null}
+          </p>
         ) : null}
         {bill.status === "leadership_review" ? (
           <p className="text-sm font-semibold text-[var(--psc-ink)]">

@@ -37,6 +37,7 @@ export function RecentAuthoredBillsPanel({
   votes,
   floorTallies,
   confirmationBillIds = new Set<string>(),
+  rejectionActorDisplayByBillId = new Map<string, string | null>(),
   heading = "Recent filings",
   caption,
 }: {
@@ -44,6 +45,7 @@ export function RecentAuthoredBillsPanel({
   votes: AuthorBillVote[];
   floorTallies: Map<string, BillFloorYeaNayTally>;
   confirmationBillIds?: Set<string>;
+  rejectionActorDisplayByBillId?: Map<string, string | null>;
   heading?: string;
   caption?: string;
 }) {
@@ -67,6 +69,7 @@ export function RecentAuthoredBillsPanel({
               originatingChamber: b.originating_chamber,
               floorTally: tally,
               isAppointmentConfirmationBill: confirmationBillIds.has(b.id),
+              rejectionActorDisplay: rejectionActorDisplayByBillId.get(b.id) ?? null,
             });
             return (
               <li key={b.id} className="px-4 py-3">

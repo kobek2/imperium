@@ -82,6 +82,7 @@ export default async function CharacterPage() {
         votes: [] as AuthorBillVote[],
         floorTallies: new Map(),
         confirmationBillIds: new Set<string>(),
+        rejectionActorDisplayByBillId: new Map<string, string | null>(),
       }
     : await fetchRecentAuthoredBillsWithSubjectVotes(supabase, user.id, 5);
 
@@ -99,6 +100,7 @@ export default async function CharacterPage() {
           votes={recentAuthored.votes}
           floorTallies={recentAuthored.floorTallies}
           confirmationBillIds={recentAuthored.confirmationBillIds}
+          rejectionActorDisplayByBillId={recentAuthored.rejectionActorDisplayByBillId}
         />
       ) : null}
     </div>

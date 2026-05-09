@@ -7,6 +7,7 @@ export type RecentAuthoredBill = {
   status: string;
   originating_chamber: "house" | "senate";
   created_at: string;
+  rejection_actor_id?: string | null;
 };
 
 export type AuthorBillVote = {
@@ -49,20 +50,48 @@ export async function fetchRecentAuthoredBillsWithSubjectVotes(
   floorTallies: Map<string, BillFloorYeaNayTally>;
   /** Bill IDs that are (or were) Senate confirmation nominations. */
   confirmationBillIds: Set<string>;
+  rejectionActorDisplayByBillId: Map<string, string | null>;
 }> {
   const { data: bills } = await supabase
     .from("bills")
-    .select("id, title, status, originating_chamber, created_at")
+    .select("id, title, status, originating_chamber, created_at, rejection_actor_id")
     .eq("author_id", authorId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
   const list = (bills ?? []) as RecentAuthoredBill[];
   if (!list.length) {
-    return { bills: [], votes: [], floorTallies: new Map(), confirmationBillIds: new Set() };
+    return {
+      bills: [],
+      votes: [],
+      floorTallies: new Map(),
+      confirmationBillIds: new Set(),
+      rejectionActorDisplayByBillId: new Map(),
+    };
   }
 
   const billIds = list.map((b) => b.id);
+  const rejectionActorIds = [
+    ...new Set(list.map((b) => String(b.rejection_actor_id ?? "").trim()).filter(Boolean)),
+  ];
+
+  const rejectionProfilesRes =
+    rejectionActorIds.length > 0
+      ? await supabase.from("profiles").select("id, character_name, discord_username").in("id", rejectionActorIds)
+      : { data: [] as Array<{ id: string; character_name?: string | null; discord_username?: string | null }> };
+
+  const actorDisplay = new Map<string, string>();
+  for (const p of rejectionProfilesRes.data ?? []) {
+    const row = p as { id: string; character_name?: string | null; discord_username?: string | null };
+    const label = row.character_name?.trim() || row.discord_username?.trim() || "Unknown member";
+    actorDisplay.set(row.id, label);
+  }
+
+  const rejectionActorDisplayByBillId = new Map<string, string | null>();
+  for (const b of list) {
+    const aid = String(b.rejection_actor_id ?? "").trim();
+    rejectionActorDisplayByBillId.set(b.id, aid ? actorDisplay.get(aid) ?? "Unknown member" : null);
+  }
 
   const [{ data: votes }, { data: allFloorVotes }, { data: apptRows }] = await Promise.all([
     supabase.from("bill_votes").select("bill_id, chamber, vote").eq("voter_id", authorId).in("bill_id", billIds),
@@ -83,5 +112,6 @@ export async function fetchRecentAuthoredBillsWithSubjectVotes(
     votes: (votes ?? []) as AuthorBillVote[],
     floorTallies: aggregateFloorTallies((allFloorVotes ?? []) as Array<{ bill_id: string; chamber: string; vote: string }>),
     confirmationBillIds,
+    rejectionActorDisplayByBillId,
   };
 }

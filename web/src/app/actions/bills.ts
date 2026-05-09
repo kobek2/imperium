@@ -480,16 +480,16 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
   }
 
   if (decision === "reject") {
-    let { error } = await supabase
-      .from("bills")
-      .update({
-        status: "rejected",
-        leadership_deadline_at: null,
-        chamber_vote_deadline_at: null,
-        leadership_primary_deadline: null,
-        leadership_deputy_deadline: null,
-      })
-      .eq("id", bill_id);
+    const rejectPatch = {
+      status: "rejected" as const,
+      leadership_deadline_at: null as string | null,
+      chamber_vote_deadline_at: null as string | null,
+      leadership_primary_deadline: null as string | null,
+      leadership_deputy_deadline: null as string | null,
+      rejection_actor_id: user.id,
+      rejection_at: new Date().toISOString(),
+    };
+    let { error } = await supabase.from("bills").update(rejectPatch).eq("id", bill_id);
     if (error && dbErrorHintsMissingColumn(error.message, ["rejected"])) {
       const retry = await supabase
         .from("bills")
@@ -499,6 +499,8 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
           chamber_vote_deadline_at: null,
           leadership_primary_deadline: null,
           leadership_deputy_deadline: null,
+          rejection_actor_id: user.id,
+          rejection_at: new Date().toISOString(),
         })
         .eq("id", bill_id);
       error = retry.error;
@@ -507,7 +509,14 @@ export async function leadershipReviewBill(formData: FormData): Promise<void> {
     "leadership_deadline_at",
     "chamber_vote_deadline_at",
   ])) {
-      const retry = await supabase.from("bills").update({ status: "dead" }).eq("id", bill_id);
+      const retry = await supabase
+        .from("bills")
+        .update({
+          status: "dead",
+          rejection_actor_id: user.id,
+          rejection_at: new Date().toISOString(),
+        })
+        .eq("id", bill_id);
       error = retry.error;
     }
     throwIfPostgrestError(error);
@@ -911,6 +920,7 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
 
   const nowIso = new Date().toISOString();
   if (decision === "reject") {
+    const rejectAt = new Date().toISOString();
     let { error } = await supabase
       .from("bills")
       .update({
@@ -918,19 +928,33 @@ export async function otherChamberLeadershipReviewBill(formData: FormData): Prom
         leadership_deadline_at: null,
         chamber_vote_deadline_at: null,
         vp_tie_break_pending: false,
+        rejection_actor_id: user.id,
+        rejection_at: rejectAt,
       })
       .eq("id", bill_id);
     if (error && dbErrorHintsMissingColumn(error.message, ["vp_tie_break_pending"])) {
       const retry = await supabase
         .from("bills")
-        .update({ status: "failed", leadership_deadline_at: null, chamber_vote_deadline_at: null })
+        .update({
+          status: "failed",
+          leadership_deadline_at: null,
+          chamber_vote_deadline_at: null,
+          rejection_actor_id: user.id,
+          rejection_at: rejectAt,
+        })
         .eq("id", bill_id);
       error = retry.error;
     }
     if (error && error.message.toLowerCase().includes("failed")) {
       const retry = await supabase
         .from("bills")
-        .update({ status: "dead", leadership_deadline_at: null, chamber_vote_deadline_at: null })
+        .update({
+          status: "dead",
+          leadership_deadline_at: null,
+          chamber_vote_deadline_at: null,
+          rejection_actor_id: user.id,
+          rejection_at: rejectAt,
+        })
         .eq("id", bill_id);
       error = retry.error;
     }

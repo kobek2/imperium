@@ -57,6 +57,12 @@ export function billStatusDisplay(
  * Plain-language reason a bill left the active calendar (for terminal statuses).
  * Uses yea/nay totals when present to separate floor defeat from receiving-chamber leadership rejection.
  */
+function rejectionActorSuffix(display: string | null | undefined): string {
+  const n = display?.trim();
+  if (!n) return "";
+  return ` Leadership action recorded by ${n}.`;
+}
+
 export function billTerminalOutcomeExplanation(
   status: string,
   opts: {
@@ -64,6 +70,8 @@ export function billTerminalOutcomeExplanation(
     floorTally?: BillFloorYeaNayTally | null;
     /** Set when this bill is (or was) a Senate confirmation nomination. */
     isAppointmentConfirmationBill?: boolean;
+    /** Display name of the member who rejected from leadership hopper (when stored). */
+    rejectionActorDisplay?: string | null;
   },
 ): string | null {
   const orig = opts.originatingChamber;
@@ -79,7 +87,7 @@ export function billTerminalOutcomeExplanation(
 
   switch (status) {
     case "rejected":
-      return "Leadership in the originating chamber rejected this bill before debate.";
+      return `Leadership in the originating chamber rejected this bill before debate.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
     case "expired":
       return "This bill timed out or was cleared during a Congress reset.";
     case "vetoed":
@@ -88,39 +96,39 @@ export function billTerminalOutcomeExplanation(
       if (opts.isAppointmentConfirmationBill) {
         return "Confirmation vote failed — the nomination was not confirmed.";
       }
-      return "This bill is off the active calendar (legacy status, staff closure, or an older rejection path).";
+      return `This bill is off the active calendar (legacy status, staff closure, or an older rejection path).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
     case "failed":
       if (orig === "house") {
         if (houseCast && !housePassed && !senateCast) {
-          return `House floor did not pass (yea–nay ${hy}–${hn}).`;
+          return `House floor did not pass (yea–nay ${hy}–${hn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
         }
         if (housePassed && !senateCast) {
-          return `Senate leadership rejected this bill before a Senate floor vote (House had passed ${hy}–${hn}).`;
+          return `Senate leadership rejected this bill before a Senate floor vote (House had passed ${hy}–${hn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
         }
         if (housePassed && senateCast && !senatePassed) {
-          return `Senate floor did not pass (yea–nay ${sy}–${sn}).`;
+          return `Senate floor did not pass (yea–nay ${sy}–${sn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
         }
         if (!houseCast && !senateCast) {
-          return "Recorded as failed with no yea/nay votes — it may have been closed by maintenance or staff.";
+          return `Recorded as failed with no yea/nay votes — it may have been closed by maintenance or staff.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
         }
         if (!housePassed && senateCast) {
-          return `House did not pass (${hy}–${hn}); Senate also recorded ${sy}–${sn}.`;
+          return `House did not pass (${hy}–${hn}); Senate also recorded ${sy}–${sn}.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
         }
-        return `Final yea–nay margins: House ${hy}–${hn}, Senate ${sy}–${sn}.`;
+        return `Final yea–nay margins: House ${hy}–${hn}, Senate ${sy}–${sn}.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
       }
       if (senateCast && !senatePassed && !houseCast) {
-        return `Senate floor did not pass (yea–nay ${sy}–${sn}).`;
+        return `Senate floor did not pass (yea–nay ${sy}–${sn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
       }
       if (senatePassed && !houseCast) {
-        return `House leadership rejected this bill before a House floor vote (Senate had passed ${sy}–${sn}).`;
+        return `House leadership rejected this bill before a House floor vote (Senate had passed ${sy}–${sn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
       }
       if (senatePassed && houseCast && !housePassed) {
-        return `House floor did not pass (yea–nay ${hy}–${hn}).`;
+        return `House floor did not pass (yea–nay ${hy}–${hn}).${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
       }
       if (!houseCast && !senateCast) {
-        return "Recorded as failed with no yea/nay votes — it may have been closed by maintenance or staff.";
+        return `Recorded as failed with no yea/nay votes — it may have been closed by maintenance or staff.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
       }
-      return `Final yea–nay margins: Senate ${sy}–${sn}, House ${hy}–${hn}.`;
+      return `Final yea–nay margins: Senate ${sy}–${sn}, House ${hy}–${hn}.${rejectionActorSuffix(opts.rejectionActorDisplay)}`;
     default:
       return null;
   }
