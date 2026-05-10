@@ -11,7 +11,9 @@ function accentClass(accent: BriefingMoment["accent"], unread: boolean) {
         ? "border-l-amber-600 bg-gradient-to-r from-amber-50/80 to-[var(--psc-panel)]"
         : accent === "party"
           ? "border-l-violet-600 bg-gradient-to-r from-violet-50/80 to-[var(--psc-panel)]"
-          : "border-l-[var(--psc-accent)] bg-[var(--psc-panel)]";
+          : accent === "court"
+            ? "border-l-indigo-700 bg-gradient-to-r from-indigo-50/80 to-[var(--psc-panel)]"
+            : "border-l-[var(--psc-accent)] bg-[var(--psc-panel)]";
   return `${base} ${unread ? "ring-1 ring-inset ring-[var(--psc-accent)]/25" : ""}`;
 }
 
@@ -25,6 +27,16 @@ function kindEyebrow(kind: BriefingMoment["kind"]) {
       return "Party";
     case "executive_order":
       return "Executive order";
+    case "diplomatic_crisis":
+      return "World";
+    case "fiscal_year_report":
+      return "Treasury";
+    case "court_case_filed":
+      return "Court docket";
+    case "court_directive_issued":
+      return "Oval directive";
+    case "court_ruling":
+      return "Ruling";
     default:
       return "Update";
   }

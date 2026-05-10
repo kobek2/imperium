@@ -360,31 +360,23 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: Sup
   );
 
   if (residenceStates.size) {
-    const stateList = [...residenceStates];
-    const { data: stateRows, error: sErr } = await supabase
-      .from("states")
-      .select("code, senate_class")
-      .in("code", stateList);
-    throwIfPostgrestError(sErr);
-
     const senateInserts: Record<string, unknown>[] = [];
-    for (const row of stateRows ?? []) {
-      const S = String((row as { code: string }).code).trim().toUpperCase();
-      const scRaw = (row as { senate_class: number | null }).senate_class;
-      const sc = scRaw != null && scRaw >= 1 && scRaw <= 3 ? Number(scRaw) : 1;
-      const key = `${S}:${sc}`;
-      if (activeSenateKeys.has(key)) continue;
-      senateInserts.push({
-        office: "senate",
-        state: S,
-        district_code: null,
-        senate_class: sc,
-        phase: "filing",
-        ...sched,
-        primary_party_wide: true,
-        filing_window_started_at: null,
-      });
-      activeSenateKeys.add(key);
+    for (const S of residenceStates) {
+      for (const sc of [1, 2, 3] as const) {
+        const key = `${S}:${sc}`;
+        if (activeSenateKeys.has(key)) continue;
+        senateInserts.push({
+          office: "senate",
+          state: S,
+          district_code: null,
+          senate_class: sc,
+          phase: "filing",
+          ...sched,
+          primary_party_wide: true,
+          filing_window_started_at: null,
+        });
+        activeSenateKeys.add(key);
+      }
     }
     if (senateInserts.length) {
       const { error: insErr } = await supabase.from("elections").insert(senateInserts);

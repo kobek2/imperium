@@ -22,10 +22,6 @@ export default async function CabinetOverviewPage() {
       <header>
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Department overview</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Step into each cabinet portfolio. Treasury handles fiscal ops; State, Defense, Homeland Security, and Justice
-          have lightweight weekly engagement dashboards for RP flavor.
-        </p>
       </header>
 
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

@@ -13,6 +13,8 @@ import type { PriorFiscalYearBudgetSummary } from "@/lib/fiscal-budget-types";
 import { BillBody } from "@/components/bill-body";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { NationalMetricsDisplay } from "@/components/national-metrics-display";
+import { FederalBudgetInteractiveTutorial } from "@/components/federal-budget-interactive-tutorial";
+import type { FederalBudgetPriorYearTutorialContext } from "@/lib/federal-budget-tutorial-types";
 import { buildFederalAppropriationsBillHtml } from "@/lib/build-federal-appropriations-bill-html";
 import { buildBracketAnalytics } from "@/lib/load-fiscal-tax-analytics";
 import {
@@ -38,9 +40,13 @@ type BudgetRow = {
 export function FederalBudgetPanel({
   fiscalYearId,
   yearLabel,
+  fiscalYearIndex,
   yearStartedAt,
   appropriationDeadlineAt,
   appropriationsEnrolled,
+  appropriationClockStartedAt,
+  taxPaidYtd,
+  playersTaxPaidActiveFy,
   governmentShutdown,
   gdpOpeningTotal,
   walletTotal,
@@ -48,25 +54,38 @@ export function FederalBudgetPanel({
   treasuryBalance,
   isPresident,
   isAdmin,
+  isTreasurySecretary = false,
   closedFiscalYears,
   taxBaseWalletBalances,
   nationalMetrics,
   priorYearBudgetSummary,
-  showFirstYearPresidentTutorial = false,
+  showInteractiveFederalTutorial = false,
+  walkthroughForced = false,
+  priorYearTutorial = null,
 }: {
   fiscalYearId: string;
   yearLabel: string;
+  /** Active `rp_fiscal_years.year_index` (Treasury collects for this FY; budget walkthrough copy targets FY index + 1). */
+  fiscalYearIndex: number;
   yearStartedAt: string;
   /** IRL deadline to enroll appropriations for new fiscal years (null on legacy FY rows). */
   appropriationDeadlineAt: string | null;
   appropriationsEnrolled: boolean;
+  appropriationClockStartedAt: string | null;
+  /** Sum of fiscal_tax_accounts.paid_amount for this FY (cash income tax in). */
+  taxPaidYtd: number;
+  /** Count of accounts with paid_amount > 0 this FY. */
+  playersTaxPaidActiveFy: number;
   governmentShutdown: boolean;
   gdpOpeningTotal: number | null;
   walletTotal: number;
   budget: BudgetRow | null;
+  /** Negative when cumulative enacted spending has outpaced tax collected (closed FY shortfalls + this FY gap). */
   treasuryBalance: number;
   isPresident: boolean;
   isAdmin: boolean;
+  /** Treasury secretary may view the full workbook (tax + lines) without President/admin staff flags. */
+  isTreasurySecretary?: boolean;
   closedFiscalYears: Array<{
     year_index: number;
     label: string;
@@ -79,10 +98,15 @@ export function FederalBudgetPanel({
   nationalMetrics: NationalMetricsRow | null;
   /** Latest closed FY appropriations + estimated tax (for YoY). Null if no closed year on file. */
   priorYearBudgetSummary: PriorFiscalYearBudgetSummary | null;
-  showFirstYearPresidentTutorial?: boolean;
+  /** President: first FY on server, or `?walkthrough=budget`. */
+  showInteractiveFederalTutorial?: boolean;
+  walkthroughForced?: boolean;
+  priorYearTutorial?: FederalBudgetPriorYearTutorialContext | null;
 }) {
-  const canEdit = isPresident || isAdmin;
+  const budgetSubmitted = budget?.status === "submitted";
+  const canEdit = (isPresident && !budgetSubmitted) || isAdmin;
   const showFullProcess = isPresident || isAdmin;
+  const showFullProcessForTour = showFullProcess || Boolean(isTreasurySecretary);
   const router = useRouter();
   const [pending, start] = useTransition();
   const [flash, setFlash] = useState<{ ok: boolean; message: string } | null>(null);
@@ -165,6 +189,12 @@ export function FederalBudgetPanel({
   const estimatedTaxYtd = liveBracketAnalytics.totalTax;
   const taxableSalaryIncomeYtd = liveBracketAnalytics.totalIncome;
   const draftNetTaxVsAppropriations = estimatedTaxYtd - totalAllocated;
+  const cashRemainingVsSpend = Math.max(0, totalAllocated - taxPaidYtd);
+  const cashSurplusDeficit = taxPaidYtd - totalAllocated;
+  const canFileAppropriationsBill =
+    !appropriationsEnrolled &&
+    budget?.status === "draft" &&
+    (isAdmin || Boolean(appropriationClockStartedAt));
 
   const metricsFromBudgetPreview = useMemo(
     () => computeBudgetInfluencedNationalMetrics(nationalMetrics, lines, fiscalYearId),
@@ -205,6 +235,16 @@ export function FederalBudgetPanel({
         </div>
       ) : null}
 
+      {budgetSubmitted && isPresident && !isAdmin ? (
+        <div className="rounded border border-sky-600/50 bg-sky-50 p-4 text-sm text-sky-950">
+          <p className="font-semibold">Budget adopted</p>
+          <p className="mt-2 leading-relaxed">
+            This year&apos;s workbook is locked while it is law. Draft the <strong>next</strong> cycle after staff close the
+            fiscal year and open the new active year, or ask full staff if a correction is required.
+          </p>
+        </div>
+      ) : null}
+
       {appropriationDeadlineAt && !appropriationsEnrolled ? (
         <div
           className={`rounded border p-4 text-sm ${
@@ -213,21 +253,22 @@ export function FederalBudgetPanel({
               : "border-amber-600 bg-amber-50 text-amber-950"
           }`}
         >
-          <p className="font-semibold">{governmentShutdown ? "Government shutdown" : "Appropriations clock"}</p>
+          <p className="font-semibold">{governmentShutdown ? "Economy frozen (staff)" : "Appropriations countdown"}</p>
           <p className="mt-2 leading-relaxed">
             {governmentShutdown ? (
               <>
-                The appropriations act missed the statutory enrollment deadline (
-                <span className="font-mono">{new Date(appropriationDeadlineAt).toLocaleString()}</span>
-                ). The economy is frozen until Congress passes a bill and the President signs it into law.
+                Staff set <strong>economy freeze</strong> on the active fiscal year. Congress and the executive still pass
+                bills normally; wallet collects and related economy actions stay blocked until administrators clear the freeze
+                after appropriations are in place (or as your sim policy directs).
               </>
             ) : (
               <>
-                Members may still propose and vote on ordinary bills in Congress; the economy stays gated until the annual
-                appropriations act is enrolled. The President has the first 24 hours of this window to file the House
-                appropriations measure, then the Treasury Secretary may file if needed. If it is not signed into law by{" "}
-                <span className="font-mono font-semibold">{new Date(appropriationDeadlineAt).toLocaleString()}</span> (IRL), the
-                economy shuts down until it passes. Signing the enrolled bill also marks the budget workbook submitted automatically.
+                Staff started a real-time appropriations window ending{" "}
+                <span className="font-mono font-semibold">{new Date(appropriationDeadlineAt).toLocaleString()}</span> (IRL).
+                Members may still propose and vote on ordinary bills; the President typically files the House appropriations
+                measure first, then the Treasury Secretary may file if needed. Passing deadline does <strong>not</strong>{" "}
+                auto-freeze the economy — staff use Admin → Economy overview to freeze if the act is not yet law. Signing the
+                enrolled bill marks the budget workbook submitted automatically.
               </>
             )}
           </p>
@@ -241,8 +282,14 @@ export function FederalBudgetPanel({
           <p className="mt-1 text-xs text-[var(--psc-muted)]">Started {new Date(yearStartedAt).toLocaleString()}</p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Federal treasury</p>
-          <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-[var(--psc-ink)]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
+            Federal treasury (cumulative shortage)
+          </p>
+          <p
+            className={`mt-1 font-mono text-xl font-semibold tabular-nums ${
+              treasuryBalance <= 0 ? "text-[var(--psc-ink)]" : "text-emerald-900"
+            }`}
+          >
             ${treasuryBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </p>
         </div>
@@ -267,63 +314,72 @@ export function FederalBudgetPanel({
         <p className="mt-2 text-sm text-[var(--psc-muted)]">
           Status:{" "}
           <span className="font-semibold text-[var(--psc-ink)]">
-            {budget?.status === "submitted"
-              ? "Adopted — economy unlocked (budget marked submitted when the appropriations act is signed into law, or by staff if needed)"
-              : "Draft — economy frozen until the appropriations act is enrolled (signing auto-submits) or staff marks the budget submitted"}
+            {budgetSubmitted ? "Adopted (submitted) — workbook locked for the President" : "Draft — in progress"}
           </span>
         </p>
-        <p className="mt-2 text-sm text-[var(--psc-muted)]">
-          Total allocated this year:{" "}
-          <span className="font-mono font-semibold text-[var(--psc-ink)]">${totalAllocated.toLocaleString()}</span>
-        </p>
-        <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          File the appropriations bill from this page (or use Congress → file in the House). After the President signs the enrolled act, the budget is marked submitted
-          automatically. Until then, a full staff operator can still use{" "}
-          <strong className="text-[var(--psc-ink)]">Admin → Economy overview</strong> if a manual override is required.
-        </p>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Total allocated ({yearLabel})
+            </dt>
+            <dd className="mt-1 font-mono font-semibold tabular-nums text-[var(--psc-ink)]">
+              ${totalAllocated.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </dd>
+          </div>
+          <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Total collected (income tax paid in)
+            </dt>
+            <dd className="mt-1 font-mono font-semibold tabular-nums text-[var(--psc-ink)]">
+              ${taxPaidYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </dd>
+          </div>
+          <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Total remaining</dt>
+            <dd className="mt-1 font-mono font-semibold tabular-nums text-[var(--psc-ink)]">
+              ${cashRemainingVsSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </dd>
+          </div>
+          <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Cash surplus / deficit (this FY)
+            </dt>
+            <dd
+              className={`mt-1 font-mono font-semibold tabular-nums ${
+                cashSurplusDeficit >= 0 ? "text-emerald-900" : "text-rose-900"
+              }`}
+            >
+              {cashSurplusDeficit >= 0 ? "+" : ""}$
+              {cashSurplusDeficit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </dd>
+          </div>
+        </dl>
       </section>
 
-      {showFullProcess ? (
+      {showFullProcessForTour ? (
         <>
-          {showFirstYearPresidentTutorial ? (
-            <section className="rounded border border-sky-300 bg-sky-50 p-6">
-              <h2 className="text-lg font-semibold text-sky-950">First-year President budget walkthrough</h2>
-              <ol className="mt-3 space-y-2 text-sm text-sky-950">
-                <li>
-                  1. Start with <strong>tax bands</strong>: set ceilings and rates, then confirm the projected tax intake
-                  cards look plausible for current wallet totals.
-                </li>
-                <li>
-                  2. Set each program&apos;s <strong>minimum</strong> first, then set <strong>allocated</strong> values to
-                  express priorities. Watch surplus-over-minimum to avoid accidental overreach.
-                </li>
-                <li>
-                  3. Check <strong>Budget analytics</strong>: make sure estimated tax vs appropriations is politically and
-                  fiscally defensible for your agenda.
-                </li>
-                <li>
-                  4. Open <strong>Review as appropriations bill</strong>, read it like floor legislation, then save and
-                  file to the House hopper.
-                </li>
-                <li>
-                  5. In Congress, leadership moves it to debate and floor vote. After passage, sign it on the Oval desk to
-                  enroll the budget for the fiscal year.
-                </li>
-              </ol>
-            </section>
-          ) : null}
+          <FederalBudgetInteractiveTutorial
+            show={Boolean(showInteractiveFederalTutorial)}
+            walkthroughForced={walkthroughForced}
+            yearLabel={yearLabel}
+            fiscalYearIndex={fiscalYearIndex}
+            priorYear={priorYearTutorial}
+            walletTotal={walletTotal}
+            gdpOpeningTotal={gdpOpeningTotal}
+            taxPaidYtd={taxPaidYtd}
+            playersTaxPaidActiveFy={playersTaxPaidActiveFy}
+            estimatedTaxYtd={estimatedTaxYtd}
+            totalAllocated={totalAllocated}
+            draftNetTaxVsAppropriations={draftNetTaxVsAppropriations}
+            treasuryBalance={treasuryBalance}
+            brackets={brackets}
+          />
 
-          <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+          <section
+            id="federal-budget-tax"
+            className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6"
+          >
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Progressive income tax (fiscal year)</h2>
-            <p className="text-sm text-[var(--psc-muted)]">
-              Draft tax analytics on this page use <strong className="text-[var(--psc-ink)]">all player wallet balances</strong>{" "}
-              across the server so the budget reflects the full economy, not only players who ran income collects.
-              Marginal bands apply to consecutive slices of each player&apos;s modeled base.
-            </p>
-            <p className="text-xs text-[var(--psc-muted)]">
-              Bracket impact below uses your <strong className="text-[var(--psc-ink)]">draft</strong> ceilings and rates and
-              updates as you edit.
-            </p>
             <p className="text-xs text-[var(--psc-muted)]">
               Sample: $100,000 gross inflows → tax ${sampleTax.toLocaleString(undefined, { maximumFractionDigits: 0 })} (
               {sampleIncome > 0 ? ((sampleTax / sampleIncome) * 100).toFixed(2) : "0"}% effective).
@@ -411,7 +467,10 @@ export function FederalBudgetPanel({
             )}
           </section>
 
-          <section className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+          <section
+            id="federal-budget-lines"
+            className="space-y-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6"
+          >
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Line items (minimum + allocated)</h2>
             <p className="text-xs text-[var(--psc-muted)]">
               Spending at <strong className="text-[var(--psc-ink)]">minimum</strong> holds baseline national metrics.{" "}
@@ -484,7 +543,7 @@ export function FederalBudgetPanel({
               </table>
             </div>
 
-            <div className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
+            <div id="federal-budget-analytics" className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Budget analytics (this draft)</h3>
               <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
                 Tax analytics here are modeled from the current wallet distribution across all players. Appropriations are the
@@ -641,14 +700,8 @@ export function FederalBudgetPanel({
             </div>
           </section>
 
-          <section className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
+          <section id="federal-budget-metrics" className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <h2 className="text-lg font-semibold text-[var(--psc-ink)]">National metrics (simulator)</h2>
-            <p className="text-xs text-[var(--psc-muted)]">
-              <strong className="text-[var(--psc-ink)]">Live preview</strong> below reacts to your draft line items (surpluses over
-              minimum nudge approval, unemployment, poverty, etc.). Defaults center around{' '}
-              <span className="font-mono">50%</span> approval when no admin baseline exists. The public Directory still shows the
-              stored row until we add automated persistence from the budget.
-            </p>
             <NationalMetricsDisplay m={metricsFromBudgetPreview} />
             {isAdmin ? (
               <p className="text-[10px] text-[var(--psc-muted)]">
@@ -684,7 +737,7 @@ export function FederalBudgetPanel({
             </button>
             <button
               type="button"
-              disabled={pending || !canEdit}
+              disabled={pending || !canEdit || budgetSubmitted}
               className="rounded border border-indigo-800/40 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-950 disabled:opacity-50"
               onClick={() => setBillPreviewOpen(true)}
             >
@@ -743,7 +796,14 @@ export function FederalBudgetPanel({
                   </button>
                   <button
                     type="button"
-                    disabled={pending}
+                    disabled={pending || !canFileAppropriationsBill}
+                    title={
+                      canFileAppropriationsBill
+                        ? undefined
+                        : isAdmin
+                          ? "Cannot file while an appropriations act is enrolled or the budget is not a draft."
+                          : "Staff must start the appropriations countdown (Admin → Economy overview) before filing to the hopper."
+                    }
                     className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     onClick={() => {
                       if (

@@ -69,7 +69,7 @@ export function TreasuryTools({
         </p>
         <p className="mt-2 text-xs text-[var(--psc-muted)]">
           Each warning action writes a row to the tax event log and updates the account. The same account can receive at most one
-          warning per calendar day (UTC).
+          warning per scope per calendar day (UTC); switching between due-soon and delinquent the same day is allowed.
         </p>
 
         <div className="mt-5 space-y-5">

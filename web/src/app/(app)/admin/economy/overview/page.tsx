@@ -6,6 +6,7 @@ import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { EconomyOverviewUnlock } from "./economy-overview-unlock";
 import { EconomyFiscalConfig } from "./economy-fiscal-config";
+import { EconomyAppropriationsWindowControls } from "./economy-appropriations-window-controls";
 import { EconomyFiscalAdminControls } from "./economy-fiscal-admin-controls";
 import { NationalMetricsAdminForm } from "@/app/(app)/economy/federal/national-metrics-admin-form";
 
@@ -16,7 +17,9 @@ export default async function AdminEconomyOverviewPage() {
 
   const { data: activeFy } = await supabase
     .from("rp_fiscal_years")
-    .select("id, label, status, appropriation_window_hours, tax_due_days_after_close, tax_penalty_daily_rate, tax_warning_lead_days")
+    .select(
+      "id, label, year_index, status, appropriation_window_hours, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen, tax_due_days_after_close, tax_penalty_daily_rate, tax_warning_lead_days",
+    )
     .eq("status", "active")
     .maybeSingle();
 
@@ -77,6 +80,18 @@ export default async function AdminEconomyOverviewPage() {
             taxPenaltyDailyRate: Number((activeFy as { tax_penalty_daily_rate?: number }).tax_penalty_daily_rate ?? 0.05),
             taxWarningLeadDays: Number((activeFy as { tax_warning_lead_days?: number }).tax_warning_lead_days ?? 2),
           }}
+        />
+      ) : null}
+      {activeFy?.id ? (
+        <EconomyAppropriationsWindowControls
+          fiscalYearLabel={String((activeFy as { label?: string }).label ?? "Active FY")}
+          fiscalYearIndex={Number((activeFy as { year_index?: number }).year_index ?? 1)}
+          appropriationDeadlineAt={
+            (activeFy as { appropriation_deadline_at?: string | null }).appropriation_deadline_at ?? null
+          }
+          appropriationsEnrolled={Boolean((activeFy as { appropriations_act_bill_id?: string | null }).appropriations_act_bill_id)}
+          economyFrozen={Boolean((activeFy as { economy_activity_frozen?: boolean | null }).economy_activity_frozen)}
+          canRun={access.hasFullStaff}
         />
       ) : null}
       {activeFy?.id ? (

@@ -10,7 +10,12 @@ export type BriefingMomentKind =
   | "bill_milestone"
   | "party_leadership"
   | "whip_instruction"
-  | "executive_order";
+  | "executive_order"
+  | "diplomatic_crisis"
+  | "fiscal_year_report"
+  | "court_case_filed"
+  | "court_directive_issued"
+  | "court_ruling";
 
 export type BriefingMoment = {
   id: string;
@@ -20,7 +25,7 @@ export type BriefingMoment = {
   title: string;
   body: string;
   href: string;
-  accent: "win" | "legislation" | "party";
+  accent: "win" | "legislation" | "party" | "court";
   readAt: string | null;
 };
 
@@ -29,6 +34,11 @@ function accentForKind(kind: string): BriefingMoment["accent"] {
   if (kind === "bill_milestone") return "legislation";
   if (kind === "whip_instruction") return "legislation";
   if (kind === "executive_order") return "legislation";
+  if (kind === "diplomatic_crisis") return "legislation";
+  if (kind === "fiscal_year_report") return "legislation";
+  if (kind === "court_case_filed") return "court";
+  if (kind === "court_directive_issued") return "court";
+  if (kind === "court_ruling") return "court";
   if (kind === "party_leadership") return "party";
   return "win";
 }

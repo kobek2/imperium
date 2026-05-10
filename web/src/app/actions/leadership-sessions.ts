@@ -59,6 +59,7 @@ function revalidateSession(sessionId: string) {
   revalidatePath("/congress/leadership");
   revalidatePath(`/congress/leadership/session/${sessionId}`);
   revalidatePath("/admin/elections");
+  revalidatePath("/admin/leadership");
   revalidatePath("/directory");
 }
 
@@ -138,6 +139,7 @@ export async function recomputeClosedLeadershipSession(formData: FormData): Prom
 
   revalidateSession(sessionId);
   revalidatePath("/admin/elections?tab=archive");
+  revalidatePath("/admin/leadership");
 }
 
 async function loadSessionOrThrow(

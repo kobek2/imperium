@@ -1,38 +1,48 @@
-import { NavRouteButton } from "@/components/nav-route-button";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { AdminWalletAdjustForm } from "@/components/admin-wallet-adjust-form";
+import { EconomyPublicLedgerList } from "@/components/economy-public-ledger-list";
+import { fetchEconomyLedgerWithDisplayNames } from "@/lib/economy-ledger-view";
+import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPage } from "@/lib/staff-access";
 
 export default async function AdminEconomyPage() {
   await requireStaffPage("economy");
 
+  const { supabase } = await getServerAuth();
+  if (!supabase) redirect("/");
+
+  const ledgerRows = await fetchEconomyLedgerWithDisplayNames(supabase, 200);
+
   return (
-    <div className="max-w-2xl space-y-4 text-sm text-[var(--psc-muted)]">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-          Economy
-        </p>
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Economic administration</h2>
-        <p className="mt-2">
-          This page is the home for staff tools that adjust wallets, treasuries, and payouts. Player-facing
-          flows stay on <strong className="text-[var(--psc-ink)]">Economy</strong> in the main nav.
-        </p>
-      </div>
-      <section className="rounded border border-amber-800/40 bg-amber-50 p-4 text-amber-950">
-        <p className="text-xs font-semibold uppercase tracking-wide">Database access</p>
-        <p className="mt-2 text-xs leading-relaxed">
-          Many balance mutations still go through Supabase policies that require{" "}
-          <code className="font-mono">admin</code> or <code className="font-mono">staff_super</code>. If you
-          have only <code className="font-mono">staff_economy</code>, you can open this route; wire new RPCs
-          here that check <code className="font-mono">staff_economy</code> explicitly for fine-grained control.
-        </p>
-      </section>
-      <div className="flex flex-wrap gap-2">
-        <NavRouteButton href="/admin/economy/overview">Economy overview (audit)</NavRouteButton>
-        <NavRouteButton href="/economy" className="border-[var(--psc-ink)] bg-[var(--psc-ink)] text-white hover:bg-[color-mix(in_srgb,var(--psc-ink)_88%,black)]">
-          Open player economy
-        </NavRouteButton>
-        <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
-        <NavRouteButton href="/admin/operations">Back to operations</NavRouteButton>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-8 text-sm text-[var(--psc-muted)]">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--psc-border)] pb-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Staff</p>
+          <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
+          <p className="mt-2 max-w-2xl text-xs leading-relaxed">
+            Same public ledger as the player economy portal, plus wallet adjustments. Balance changes require the new{" "}
+            <code className="font-mono text-[11px]">economy_staff_adjust_wallet</code> RPC (run the latest Supabase
+            migration).
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs font-semibold">
+          <Link href="/economy" className="text-[var(--psc-accent)] underline underline-offset-2">
+            Player economy
+          </Link>
+          <Link href="/admin/economy/overview" className="text-[var(--psc-accent)] underline underline-offset-2">
+            Fiscal overview
+          </Link>
+        </div>
+      </header>
+
+      <AdminWalletAdjustForm />
+
+      <EconomyPublicLedgerList
+        rows={ledgerRows}
+        title="Activity log (global)"
+        subtitle="Latest 200 lines across all wallets"
+      />
     </div>
   );
 }

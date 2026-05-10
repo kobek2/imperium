@@ -256,9 +256,6 @@ export async function submitBill(formData: FormData): Promise<void> {
   const expires_at = addHours(now, 24 * 30).toISOString();
   const duplicateCutoff = new Date(now.getTime() - 30_000).toISOString();
 
-  // Ensures the FY appropriations timer starts once the first President is seated.
-  await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
-
   const { data: recentDuplicate } = await supabase
     .from("bills")
     .select("id")
@@ -1028,8 +1025,6 @@ export async function createAppointment(formData: FormData): Promise<void> {
   if (await isActivePresidentialRunningMate(supabase, user.id)) {
     throw new Error("Presidential running mates may not create appointments.");
   }
-
-  await supabase.rpc("fiscal_start_appropriation_clock_if_president_seated");
 
   const nomineeUserId = String(formData.get("nominee_user_id") ?? "").trim();
   const rawDiscord = String(formData.get("nominee_discord") ?? "").trim();

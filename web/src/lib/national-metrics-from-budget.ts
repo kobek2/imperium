@@ -1,3 +1,6 @@
+/**
+ * @see `national-metrics-game-integration.ts` for the full metric ↔ budget ↔ bills ↔ FY-close design grid.
+ */
 import type { FiscalLineItemRow } from "@/lib/fiscal-budget-types";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 

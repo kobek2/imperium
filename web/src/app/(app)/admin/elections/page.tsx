@@ -2,25 +2,18 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { CalendarSystemAdminPanel } from "@/components/calendar-system-admin-panel";
-import { SimulationSettingsForm } from "@/components/simulation-settings-form";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
-import { requireStaffPageAny } from "@/lib/staff-access";
+import { getStaffAccess, requireStaffPageAny } from "@/lib/staff-access";
+import { isPresident } from "@/lib/president";
 import { CALENDAR_EVENT_DEFINITIONS } from "@/lib/calendar-events-registry";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
-import { loadDormantOpenCandidates } from "@/lib/admin-dormant-open-candidates";
 import {
   AdminElectionsList,
   type AdminElectionRow,
 } from "./admin-elections-list";
-import {
-  LeadershipToggle,
-  type LeadershipSessionRow,
-} from "./leadership-toggle";
-import { StartAllCongressionalElectionsForm } from "@/components/open-occupied-seat-filings-form";
 import { BulkEndElectionsForm } from "./bulk-end-elections-form";
-import { OpenDormantSeatFilingsSelector } from "./open-dormant-seat-filings-selector";
 import { recomputeClosedLeadershipSession } from "@/app/actions/leadership-sessions";
 
 type LeadershipArchiveSession = {
@@ -54,38 +47,39 @@ export default async function AdminElectionsPage({
   const { tab } = await searchParams;
   const electionView: "active" | "archive" = tab === "archive" ? "archive" : "active";
 
-  const { supabase } = await getServerAuth();
-  if (!supabase) redirect("/");
+  const { supabase, user } = await getServerAuth();
+  if (!supabase || !user) redirect("/");
 
   await runElectionPhaseSchedule(supabase);
 
+  const [staffAccess, pres] = await Promise.all([
+    getStaffAccess(),
+    isPresident(supabase, user.id),
+  ]);
+  const canCloseFiscalYear = Boolean(staffAccess?.hasFullStaff || pres);
+
   const registryEventKeys = CALENDAR_EVENT_DEFINITIONS.map((d) => d.key);
 
-  const [{ data: rows }, sessionsRes, simSettingsRes, calEventsRes, calRegistrySuccessRes] = await Promise.all([
-    supabase
-      .from("elections")
-      .select(
-        "id, office, state, district_code, senate_class, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, leadership_role, restricted_party, filing_window_started_at",
-      )
-      .order("filing_opens_at", { ascending: false }),
-    supabase
-      .from("leadership_sessions")
-      .select("id, chamber, phase, majority_party, opens_at, closes_at, closed_at")
-      .eq("phase", "open"),
-    supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
-    supabase
-      .from("simulation_calendar_events")
-      .select("id, event_key, fired_at, status, error_message")
-      .order("fired_at", { ascending: false })
-      .limit(40),
-    supabase.from("simulation_calendar_events").select("event_key").eq("status", "success").in("event_key", registryEventKeys),
-  ]);
-
-  const { data: sessions, error: sessionsErr } = sessionsRes;
-  const leadershipSchemaMissing =
-    !!sessionsErr &&
-    (sessionsErr.message.toLowerCase().includes("leadership_sessions") ||
-      sessionsErr.code === "PGRST205");
+  const [{ data: rows }, simSettingsRes, calEventsRes, calRegistrySuccessRes, activeFyRes] = await Promise.all([
+      supabase
+        .from("elections")
+        .select(
+          "id, office, state, district_code, senate_class, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, leadership_role, restricted_party, filing_window_started_at",
+        )
+        .order("filing_opens_at", { ascending: false }),
+      supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase
+        .from("simulation_calendar_events")
+        .select("id, event_key, fired_at, status, error_message")
+        .order("fired_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("simulation_calendar_events")
+        .select("event_key")
+        .eq("status", "success")
+        .in("event_key", registryEventKeys),
+      supabase.from("rp_fiscal_years").select("label, year_index").eq("status", "active").maybeSingle(),
+    ]);
 
   const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
 
@@ -111,33 +105,27 @@ export default async function AdminElectionsPage({
 
   const closedCount = dashboardRows.filter((r) => r.phase === "closed").length;
 
-  const sessionRows = (sessions ?? []) as LeadershipSessionRow[];
-  const houseSession = sessionRows.find((s) => s.chamber === "house") ?? null;
-  const senateSession = sessionRows.find((s) => s.chamber === "senate") ?? null;
-
   const simSettings =
     simSettingsRes.error || !simSettingsRes.data
       ? null
       : (simSettingsRes.data as SimulationSettingsRow);
-  const simSettingsForBanner = simSettings
-    ? await resolveSimulationSettingsForWidget(supabase, simSettings, true)
+  const simSettingsEffective = simSettings
+    ? await resolveSimulationSettingsForWidget(
+        supabase,
+        simSettings,
+        staffAccess?.hasFullStaff ?? false,
+      )
     : null;
-  const { data: simSettingsRefetched } = simSettings
-    ? await supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle()
-    : { data: null };
-  const simSettingsForForm =
-    !simSettingsRefetched || simSettingsRes.error
-      ? simSettings
-      : (simSettingsRefetched as SimulationSettingsRow);
-  const rpNow = simSettingsForBanner
-    ? computeSimulationRpInstant(simSettingsForBanner, new Date())
-    : null;
+  const rpNow = simSettingsEffective ? computeSimulationRpInstant(simSettingsEffective, new Date()) : null;
+
+  const activeFy = activeFyRes.data as { label?: string | null; year_index?: number | null } | null;
+  const fiscalYearLabel =
+    (activeFy?.label && String(activeFy.label).trim()) ||
+    (activeFy?.year_index != null ? `FY ${activeFy.year_index}` : "the active fiscal year");
 
   const calendarRegistrySuccessKeys = new Set(
     ((calRegistrySuccessRes.data ?? []) as Array<{ event_key: string }>).map((r) => r.event_key),
   );
-
-  const dormantOpenCandidates = await loadDormantOpenCandidates(supabase);
 
   let leadershipArchive: LeadershipArchiveSession[] = [];
   if (electionView === "archive") {
@@ -211,33 +199,35 @@ export default async function AdminElectionsPage({
 
   return (
     <div className="space-y-6">
-      {rpNow && simSettingsForBanner ? (
-        <SimulationRpBanner settings={simSettingsForBanner} rp={rpNow} />
+      {rpNow ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-medium text-[var(--psc-ink)]">Simulation date</p>
+          <SimulationRpBanner rp={rpNow} />
+        </div>
       ) : null}
-      {simSettingsForForm ? <SimulationSettingsForm initial={simSettingsForForm} /> : null}
-      {simSettingsForForm ? (
-        <CalendarSystemAdminPanel
-          settings={simSettingsForForm}
-          registrySuccessKeys={calendarRegistrySuccessKeys}
-          recentCalendarRows={
-            (calEventsRes.data ?? []) as Array<{
-              id: string;
-              event_key: string;
-              fired_at: string;
-              status: string;
-              error_message: string | null;
-            }>
-          }
-        />
-      ) : null}
-      <LeadershipToggle
-        houseSession={houseSession}
-        senateSession={senateSession}
-        schemaMissing={leadershipSchemaMissing}
+      <CalendarSystemAdminPanel
+        registrySuccessKeys={calendarRegistrySuccessKeys}
+        recentCalendarRows={
+          (calEventsRes.data ?? []) as Array<{
+            id: string;
+            event_key: string;
+            fired_at: string;
+            status: string;
+            error_message: string | null;
+          }>
+        }
+        canCloseFiscalYear={canCloseFiscalYear}
+        fiscalYearLabel={fiscalYearLabel}
       />
+      <p className="text-xs text-[var(--psc-muted)]">
+        House and Senate <strong className="text-[var(--psc-ink)]">leadership elections</strong> (caucus officer races){" "}
+        live on{" "}
+        <Link href="/admin/leadership" className="font-semibold text-[var(--psc-accent)] underline underline-offset-2">
+          Admin → Chamber leadership
+        </Link>
+        .
+      </p>
       <BulkEndElectionsForm />
-      <StartAllCongressionalElectionsForm />
-      <OpenDormantSeatFilingsSelector candidates={dormantOpenCandidates} />
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--psc-border)] pb-3">
           <Link

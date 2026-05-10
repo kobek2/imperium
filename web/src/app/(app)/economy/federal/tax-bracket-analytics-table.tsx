@@ -49,10 +49,6 @@ export function TaxBracketAnalyticsTable({
           </tr>
         </tfoot>
       </table>
-      <p className="mt-2 text-xs text-[var(--psc-muted)]">
-        Estimates use each player&apos;s <strong>positive wallet inflows</strong> since the fiscal year started (same basis as
-        year-end tax). Marginal bands split income slice-by-slice; revenue per band is slice × rate.
-      </p>
     </div>
   );
 }

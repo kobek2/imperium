@@ -1,81 +1,203 @@
 import Link from "next/link";
-import { requireStaffPanelPage } from "@/lib/staff-access";
+import { STAFF_GRANT_KEYS } from "@/lib/staff-permissions";
+import type { StaffPermission } from "@/lib/staff-permissions";
+import { requireStaffPanelPage, type StaffAccess } from "@/lib/staff-access";
 
-export default async function AdminHomePage() {
-  await requireStaffPanelPage();
+function canOpenRoute(
+  access: StaffAccess,
+  anyOf: readonly StaffPermission[] | null,
+): boolean {
+  if (anyOf === null || anyOf.length === 0) return true;
+  if (access.hasFullStaff) return true;
+  return anyOf.some((p) => access.permissions.has(p));
+}
+
+const GRANT_LABEL: Record<StaffPermission, string> = {
+  accounts: STAFF_GRANT_KEYS.accounts,
+  roles: STAFF_GRANT_KEYS.roles,
+  economy: STAFF_GRANT_KEYS.economy,
+  elections: STAFF_GRANT_KEYS.elections,
+  parties: STAFF_GRANT_KEYS.parties,
+  simulation: STAFF_GRANT_KEYS.simulation,
+};
+
+type OverviewCardDef = {
+  href: string;
+  category: string;
+  title: string;
+  body: string;
+  anyOf: readonly StaffPermission[] | null;
+  accessNote?: "public";
+};
+
+const OVERVIEW_CARDS: OverviewCardDef[] = [
+  {
+    href: "/admin/members",
+    category: "People",
+    title: "Member lookup",
+    body: "Every profile, Discord IDs, districts, and role grants.",
+    anyOf: ["accounts", "roles"],
+  },
+  {
+    href: "/admin/elections",
+    category: "Elections",
+    title: "Elections console",
+    body: "Races, filing windows, phases, bulk actions, RP calendar.",
+    anyOf: ["elections", "simulation"],
+  },
+  {
+    href: "/admin/leadership",
+    category: "Congress",
+    title: "Chamber leadership",
+    body: "Start or end House and Senate caucus officer elections (24-hour filing + vote window).",
+    anyOf: ["elections", "simulation"],
+  },
+  {
+    href: "/admin/party-leadership",
+    category: "Parties",
+    title: "Party officer races",
+    body: "Start D/R chair, vice chair, and treasurer filing outside the schedule.",
+    anyOf: ["parties"],
+  },
+  {
+    href: "/admin/economy",
+    category: "Economy",
+    title: "Staff economy hub",
+    body: "Wallets and treasury audits. Some writes still need admin or staff_super in the database.",
+    anyOf: ["economy"],
+  },
+  {
+    href: "/admin/activity",
+    category: "Health",
+    title: "Server activity",
+    body: "Ledger, bills, elections, committees, PACs, campaigns, national stats.",
+    anyOf: null,
+  },
+  {
+    href: "/admin/diplomacy",
+    category: "Simulation",
+    title: "Diplomacy log",
+    body: "State session rows: nations, outcomes, agendas for crisis RP.",
+    anyOf: ["simulation"],
+  },
+  {
+    href: "/admin/court-docket",
+    category: "Simulation",
+    title: "Court docket",
+    body: "RP cases, status, arguments, and outcomes.",
+    anyOf: ["simulation"],
+  },
+  {
+    href: "/directory",
+    category: "Site",
+    title: "Government directory",
+    body: "Public org chart (same page players use).",
+    anyOf: null,
+    accessNote: "public",
+  },
+];
+
+const cardBtnClass =
+  "mt-4 inline-flex w-full items-center justify-center rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,white)] px-3 py-2 text-center text-sm font-bold text-[var(--psc-ink)] no-underline transition hover:bg-[color-mix(in_srgb,var(--psc-accent)_20%,white)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--psc-accent)]";
+
+function GrantChips({
+  anyOf,
+  accessNote,
+}: {
+  anyOf: readonly StaffPermission[] | null;
+  accessNote?: "public";
+}) {
+  if (accessNote === "public") {
+    return (
+      <span className="inline-flex rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--psc-muted)]">
+        public
+      </span>
+    );
+  }
+  if (anyOf === null) {
+    return (
+      <span className="inline-flex rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--psc-muted)]">
+        panel
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap gap-1">
+      {anyOf.map((p) => (
+        <span
+          key={p}
+          className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--psc-ink)]"
+        >
+          {GRANT_LABEL[p]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ToolCard({
+  card,
+  access,
+}: {
+  card: OverviewCardDef;
+  access: StaffAccess;
+}) {
+  const ok = canOpenRoute(access, card.anyOf);
+  const chips = <GrantChips anyOf={card.anyOf} accessNote={card.accessNote} />;
+
+  const body = (
+    <>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--psc-muted)]">
+        {card.category}
+      </p>
+      <h2 className="mt-1 text-base font-semibold text-[var(--psc-ink)]">{card.title}</h2>
+      <div className="mt-2">{chips}</div>
+      <p className="mt-2 flex-1 text-sm leading-relaxed text-[var(--psc-muted)]">{card.body}</p>
+      {ok ? (
+        <span className={cardBtnClass}>Open →</span>
+      ) : (
+        <p className="mt-4 rounded border border-dashed border-amber-800/35 bg-amber-50/90 px-3 py-2 text-center text-[11px] font-semibold text-amber-950">
+          Needs grant above or full staff
+        </p>
+      )}
+    </>
+  );
+
+  if (!ok) {
+    return (
+      <div className="flex flex-col rounded-lg border border-dashed border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-panel)_92%,var(--psc-canvas))] p-5 opacity-[0.88]">
+        {body}
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-2xl space-y-6 text-sm text-[var(--psc-muted)]">
-      <p>
-        Staff tools for elections, members, parties, and simulation. Access is split by{" "}
-        <code className="font-mono text-xs">staff_*</code> grants; full operators use{" "}
-        <code className="font-mono text-xs">admin</code> or <code className="font-mono text-xs">staff_super</code>.
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link
-          href="/admin/operations"
-          className="admin-cardlink border border-[var(--psc-accent)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Operations & permissions
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Overview of accounts, roles, economy, grants, and what you can open.
-          </span>
-        </Link>
-        <Link
-          href="/admin/activity"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Server activity
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Cross-game metrics: economy ledger, bills, elections, committees, PACs, campaigns, national stats.
-          </span>
-        </Link>
-        <Link
-          href="/admin/elections"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Elections
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            List races, create seats, run phases, RP calendar.
-          </span>
-        </Link>
-        <Link
-          href="/admin/members"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Member database
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Profiles, Discord IDs, seats, and role grants.
-          </span>
-        </Link>
-        <Link
-          href="/admin/economy"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Economy administration
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Staff hub for wallets and treasuries (narrow grants + future RPCs).
-          </span>
-        </Link>
-        <Link
-          href="/directory"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Government directory
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Public org chart (opens the main directory).
-          </span>
-        </Link>
-        <Link
-          href="/admin/party-leadership"
-          className="admin-cardlink border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 font-semibold text-[var(--psc-ink)] hover:border-[var(--psc-accent)] active:brightness-[0.97]"
-        >
-          Party leadership
-          <span className="mt-1 block text-xs font-normal text-[var(--psc-muted)]">
-            Open a 24h D/R election for chair, vice chair, and treasurer.
-          </span>
-        </Link>
-      </div>
+    <Link
+      href={card.href}
+      className="admin-cardlink group flex flex-col rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 shadow-sm transition-colors hover:border-[var(--psc-accent)] active:brightness-[0.99]"
+    >
+      {body}
+    </Link>
+  );
+}
+
+export default async function AdminHomePage() {
+  const access = await requireStaffPanelPage();
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-8 text-sm text-[var(--psc-muted)]">
+      <header className="border-b border-[var(--psc-border)] pb-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Overview</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Staff dashboard</h2>
+      </header>
+
+      <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {OVERVIEW_CARDS.map((card) => (
+          <li key={card.href}>
+            <ToolCard card={card} access={access} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

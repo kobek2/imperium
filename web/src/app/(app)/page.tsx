@@ -7,6 +7,8 @@ import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib
 import { orientationStepOrDefault } from "@/lib/orientation-tour";
 import { computeSimulationRpInstant, formatRpCalendarShort, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
+import Link from "next/link";
+import { getIsAdmin } from "@/lib/is-admin";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
 import { RpDatePill } from "@/components/rp-date-pill";
@@ -22,6 +24,7 @@ export default async function HomePage() {
   let moments: Awaited<ReturnType<typeof fetchBriefingMoments>> = [];
   let careerStats: Awaited<ReturnType<typeof fetchHomeCareerStats>> | null = null;
   let rpDateLabel: string | null = null;
+  let septemberStaffBudgetReminder = false;
   if (supabase) {
     if (!user) redirect("/imperium");
     const { data: profile } = await supabase
@@ -57,7 +60,11 @@ export default async function HomePage() {
         simRow as SimulationSettingsRow,
         staffAccess?.hasFullStaff ?? false,
       );
-      rpDateLabel = formatRpCalendarShort(computeSimulationRpInstant(effective, new Date()));
+      const rp = computeSimulationRpInstant(effective, new Date());
+      rpDateLabel = formatRpCalendarShort(rp);
+      const isSiteAdmin = await getIsAdmin(profile ? { office_role: profile.office_role ?? null } : null);
+      septemberStaffBudgetReminder =
+        rp.month === 9 && Boolean(staffAccess?.hasFullStaff || isSiteAdmin);
     }
   }
 
@@ -69,6 +76,19 @@ export default async function HomePage() {
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Home</h1>
         {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
       </header>
+
+      {septemberStaffBudgetReminder ? (
+        <div className="rounded border border-amber-600/70 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">September — federal budget season</p>
+          <p className="mt-2 leading-relaxed">
+            RP calendar is in September. When you are ready for the annual appropriations sprint, open{" "}
+            <Link href="/admin/economy/overview" className="font-semibold text-amber-950 underline underline-offset-2">
+              Admin → Economy overview
+            </Link>{" "}
+            and use <strong>Start appropriations countdown</strong> so the President and Congress see a live deadline.
+          </p>
+        </div>
+      ) : null}
 
       <BriefingInbox moments={inboxPreview} heading="Your inbox (latest)" viewAllHref="/inbox" viewAllLabel="Open inbox →" />
 

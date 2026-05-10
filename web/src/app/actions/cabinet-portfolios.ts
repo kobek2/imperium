@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { cabinetWeekStartIso } from "@/lib/cabinet-week";
+import { cabinetDayStartIso } from "@/lib/cabinet-week";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 
-async function assertPortfolioRole(requiredRole: string): Promise<{ userId: string; supabase: SupabaseClient }> {
+/** Only the portfolio secretary (or site operators) may mutate a department dashboard. */
+async function assertPortfolioSecretary(requiredRole: string): Promise<{ userId: string; supabase: SupabaseClient }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,27 +17,24 @@ async function assertPortfolioRole(requiredRole: string): Promise<{ userId: stri
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   const ok =
-    roleKeys.includes(requiredRole) ||
-    roleKeys.includes("president") ||
-    roleKeys.includes("admin") ||
-    roleKeys.includes("staff_super");
-  if (!ok) throw new Error("You do not hold this portfolio.");
+    roleKeys.includes(requiredRole) || roleKeys.includes("admin") || roleKeys.includes("staff_super");
+  if (!ok) throw new Error("Only the Senate-confirmed portfolio secretary may take this action.");
 
   return { userId: user.id, supabase };
 }
 
-async function loadOrCreateWeeklyHours(
+async function loadOrCreateDailyHours(
   supabase: SupabaseClient,
   userId: string,
   roleKey: string,
 ): Promise<{ id: string; hours_budget: number; hours_used: number }> {
-  const weekStart = cabinetWeekStartIso();
+  const dayUtc = cabinetDayStartIso();
   const { data: existing } = await supabase
-    .from("cabinet_weekly_hours")
+    .from("cabinet_daily_hours")
     .select("id, hours_budget, hours_used")
     .eq("user_id", userId)
     .eq("role_key", roleKey)
-    .eq("week_start", weekStart)
+    .eq("day_utc", dayUtc)
     .maybeSingle();
 
   if (existing) {
@@ -44,54 +42,17 @@ async function loadOrCreateWeeklyHours(
   }
 
   const { data: inserted, error } = await supabase
-    .from("cabinet_weekly_hours")
-    .insert({ user_id: userId, role_key: roleKey, week_start: weekStart, hours_budget: 20, hours_used: 0 })
+    .from("cabinet_daily_hours")
+    .insert({ user_id: userId, role_key: roleKey, day_utc: dayUtc, hours_budget: 20, hours_used: 0 })
     .select("id, hours_budget, hours_used")
     .maybeSingle();
 
-  if (error || !inserted) throw new Error(error?.message ?? "Could not start weekly engagement budget.");
+  if (error || !inserted) throw new Error(error?.message ?? "Could not start daily engagement budget.");
   return inserted as { id: string; hours_budget: number; hours_used: number };
 }
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
-}
-
-export async function stateSpendDiplomaticHours(formData: FormData): Promise<void> {
-  const { userId, supabase } = await assertPortfolioRole("secretary_of_state");
-  const nationCode = String(formData.get("nation_code") ?? "").trim().toUpperCase();
-  const hours = Number(formData.get("hours") ?? 0);
-  if (!nationCode) throw new Error("Pick a partner country.");
-  if (![2, 4, 6, 8].includes(hours)) throw new Error("Hours must be 2, 4, 6, or 8.");
-
-  const week = await loadOrCreateWeeklyHours(supabase, userId, "secretary_of_state");
-  const remaining = Number(week.hours_budget) - Number(week.hours_used);
-  if (remaining < hours) throw new Error("Not enough hours left this week.");
-
-  const { data: nation, error: nErr } = await supabase
-    .from("rp_foreign_nations")
-    .select("code, us_relation")
-    .eq("code", nationCode)
-    .maybeSingle();
-  if (nErr || !nation) throw new Error("Unknown country code.");
-
-  const delta = Math.round((hours / 2) * 4);
-  const nextRel = clamp(Number((nation as { us_relation: number }).us_relation) + delta, -100, 100);
-
-  const { error: u1 } = await supabase
-    .from("cabinet_weekly_hours")
-    .update({ hours_used: Number(week.hours_used) + hours })
-    .eq("id", week.id);
-  if (u1) throw new Error(u1.message);
-
-  const { error: u2 } = await supabase
-    .from("rp_foreign_nations")
-    .update({ us_relation: nextRel, updated_at: new Date().toISOString() })
-    .eq("code", nationCode);
-  if (u2) throw new Error(u2.message);
-
-  revalidatePath("/cabinet");
-  revalidatePath("/cabinet/state");
 }
 
 type DeptBody = Record<string, number>;
@@ -124,10 +85,10 @@ export async function defenseSpendHours(formData: FormData): Promise<void> {
     action === "field_exercise" ? 5 : action === "acquisition_review" ? 4 : action === "personnel_surge" ? 6 : 0;
   if (!cost) throw new Error("Unknown action.");
 
-  const { userId, supabase } = await assertPortfolioRole("secretary_of_defense");
-  const week = await loadOrCreateWeeklyHours(supabase, userId, "secretary_of_defense");
-  const remaining = Number(week.hours_budget) - Number(week.hours_used);
-  if (remaining < cost) throw new Error("Not enough hours left this week.");
+  const { userId, supabase } = await assertPortfolioSecretary("secretary_of_defense");
+  const dayRow = await loadOrCreateDailyHours(supabase, userId, "secretary_of_defense");
+  const remaining = Number(dayRow.hours_budget) - Number(dayRow.hours_used);
+  if (remaining < cost) throw new Error("Not enough hours left today.");
 
   await applyDepartmentPatch(supabase, "defense", (b) => {
     const readiness = Number(b.readiness ?? 50);
@@ -156,9 +117,9 @@ export async function defenseSpendHours(formData: FormData): Promise<void> {
   });
 
   const { error: u1 } = await supabase
-    .from("cabinet_weekly_hours")
-    .update({ hours_used: Number(week.hours_used) + cost })
-    .eq("id", week.id);
+    .from("cabinet_daily_hours")
+    .update({ hours_used: Number(dayRow.hours_used) + cost })
+    .eq("id", dayRow.id);
   if (u1) throw new Error(u1.message);
 
   revalidatePath("/cabinet");
@@ -171,10 +132,10 @@ export async function homelandSpendHours(formData: FormData): Promise<void> {
     action === "national_coordination" ? 4 : action === "cyber_sprint" ? 5 : action === "border_surge" ? 6 : 0;
   if (!cost) throw new Error("Unknown action.");
 
-  const { userId, supabase } = await assertPortfolioRole("secretary_of_homeland_security");
-  const week = await loadOrCreateWeeklyHours(supabase, userId, "secretary_of_homeland_security");
-  const remaining = Number(week.hours_budget) - Number(week.hours_used);
-  if (remaining < cost) throw new Error("Not enough hours left this week.");
+  const { userId, supabase } = await assertPortfolioSecretary("secretary_of_homeland_security");
+  const dayRow = await loadOrCreateDailyHours(supabase, userId, "secretary_of_homeland_security");
+  const remaining = Number(dayRow.hours_budget) - Number(dayRow.hours_used);
+  if (remaining < cost) throw new Error("Not enough hours left today.");
 
   await applyDepartmentPatch(supabase, "homeland", (b) => {
     const threat = Number(b.threat_index ?? 40);
@@ -202,9 +163,9 @@ export async function homelandSpendHours(formData: FormData): Promise<void> {
   });
 
   const { error: u1 } = await supabase
-    .from("cabinet_weekly_hours")
-    .update({ hours_used: Number(week.hours_used) + cost })
-    .eq("id", week.id);
+    .from("cabinet_daily_hours")
+    .update({ hours_used: Number(dayRow.hours_used) + cost })
+    .eq("id", dayRow.id);
   if (u1) throw new Error(u1.message);
 
   revalidatePath("/cabinet");
@@ -217,10 +178,10 @@ export async function justiceSpendHours(formData: FormData): Promise<void> {
     action === "prosecutorial_triage" ? 4 : action === "civil_rights_surge" ? 5 : action === "public_briefing" ? 3 : 0;
   if (!cost) throw new Error("Unknown action.");
 
-  const { userId, supabase } = await assertPortfolioRole("attorney_general");
-  const week = await loadOrCreateWeeklyHours(supabase, userId, "attorney_general");
-  const remaining = Number(week.hours_budget) - Number(week.hours_used);
-  if (remaining < cost) throw new Error("Not enough hours left this week.");
+  const { userId, supabase } = await assertPortfolioSecretary("attorney_general");
+  const dayRow = await loadOrCreateDailyHours(supabase, userId, "attorney_general");
+  const remaining = Number(dayRow.hours_budget) - Number(dayRow.hours_used);
+  if (remaining < cost) throw new Error("Not enough hours left today.");
 
   await applyDepartmentPatch(supabase, "justice", (b) => {
     const inv = Number(b.active_investigations ?? 10);
@@ -247,9 +208,9 @@ export async function justiceSpendHours(formData: FormData): Promise<void> {
   });
 
   const { error: u1 } = await supabase
-    .from("cabinet_weekly_hours")
-    .update({ hours_used: Number(week.hours_used) + cost })
-    .eq("id", week.id);
+    .from("cabinet_daily_hours")
+    .update({ hours_used: Number(dayRow.hours_used) + cost })
+    .eq("id", dayRow.id);
   if (u1) throw new Error(u1.message);
 
   revalidatePath("/cabinet");

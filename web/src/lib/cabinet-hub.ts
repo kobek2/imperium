@@ -1,41 +1,85 @@
 import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 
-const EXEC_BYPASS = new Set(["president", "admin", "staff_super"]);
+const EXEC_NAV_BYPASS = new Set(["admin", "staff_super"]);
 
-/** Any portfolio owner or exec bypass may open `/cabinet` (Chrome “Cabinet” link uses this). */
-export function canAccessCabinetOverview(roleKeys: string[]): boolean {
-  return roleKeys.some(
-    (k) =>
-      k === "secretary_of_treasury" ||
-      k === "secretary_of_state" ||
-      k === "secretary_of_defense" ||
-      k === "secretary_of_homeland_security" ||
-      k === "attorney_general" ||
-      EXEC_BYPASS.has(k),
+const CABINET_HUB_ROLE_KEYS = new Set<string>([
+  "president",
+  "vice_president",
+  "cabinet",
+  ...CABINET_APPOINTMENT_ROLE_KEYS,
+]);
+
+function hasCabinetHubRole(roleKeys: readonly string[]): boolean {
+  return roleKeys.some((k) => CABINET_HUB_ROLE_KEYS.has(k));
+}
+
+/** President, Vice President, cabinet appointees, or generic `cabinet` grant — department overview and read-only dashboards. */
+export function canViewCabinetHub(roleKeys: string[]): boolean {
+  return hasCabinetHubRole(roleKeys) || roleKeys.some((k) => EXEC_NAV_BYPASS.has(k));
+}
+
+/** Only the sitting portfolio secretary (plus site operators) may run department actions. */
+export function canActAsPortfolioSecretary(roleKeys: string[], portfolioRoleKey: string): boolean {
+  return (
+    roleKeys.includes(portfolioRoleKey) ||
+    roleKeys.includes("admin") ||
+    roleKeys.includes("staff_super")
   );
 }
 
-/** Treasury tools: appropriations, tax warnings, etc. */
-export function canAccessTreasuryCabinet(roleKeys: string[]): boolean {
-  return roleKeys.some((k) => k === "secretary_of_treasury" || EXEC_BYPASS.has(k));
+export function canViewTreasuryDepartment(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
 }
 
-export function canAccessStatePortfolio(roleKeys: string[]): boolean {
-  return roleKeys.some((k) => k === "secretary_of_state" || EXEC_BYPASS.has(k));
+export function canActAsTreasurySecretary(roleKeys: string[]): boolean {
+  return canActAsPortfolioSecretary(roleKeys, "secretary_of_treasury");
 }
 
-export function canAccessDefensePortfolio(roleKeys: string[]): boolean {
-  return roleKeys.some((k) => k === "secretary_of_defense" || EXEC_BYPASS.has(k));
+export function canViewStateDepartment(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
 }
 
-export function canAccessHomelandPortfolio(roleKeys: string[]): boolean {
-  return roleKeys.some((k) => k === "secretary_of_homeland_security" || EXEC_BYPASS.has(k));
+export function canActAsSecretaryOfState(roleKeys: string[]): boolean {
+  return canActAsPortfolioSecretary(roleKeys, "secretary_of_state");
 }
 
-export function canAccessJusticePortfolio(roleKeys: string[]): boolean {
-  return roleKeys.some((k) => k === "attorney_general" || EXEC_BYPASS.has(k));
+export function canViewDefenseDepartment(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
 }
+
+export function canActAsSecretaryOfDefense(roleKeys: string[]): boolean {
+  return canActAsPortfolioSecretary(roleKeys, "secretary_of_defense");
+}
+
+export function canViewHomelandDepartment(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
+}
+
+export function canActAsSecretaryOfHomeland(roleKeys: string[]): boolean {
+  return canActAsPortfolioSecretary(roleKeys, "secretary_of_homeland_security");
+}
+
+export function canViewJusticeDepartment(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
+}
+
+export function canActAsAttorneyGeneral(roleKeys: string[]): boolean {
+  return canActAsPortfolioSecretary(roleKeys, "attorney_general");
+}
+
+/** Chrome “Cabinet” link — same visibility as the hub. */
+export function showCabinetNavForRoleKeys(roleKeys: string[]): boolean {
+  return canViewCabinetHub(roleKeys);
+}
+
+// --- Back-compat names (older imports) ---
+export const canAccessCabinetOverview = canViewCabinetHub;
+export const canAccessTreasuryCabinet = canViewTreasuryDepartment;
+export const canAccessStatePortfolio = canViewStateDepartment;
+export const canAccessDefensePortfolio = canViewDefenseDepartment;
+export const canAccessHomelandPortfolio = canViewHomelandDepartment;
+export const canAccessJusticePortfolio = canViewJusticeDepartment;
 
 const DASHBOARD_HREF: Partial<Record<string, string>> = {
   secretary_of_treasury: "/cabinet/treasury",
@@ -49,7 +93,7 @@ const PORTFOLIO_BLURB: Partial<Record<string, string>> = {
   secretary_of_treasury:
     "Tax accounts, due warnings, daily penalties, and treasury tooling for the active fiscal year.",
   secretary_of_state:
-    "Weekly diplomatic hours, bilateral relationship scores, and where you are investing face time.",
+    "Daily diplomatic hours, bilateral relationship scores, passive outreach, and intensive leader dialogues.",
   secretary_of_defense:
     "Force readiness, logistics strain, and alliance exercises — spend engagement hours on priorities.",
   secretary_of_homeland_security:
@@ -73,6 +117,6 @@ export function cabinetPortalCards(): CabinetPortalCard[] {
     href: DASHBOARD_HREF[roleKey] ?? null,
     blurb:
       PORTFOLIO_BLURB[roleKey] ??
-        "This department’s dashboard will open here once its tools are wired into the sim.",
+      "This department’s dashboard will open here once its tools are wired into the sim.",
   }));
 }

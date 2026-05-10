@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Diplomatic delegate">
+  <rect width="120" height="120" fill="#e8e6f2"/>
+  <circle cx="60" cy="42" r="22" fill="#4c3f78"/>
+  <path d="M28 98 Q60 70 92 98 V120H28Z" fill="#3a2f5c"/>
+</svg>

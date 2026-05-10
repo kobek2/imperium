@@ -216,12 +216,16 @@ export function CreateElectionForm({
           {needsSenateClass ? (
             <label className={labelClass}>
               Senate class
-              <select name="senate_class" required className={inputClass}>
-                <option value="">Choose class…</option>
+              <select name="senate_class" className={inputClass}>
+                <option value="">Auto — first open class (1, 2, or 3) for this state</option>
                 <option value="1">Class I</option>
                 <option value="2">Class II</option>
                 <option value="3">Class III</option>
               </select>
+              <span className="text-xs font-normal text-[var(--psc-muted)]">
+                Leave on Auto unless you need a specific class; the server skips classes that already have a live seat
+                race.
+              </span>
             </label>
           ) : null}
 

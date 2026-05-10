@@ -4,6 +4,7 @@ import { ProfileQuickDock } from "./profile-quick-dock";
 import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
+import { showCabinetNavForRoleKeys } from "@/lib/cabinet-hub";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -38,19 +39,11 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     );
     showStaffLink = staffAccess?.canAccessPanel ?? false;
     const { data: grantRows } = await supabase.from("government_role_grants").select("role_key").eq("user_id", user.id);
-    const roleSet = new Set<string>([
+    const roleKeysList = [
       ...(grantRows ?? []).map((r) => String((r as { role_key?: string }).role_key ?? "")),
       String(profileRow?.office_role ?? ""),
-    ]);
-    showCabinetLink =
-      roleSet.has("secretary_of_treasury") ||
-      roleSet.has("secretary_of_state") ||
-      roleSet.has("secretary_of_defense") ||
-      roleSet.has("secretary_of_homeland_security") ||
-      roleSet.has("attorney_general") ||
-      roleSet.has("president") ||
-      roleSet.has("admin") ||
-      roleSet.has("staff_super");
+    ].filter(Boolean);
+    showCabinetLink = showCabinetNavForRoleKeys(roleKeysList);
   }
 
   const links = canUseAppTabs

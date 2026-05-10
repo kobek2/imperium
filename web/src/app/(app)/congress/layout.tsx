@@ -1,23 +1,20 @@
 import Link from "next/link";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
+import { AppropriationsCountdownBar } from "@/components/appropriations-countdown-bar";
 import { getServerAuth } from "@/lib/supabase/server";
 import { CongressChamberNav } from "./congress-chamber-nav";
 import { billStatusDisplay } from "@/lib/bill-display-status";
 
 export default async function CongressLayout({ children }: { children: React.ReactNode }) {
   const { supabase, user } = await getServerAuth();
-  let appropriationsNotice: { deadlineAt: string | null; enrolled: boolean; shutdown: boolean } | null = null;
+  let appropriationsNotice: { deadlineAt: string | null; enrolled: boolean; economyFrozen: boolean } | null = null;
   let appropriationsTracker: { id: string; title: string; status: string } | null = null;
   if (supabase) {
-    await Promise.all([
-      processBillDeadlines(supabase),
-      runElectionPhaseSchedule(supabase),
-      supabase.rpc("fiscal_start_appropriation_clock_if_president_seated"),
-    ]);
+    await Promise.all([processBillDeadlines(supabase), runElectionPhaseSchedule(supabase)]);
     const { data: fy } = await supabase
       .from("rp_fiscal_years")
-      .select("id, appropriation_deadline_at, appropriations_act_bill_id")
+      .select("id, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen")
       .eq("status", "active")
       .maybeSingle();
     if (fy) {
@@ -26,7 +23,7 @@ export default async function CongressLayout({ children }: { children: React.Rea
       appropriationsNotice = {
         deadlineAt,
         enrolled,
-        shutdown: Boolean(deadlineAt && !enrolled && new Date(deadlineAt) < new Date()),
+        economyFrozen: Boolean((fy as { economy_activity_frozen?: boolean | null }).economy_activity_frozen),
       };
 
       const linkedFiscalYearId = String((fy as { id?: string }).id ?? "");
@@ -60,20 +57,12 @@ export default async function CongressLayout({ children }: { children: React.Rea
 
   return (
     <div className="space-y-8">
-      {appropriationsNotice?.deadlineAt && !appropriationsNotice.enrolled ? (
-        <div
-          className={`rounded border p-3 text-sm ${
-            appropriationsNotice.shutdown ? "border-rose-600 bg-rose-50 text-rose-950" : "border-amber-600 bg-amber-50 text-amber-950"
-          }`}
-        >
-          <p className="font-semibold">
-            {appropriationsNotice.shutdown ? "Government shutdown in effect" : "Appropriations deadline active"}
-          </p>
-          <p className="mt-1">
-            Congress must enroll the annual appropriations act by{" "}
-            <span className="font-mono font-semibold">{new Date(appropriationsNotice.deadlineAt).toLocaleString()}</span>.
-          </p>
-        </div>
+      {appropriationsNotice && !appropriationsNotice.enrolled ? (
+        <AppropriationsCountdownBar
+          deadlineAt={appropriationsNotice.deadlineAt}
+          enrolled={appropriationsNotice.enrolled}
+          economyFrozen={appropriationsNotice.economyFrozen}
+        />
       ) : null}
       {appropriationsTracker ? (
         <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-3 text-sm">

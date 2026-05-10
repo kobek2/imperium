@@ -32,10 +32,6 @@ export function FederalPriorYearSidebar({ snapshot }: { snapshot: FederalPriorYe
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Reference</p>
         <h2 className="mt-1 text-lg font-semibold text-[var(--psc-ink)]">Prior fiscal year</h2>
-        <p className="mt-2 text-sm text-[var(--psc-muted)]">
-          Closed-year <strong className="text-[var(--psc-ink)]">salary / PAC</strong> totals and the tax brackets that were in
-          force for that year&apos;s budget, so you can line up this year&apos;s draft against what actually happened.
-        </p>
       </div>
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -50,13 +46,7 @@ export function FederalPriorYearSidebar({ snapshot }: { snapshot: FederalPriorYe
           </dd>
         </div>
         <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">GDP opening → closing</dt>
-          <dd className="mt-1 font-mono text-xs tabular-nums text-[var(--psc-ink)]">
-            {money(snapshot.gdp_opening_total)} → {money(snapshot.gdp_closing_total)}
-          </dd>
-        </div>
-        <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-3">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Appropriations (final)</dt>
+          <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Government spending (final)</dt>
           <dd className="mt-1 font-mono text-xs tabular-nums text-[var(--psc-ink)]">{money(totalPriorAlloc)}</dd>
         </div>
       </dl>

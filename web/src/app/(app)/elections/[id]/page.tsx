@@ -29,6 +29,7 @@ import {
   loadPresidentialBundle,
   scorePresidentialBundle,
 } from "@/lib/presidential-data";
+import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
 
 /** Always refetch election + map from Supabase; avoids stale RSC after env or DB changes. */
 export const dynamic = "force-dynamic";
@@ -176,6 +177,17 @@ export default async function ElectionDetailPage({
 
   const effectiveRoleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
   const myEndorsementPoints = endorsementPointsForRoles(effectiveRoleKeys);
+
+  const heldSenateClass =
+    election.office === "senate" ? await fetchUserSenateClassHeld(supabase, user.id) : null;
+  const viewerIsIncumbentForThisSenateSeat =
+    election.office === "senate" &&
+    election.senate_class != null &&
+    heldSenateClass != null &&
+    Number(election.senate_class) === heldSenateClass &&
+    String(myProfile?.residence_state ?? "")
+      .trim()
+      .toUpperCase() === String(election.state ?? "").trim().toUpperCase();
 
   // Pre-compute filing eligibility server-side so the detail component can show the right
   // hint or File button without knowing the rules. Leadership races branch to a different
@@ -454,6 +466,7 @@ export default async function ElectionDetailPage({
         speechFeed={speechRowsForFeed}
         adSpendFeed={adSpendFeed}
         totalCampaignAdSpendUsd={totalCampaignAdSpendUsd}
+        viewerIsIncumbentForThisSenateSeat={viewerIsIncumbentForThisSenateSeat}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

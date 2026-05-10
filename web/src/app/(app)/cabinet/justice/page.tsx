@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { justiceSpendHours } from "@/app/actions/cabinet-portfolios";
-import { SubmitButton } from "@/components/submit-button";
-import { canAccessJusticePortfolio } from "@/lib/cabinet-hub";
-import { cabinetWeekStartIso } from "@/lib/cabinet-week";
+import { courtDocketTick } from "@/app/actions/attorney-general";
+import {
+  AttorneyGeneralCourtWorkbench,
+  type CourtCaseRow,
+} from "@/components/attorney-general-court-workbench";
+import { canActAsAttorneyGeneral, canViewJusticeDepartment } from "@/lib/cabinet-hub";
+import { cabinetDayStartIso } from "@/lib/cabinet-week";
+import { isCourtAgenda } from "@/lib/court-case-agenda";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -22,19 +26,40 @@ export default async function JusticeCabinetPage() {
 
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canAccessJusticePortfolio(roleKeys)) redirect("/");
+  if (!canViewJusticeDepartment(roleKeys)) redirect("/");
 
-  const weekStart = cabinetWeekStartIso();
-  const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }] = await Promise.all([
-    supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "justice").maybeSingle(),
-    supabase
-      .from("cabinet_weekly_hours")
-      .select("hours_budget, hours_used")
-      .eq("user_id", user.id)
-      .eq("role_key", "attorney_general")
-      .eq("week_start", weekStart)
-      .maybeSingle(),
-  ]);
+  const isAttorneyGeneral = canActAsAttorneyGeneral(roleKeys);
+  const isPresident = roleKeys.includes("president") || roleKeys.includes("admin") || roleKeys.includes("staff_super");
+  const dayUtc = cabinetDayStartIso();
+
+  // Run docket tick (expire stale + maybe open new). Swallow schema-cache errors so the page
+  // renders before the migration is applied.
+  try {
+    await courtDocketTick();
+  } catch (e) {
+    if (!(e instanceof Error) || !e.message.toLowerCase().includes("schema cache")) {
+      console.warn("[cabinet/justice] courtDocketTick:", e);
+    }
+  }
+
+  const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }, { data: casesRows, error: cErr }] =
+    await Promise.all([
+      supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "justice").maybeSingle(),
+      supabase
+        .from("cabinet_daily_hours")
+        .select("hours_budget, hours_used")
+        .eq("user_id", user.id)
+        .eq("role_key", "attorney_general")
+        .eq("day_utc", dayUtc)
+        .maybeSingle(),
+      supabase
+        .from("rp_court_cases")
+        .select(
+          "id, case_label, topic, fact_pattern, question_presented, status, side_taken, outcome_tier, outcome_summary, presidential_directive, target_bill_id, agenda, opens_at, closes_at",
+        )
+        .order("opens_at", { ascending: false })
+        .limit(20),
+    ]);
 
   const body = ((metrics as { body?: JusticeBody } | null)?.body ?? {}) as JusticeBody;
   const inv = Number(body.active_investigations ?? 0);
@@ -43,29 +68,41 @@ export default async function JusticeCabinetPage() {
 
   const hoursBudget = hoursRow ? Number((hoursRow as { hours_budget: number }).hours_budget) : 20;
   const hoursUsed = hoursRow ? Number((hoursRow as { hours_used: number }).hours_used) : 0;
-  const hoursLeft = Math.max(0, hoursBudget - hoursUsed);
-  const dataReady = !mErr && !hErr;
 
-  const actions = [
-    {
-      key: "prosecutorial_triage",
-      label: "Prosecutorial triage week",
-      hours: 4,
-      blurb: "Clear investigations, modest confidence bump.",
-    },
-    {
-      key: "civil_rights_surge",
-      label: "Civil-rights strike team",
-      hours: 5,
-      blurb: "Burn down civil-rights complaints backlog.",
-    },
-    {
-      key: "public_briefing",
-      label: "Public briefing tour",
-      hours: 3,
-      blurb: "Transparency push — confidence up, doesn’t touch caseload.",
-    },
-  ] as const;
+  const dataReady = !mErr && !hErr && !cErr;
+
+  type RawCase = {
+    id: string;
+    case_label: string;
+    topic: string;
+    fact_pattern: string;
+    question_presented: string;
+    status: string;
+    side_taken: string | null;
+    outcome_tier: string | null;
+    outcome_summary: string | null;
+    presidential_directive: "defend" | "challenge" | null;
+    target_bill_id: string | null;
+    agenda: unknown;
+    opens_at: string;
+    closes_at: string;
+  };
+  const cases: CourtCaseRow[] = ((casesRows ?? []) as RawCase[]).map((r) => ({
+    id: r.id,
+    caseLabel: r.case_label,
+    topic: r.topic,
+    factPattern: r.fact_pattern,
+    questionPresented: r.question_presented,
+    status: r.status,
+    sideTaken: r.side_taken,
+    outcomeTier: r.outcome_tier,
+    outcomeSummary: r.outcome_summary,
+    presidentialDirective: r.presidential_directive,
+    targetBillId: r.target_bill_id,
+    agenda: isCourtAgenda(r.agenda) ? r.agenda : null,
+    openedAt: r.opens_at,
+    closesAt: r.closes_at,
+  }));
 
   return (
     <div className="space-y-8">
@@ -73,8 +110,9 @@ export default async function JusticeCabinetPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Attorney General</h1>
         <p className="max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Allocate DOJ attention across investigations, civil rights, and public trust. Weekly hours cap how much you can
-          steer in a single RP week.
+          The Department of Justice argues every case the United States is a party to. New cases enter the docket
+          automatically; the Attorney General must enter an appearance — argue the merits, file an amicus brief, or
+          decline to defend — within five days. The President may issue an advisory directive on any open case.
         </p>
         <Link
           href="/cabinet"
@@ -87,17 +125,9 @@ export default async function JusticeCabinetPage() {
       {!dataReady ? (
         <div className="rounded border border-amber-600 bg-amber-50 p-4 text-sm text-amber-950">
           Justice dashboard data not found. Apply migration{" "}
-          <code className="font-mono">20260513120000_cabinet_portfolio_dashboards.sql</code>.
+          <code className="font-mono">20260517120000_attorney_general_court_docket.sql</code>.
         </div>
       ) : null}
-
-      <section className={cardClass}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Engagement hours</h2>
-        <p className="mt-2 text-3xl font-mono font-bold text-[var(--psc-ink)]">{hoursLeft}</p>
-        <p className="text-sm text-[var(--psc-muted)]">
-          of {hoursBudget} left this week (starts {weekStart} UTC).
-        </p>
-      </section>
 
       <section className={cardClass}>
         <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Department snapshot</h2>
@@ -115,34 +145,26 @@ export default async function JusticeCabinetPage() {
             <dd className="font-mono text-2xl text-[var(--psc-ink)]">{confidence}</dd>
           </div>
         </dl>
+        <p className="mt-3 text-xs text-[var(--psc-muted)]">
+          Public confidence rises and falls with court rulings; missed deadlines and overrides of presidential
+          directives carry penalties.
+        </p>
       </section>
 
-      <section className={cardClass}>
-        <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Direct priorities</h2>
-        <ul className="mt-4 space-y-3">
-          {actions.map((a) => (
-            <li key={a.key}>
-              <form
-                action={justiceSpendHours}
-                className="flex flex-col gap-2 rounded border border-[var(--psc-border)] bg-white/40 p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <input type="hidden" name="action" value={a.key} />
-                <div>
-                  <p className="font-semibold text-[var(--psc-ink)]">{a.label}</p>
-                  <p className="text-xs text-[var(--psc-muted)]">{a.blurb}</p>
-                  <p className="mt-1 font-mono text-xs text-[var(--psc-muted)]">{a.hours}h</p>
-                </div>
-                <SubmitButton
-                  disabled={hoursLeft < a.hours}
-                  className="shrink-0 rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,white)] px-3 py-2 text-sm font-bold text-[var(--psc-ink)]"
-                >
-                  Execute
-                </SubmitButton>
-              </form>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <AttorneyGeneralCourtWorkbench
+        cases={cases}
+        hoursBudget={hoursBudget}
+        hoursUsed={hoursUsed}
+        isAttorneyGeneral={isAttorneyGeneral}
+        isPresident={isPresident}
+      />
+
+      {!isAttorneyGeneral && !isPresident ? (
+        <p className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-sm text-[var(--psc-muted)]">
+          Only the Attorney General may take docket actions; only the President may issue directives. Other principals
+          can read the docket for RP context.
+        </p>
+      ) : null}
     </div>
   );
 }

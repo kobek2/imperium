@@ -108,6 +108,18 @@ export async function saveFiscalBudgetDraft(input: {
     };
   }
 
+  const { data: budgetMeta } = await supabase
+    .from("federal_budgets")
+    .select("status")
+    .eq("fiscal_year_id", input.fiscalYearId)
+    .maybeSingle();
+  if (String((budgetMeta as { status?: string } | null)?.status) === "submitted" && !staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "This federal budget is already adopted. Only full staff may override edits.",
+    };
+  }
+
   const { error } = await supabase.rpc("fiscal_save_budget_draft", {
     p_fiscal_year_id: input.fiscalYearId,
     p_tax_brackets: input.taxBrackets,
@@ -195,13 +207,17 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   const d = data as {
     total_tax_collected?: number;
     total_spending?: number;
+    treasury_net_delta?: number;
+    us_debt_delta?: number;
     economy_frozen_until_submit?: boolean;
   } | null;
   const tax = d?.total_tax_collected ?? 0;
   const spend = d?.total_spending ?? 0;
+  const debtDelta = d?.us_debt_delta ?? 0;
+  const treasuryNet = d?.treasury_net_delta ?? 0;
   return {
     ok: true,
-    message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
+    message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Treasury net $${Number(treasuryNet).toLocaleString()}; national debt roll-up $${Number(debtDelta).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
   };
 }
 
@@ -246,6 +262,35 @@ export async function startAppropriationClockIfPresidentSeated(): Promise<{ ok: 
   return { ok: true, message: "Appropriations clock check complete." };
 }
 
+/** Staff-only: start the IRL appropriations countdown on the active fiscal year (default 24h, max 168h). */
+export async function adminStartAppropriationsCountdown(hours?: number): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "Only full staff operators (admin / staff_super) may start the appropriations countdown.",
+    };
+  }
+  const h = hours != null && Number.isFinite(Number(hours)) ? Math.floor(Number(hours)) : 24;
+  const { data, error } = await supabase.rpc("admin_start_appropriations_window", { p_hours: h });
+  if (error) return { ok: false, message: error.message };
+  const row = (data ?? {}) as { appropriation_deadline_at?: string; hours?: number };
+  revalidateFiscal();
+  revalidatePath("/congress");
+  revalidatePath("/admin/economy/overview");
+  revalidatePath("/");
+  const iso = row.appropriation_deadline_at ? new Date(String(row.appropriation_deadline_at)).toLocaleString() : "";
+  return {
+    ok: true,
+    message: `Appropriations window started (${row.hours ?? h}h). Deadline ${iso}.`,
+  };
+}
+
 export async function payFiscalTax(formData: FormData): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
   const amount = Number(String(formData.get("amount") ?? "").trim());
@@ -266,6 +311,20 @@ export async function payFiscalTax(formData: FormData): Promise<{ ok: boolean; m
 
 export async function treasuryIssueTaxWarnings(scope: "due_soon" | "delinquent" | "all"): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  if (
+    !roleKeys.includes("secretary_of_treasury") &&
+    !roleKeys.includes("admin") &&
+    !roleKeys.includes("staff_super")
+  ) {
+    return { ok: false, message: "Only the Secretary of the Treasury may issue tax warnings from the cabinet desk." };
+  }
+
   const { data, error } = await supabase.rpc("fiscal_issue_tax_warning", { p_scope: scope });
   if (error) return { ok: false, message: error.message };
   revalidateFiscal();
@@ -277,6 +336,20 @@ export async function treasuryIssueTaxWarnings(scope: "due_soon" | "delinquent" 
 
 export async function treasuryApplyTaxPenalties(): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  if (
+    !roleKeys.includes("secretary_of_treasury") &&
+    !roleKeys.includes("admin") &&
+    !roleKeys.includes("staff_super")
+  ) {
+    return { ok: false, message: "Only the Secretary of the Treasury may apply tax penalties from the cabinet desk." };
+  }
+
   const { data, error } = await supabase.rpc("fiscal_apply_tax_penalties");
   if (error) return { ok: false, message: error.message };
   revalidateFiscal();
@@ -328,17 +401,28 @@ export async function fileFederalBudgetAppropriationsBill(input: {
 
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const isAdminActor = roleKeys.includes("admin");
+  const isAdminActor = roleKeys.includes("admin") || roleKeys.includes("staff_super");
 
   const normalizedLines = normalizeLineItemsForSave(input.lineItems);
 
   const { data: activeFy } = await supabase
     .from("rp_fiscal_years")
-    .select("id, appropriations_act_bill_id, budget_initial_window_ends_at, budget_treasury_override_until")
+    .select(
+      "id, appropriations_act_bill_id, appropriation_clock_started_at, budget_initial_window_ends_at, budget_treasury_override_until",
+    )
     .eq("status", "active")
     .maybeSingle();
   if (!activeFy?.id || activeFy.id !== input.fiscalYearId) {
     return { ok: false, message: "Appropriations can only be filed for the active fiscal year." };
+  }
+  const staff = await getStaffAccess();
+  const staffBypass = Boolean(staff?.hasFullStaff);
+  if (!staffBypass && !(activeFy as { appropriation_clock_started_at?: string | null }).appropriation_clock_started_at) {
+    return {
+      ok: false,
+      message:
+        "Staff have not started the appropriations countdown yet. Ask an admin to open Admin → Economy overview → Start appropriations countdown, then file again.",
+    };
   }
   const appropriationsAuthorized = canActorFileAppropriationsBill({
     roleKeys,

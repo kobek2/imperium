@@ -108,11 +108,9 @@ export function LeadershipToggle({
         <h2 className="text-base font-semibold text-[var(--psc-ink)]">
           Leadership elections
         </h2>
-        <span className="text-xs text-[var(--psc-muted)]">
-          One open session per chamber. The simulation calendar also opens House and Senate sessions at
-          inauguration and seating milestones (same window as before). Use this panel for manual runs or
-          re-opens. Majority caucus = most seats; ties use delegation seniority (earliest chamber grants), then
-          the party of the seated President.
+        <span className="max-w-xl text-xs leading-relaxed text-[var(--psc-muted)]">
+          One live session per chamber. The simulation calendar can open these at inauguration; use this page for
+          manual runs. Majority party is inferred from seat counts when you start.
         </span>
       </div>
       {schemaMissing ? (

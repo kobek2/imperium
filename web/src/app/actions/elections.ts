@@ -29,6 +29,7 @@ import {
   pickPrimaryWinners,
 } from "@/lib/election-closeout";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
+import { pickNextSenateClassForState } from "@/lib/senate-seat-class";
 
 function parseLocalDateTime(value: string) {
   const d = new Date(value);
@@ -114,13 +115,22 @@ export async function createElection(formData: FormData): Promise<void> {
   if (primary_closes_at < filing_closes_at) throw new Error("Primary must end after filing.");
   if (general_closes_at < primary_closes_at) throw new Error("General must end after primary.");
 
+  let senateSeatClass: number | null = null;
   if (office === "house") {
     if (!state || state.length !== 2) throw new Error("House races need a two-letter state.");
     if (!district_code) throw new Error("House races need a district code (e.g. CA-12).");
   } else if (office === "senate") {
     if (!state || state.length !== 2) throw new Error("Senate races need a two-letter state.");
-    if (!senate_class || senate_class < 1 || senate_class > 3) {
-      throw new Error("Senate races need class 1, 2, or 3.");
+    if (senate_class != null && Number.isFinite(senate_class) && senate_class >= 1 && senate_class <= 3) {
+      senateSeatClass = senate_class;
+    } else {
+      const picked = await pickNextSenateClassForState(supabase, state);
+      if (picked == null) {
+        throw new Error(
+          "Senate class auto-assign failed: this state already has open seat races for classes 1, 2, and 3. Close or complete one first, or set class manually.",
+        );
+      }
+      senateSeatClass = picked;
     }
   } else if (office === "president") {
     /* ok */
@@ -145,7 +155,7 @@ export async function createElection(formData: FormData): Promise<void> {
     office,
     state: office === "president" ? null : state,
     district_code: districtNormalized,
-    senate_class: office === "senate" ? senate_class : null,
+    senate_class: office === "senate" ? senateSeatClass : null,
     phase: "filing" as ElectionPhase,
     filing_opens_at,
     filing_closes_at,

@@ -10,6 +10,7 @@ import {
   type RecentAuthoredBill,
 } from "@/lib/profile-recent-bills";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
 import { PersonnelEditShell } from "./personnel-edit-shell";
 import type { PersonnelProfile } from "./personnel-record";
 
@@ -49,7 +50,14 @@ export default async function CharacterPage() {
   }
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const primaryTitle = formatPrimaryGovernmentTitle(roleKeys);
+  const senateClassHeld = roleKeys.includes("senator")
+    ? await fetchUserSenateClassHeld(supabase, user.id)
+    : null;
+  const baseOfficeTitle = formatPrimaryGovernmentTitle(roleKeys);
+  const primaryTitle =
+    roleKeys.includes("senator") && senateClassHeld != null
+      ? `${baseOfficeTitle} · Class ${senateClassHeld}`
+      : baseOfficeTitle;
 
   const personnelProfile: PersonnelProfile = {
     character_name: profile.character_name,

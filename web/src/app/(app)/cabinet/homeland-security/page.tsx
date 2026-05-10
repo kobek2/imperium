@@ -2,8 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { homelandSpendHours } from "@/app/actions/cabinet-portfolios";
 import { SubmitButton } from "@/components/submit-button";
-import { canAccessHomelandPortfolio } from "@/lib/cabinet-hub";
-import { cabinetWeekStartIso } from "@/lib/cabinet-week";
+import { canActAsSecretaryOfHomeland, canViewHomelandDepartment } from "@/lib/cabinet-hub";
+import { cabinetDayStartIso } from "@/lib/cabinet-week";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -22,17 +22,18 @@ export default async function HomelandCabinetPage() {
 
   const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canAccessHomelandPortfolio(roleKeys)) redirect("/");
+  if (!canViewHomelandDepartment(roleKeys)) redirect("/");
 
-  const weekStart = cabinetWeekStartIso();
+  const canAct = canActAsSecretaryOfHomeland(roleKeys);
+  const dayUtc = cabinetDayStartIso();
   const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }] = await Promise.all([
     supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "homeland").maybeSingle(),
     supabase
-      .from("cabinet_weekly_hours")
+      .from("cabinet_daily_hours")
       .select("hours_budget, hours_used")
       .eq("user_id", user.id)
       .eq("role_key", "secretary_of_homeland_security")
-      .eq("week_start", weekStart)
+      .eq("day_utc", dayUtc)
       .maybeSingle(),
   ]);
 
@@ -68,8 +69,8 @@ export default async function HomelandCabinetPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Secretary of Homeland Security</h1>
         <p className="max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Balance prevention, response, and political optics. Spend weekly hours to steer taskings — metrics are RP
-          scaffolding, not combat sims.
+          Balance prevention, response, and political optics. Spend daily engagement hours (UTC) to steer taskings —
+          metrics are RP scaffolding, not combat sims.
         </p>
         <Link
           href="/cabinet"
@@ -81,8 +82,8 @@ export default async function HomelandCabinetPage() {
 
       {!dataReady ? (
         <div className="rounded border border-amber-600 bg-amber-50 p-4 text-sm text-amber-950">
-          Homeland dashboard data not found. Apply migration{" "}
-          <code className="font-mono">20260513120000_cabinet_portfolio_dashboards.sql</code>.
+          Homeland dashboard data not found. Apply migrations through{" "}
+          <code className="font-mono">20260515120000_cabinet_daily_hours_diplomacy.sql</code>.
         </div>
       ) : null}
 
@@ -90,7 +91,7 @@ export default async function HomelandCabinetPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Engagement hours</h2>
         <p className="mt-2 text-3xl font-mono font-bold text-[var(--psc-ink)]">{hoursLeft}</p>
         <p className="text-sm text-[var(--psc-muted)]">
-          of {hoursBudget} left this week (starts {weekStart} UTC).
+          of {hoursBudget} left today ({dayUtc} UTC).
         </p>
       </section>
 
@@ -112,32 +113,39 @@ export default async function HomelandCabinetPage() {
         </dl>
       </section>
 
-      <section className={cardClass}>
-        <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Taskings</h2>
-        <ul className="mt-4 space-y-3">
-          {actions.map((a) => (
-            <li key={a.key}>
-              <form
-                action={homelandSpendHours}
-                className="flex flex-col gap-2 rounded border border-[var(--psc-border)] bg-white/40 p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <input type="hidden" name="action" value={a.key} />
-                <div>
-                  <p className="font-semibold text-[var(--psc-ink)]">{a.label}</p>
-                  <p className="text-xs text-[var(--psc-muted)]">{a.blurb}</p>
-                  <p className="mt-1 font-mono text-xs text-[var(--psc-muted)]">{a.hours}h</p>
-                </div>
-                <SubmitButton
-                  disabled={hoursLeft < a.hours}
-                  className="shrink-0 rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,white)] px-3 py-2 text-sm font-bold text-[var(--psc-ink)]"
+      {canAct ? (
+        <section className={cardClass}>
+          <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Taskings</h2>
+          <ul className="mt-4 space-y-3">
+            {actions.map((a) => (
+              <li key={a.key}>
+                <form
+                  action={homelandSpendHours}
+                  className="flex flex-col gap-2 rounded border border-[var(--psc-border)] bg-white/40 p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  Execute
-                </SubmitButton>
-              </form>
-            </li>
-          ))}
-        </ul>
-      </section>
+                  <input type="hidden" name="action" value={a.key} />
+                  <div>
+                    <p className="font-semibold text-[var(--psc-ink)]">{a.label}</p>
+                    <p className="text-xs text-[var(--psc-muted)]">{a.blurb}</p>
+                    <p className="mt-1 font-mono text-xs text-[var(--psc-muted)]">{a.hours}h</p>
+                  </div>
+                  <SubmitButton
+                    disabled={hoursLeft < a.hours}
+                    className="shrink-0 rounded-md border-2 border-[var(--psc-accent)] bg-[color-mix(in_srgb,var(--psc-accent)_12%,white)] px-3 py-2 text-sm font-bold text-[var(--psc-ink)]"
+                  >
+                    Execute
+                  </SubmitButton>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <p className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-sm text-[var(--psc-muted)]">
+          Only the Secretary of Homeland Security may commit engagement hours. Other principals and cabinet members can
+          read the operating picture for RP context.
+        </p>
+      )}
     </div>
   );
 }

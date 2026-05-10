@@ -23,6 +23,7 @@ type ElectionRow = {
   office: string;
   state: string | null;
   district_code: string | null;
+  senate_class?: number | null;
   phase: string;
   filing_opens_at: string;
   filing_closes_at: string;
@@ -791,6 +792,7 @@ export function ElectionDetail({
   speechFeed,
   adSpendFeed,
   totalCampaignAdSpendUsd,
+  viewerIsIncumbentForThisSenateSeat = false,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -819,6 +821,8 @@ export function ElectionDetail({
   adSpendFeed: AdSpendFeedItem[];
   /** Sum of list-price spend for ads placed in this race (0 for leadership). */
   totalCampaignAdSpendUsd: number;
+  /** True when this race is the viewer's current Senate class seat in their home state. */
+  viewerIsIncumbentForThisSenateSeat?: boolean;
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -919,8 +923,22 @@ export function ElectionDetail({
               {partyMeta(leadershipMeta.restricted_party).label} caucus
             </span>
           ) : null}
+          {!isLeadership && election.office === "senate" && election.senate_class != null ? (
+            <span className="rounded-full border border-indigo-400 bg-indigo-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-950">
+              Senate class {election.senate_class}
+            </span>
+          ) : null}
         </div>
         <h1 className="text-2xl font-semibold">{seatLabel}</h1>
+        {viewerIsIncumbentForThisSenateSeat ? (
+          <div className="rounded-lg border-2 border-amber-600/60 bg-amber-50 px-4 py-3 text-amber-950">
+            <p className="text-sm font-semibold">Run for re-election</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              You currently hold this state&apos;s Class {election.senate_class} Senate seat. This race is for the same
+              class; filing and voting rules are unchanged.
+            </p>
+          </div>
+        ) : null}
         {isLeadership ? (
           <p className="text-sm text-[var(--psc-muted)]">
             Leadership race — decided by a plain plurality of chamber votes. Winners gain the

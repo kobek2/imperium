@@ -1,9 +1,10 @@
-/** ISO date (YYYY-MM-DD) for Monday UTC of the current week. */
-export function cabinetWeekStartIso(): string {
+/** ISO date (YYYY-MM-DD) for the current UTC calendar day (cabinet engagement resets daily). */
+export function cabinetDayStartIso(): string {
   const now = new Date();
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const day = d.getUTCDay();
-  const daysSinceMonday = (day + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
-  return d.toISOString().slice(0, 10);
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+}
+
+/** @deprecated Use {@link cabinetDayStartIso}; kept for older call sites. */
+export function cabinetWeekStartIso(): string {
+  return cabinetDayStartIso();
 }

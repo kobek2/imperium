@@ -2,6 +2,7 @@ import Link from "next/link";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
 import { getServerAuth } from "@/lib/supabase/server";
+import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
 
 function usd(n: number) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -29,17 +30,32 @@ export async function ProfileQuickDock() {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("") || "M";
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const title = formatPrimaryGovernmentTitle(roleKeys);
+  const senateClassHeld = roleKeys.includes("senator")
+    ? await fetchUserSenateClassHeld(supabase, user.id)
+    : null;
+  const baseTitle = formatPrimaryGovernmentTitle(roleKeys);
+  const title =
+    roleKeys.includes("senator") && senateClassHeld != null
+      ? `${baseTitle} · Class ${senateClassHeld}`
+      : baseTitle;
   const balance = Number((wallet as { balance?: number } | null)?.balance ?? 0);
   const approval = Math.max(0, Math.min(100, Math.round(Number((profile as { approval_rating?: number }).approval_rating ?? 50))));
 
   return (
     <details className="fixed bottom-4 right-4 z-[100]">
       <summary
-        className="flex h-12 w-12 cursor-pointer list-none items-center justify-center rounded-full border border-[var(--psc-border)] bg-[var(--psc-panel)] text-sm font-bold text-[var(--psc-ink)] shadow-md backdrop-blur-sm [&::-webkit-details-marker]:hidden"
+        className="relative flex h-12 w-12 cursor-pointer list-none items-center justify-center rounded-full border border-[var(--psc-border)] bg-[var(--psc-panel)] text-sm font-bold text-[var(--psc-ink)] shadow-md backdrop-blur-sm [&::-webkit-details-marker]:hidden"
         title={`${displayName} · ${approval}% approval · open quick menu`}
       >
         {initials}
+        {senateClassHeld != null ? (
+          <span
+            className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border border-indigo-700 bg-indigo-100 px-1 text-[9px] font-bold leading-none text-indigo-950 shadow-sm"
+            aria-label={`Senate class ${senateClassHeld}`}
+          >
+            C{senateClassHeld}
+          </span>
+        ) : null}
       </summary>
       <div className="absolute bottom-14 right-0 w-72 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-xl">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Character</p>

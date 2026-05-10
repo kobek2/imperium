@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { treasuryApplyTaxPenalties, treasuryIssueTaxWarnings } from "@/app/actions/fiscal";
-import { canAccessTreasuryCabinet } from "@/lib/cabinet-hub";
+import { canActAsTreasurySecretary, canViewTreasuryDepartment } from "@/lib/cabinet-hub";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { lineItemDefaultLabel } from "@/lib/line-item-budget-effects";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -27,6 +27,7 @@ type ActiveFyRow = {
   tax_warning_lead_days?: number;
   appropriation_deadline_at?: string | null;
   appropriations_act_bill_id?: string | null;
+  economy_activity_frozen?: boolean | null;
   started_at?: string;
 };
 
@@ -54,14 +55,15 @@ export default async function TreasuryCabinetPage() {
     .eq("id", user.id)
     .maybeSingle();
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  if (!canAccessTreasuryCabinet(roleKeys)) redirect("/");
+  if (!canViewTreasuryDepartment(roleKeys)) redirect("/");
+  const canActTreasury = canActAsTreasurySecretary(roleKeys);
 
   const [{ data: dashboard }, { data: activeFy }, { data: federalTreasuryRow }] = await Promise.all([
     supabase.rpc("fiscal_treasury_dashboard"),
     supabase
       .from("rp_fiscal_years")
       .select(
-        "id, label, tax_penalty_daily_rate, tax_due_days_after_close, tax_warning_lead_days, appropriation_deadline_at, appropriations_act_bill_id, started_at",
+        "id, label, tax_penalty_daily_rate, tax_due_days_after_close, tax_warning_lead_days, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen, started_at",
       )
       .eq("status", "active")
       .maybeSingle(),
@@ -105,6 +107,18 @@ export default async function TreasuryCabinetPage() {
   const taxRpc = taxRpcResult.data;
 
   const settingsFy = (taxOpsFy as FySettings | null) ?? (activeFy as FySettings | null) ?? null;
+  /** RPCs use active FY for tax policy while the ledger row may be a prior closed FY. */
+  const settingsForTools: FySettings | null = settingsFy
+    ? {
+        ...settingsFy,
+        tax_warning_lead_days:
+          (fyActive as FySettings | null)?.tax_warning_lead_days ?? settingsFy.tax_warning_lead_days,
+        tax_penalty_daily_rate:
+          (fyActive as FySettings | null)?.tax_penalty_daily_rate ?? settingsFy.tax_penalty_daily_rate,
+        tax_due_days_after_close:
+          (fyActive as FySettings | null)?.tax_due_days_after_close ?? settingsFy.tax_due_days_after_close,
+      }
+    : null;
 
   const terminalBill = new Set(["dead", "vetoed"]);
   const linkedAppBills = (linkedAppBillsRaw ?? []) as AppropriationsBillRow[];
@@ -127,11 +141,7 @@ export default async function TreasuryCabinetPage() {
     }
   }
 
-  const governmentShutdown = Boolean(
-    fyActive?.appropriation_deadline_at &&
-      !fyActive?.appropriations_act_bill_id &&
-      new Date(fyActive.appropriation_deadline_at) < new Date(),
-  );
+  const governmentShutdown = Boolean(fyActive?.economy_activity_frozen);
 
   const lineRows = parseLineItemsForTreasury((budgetForActive as { line_items?: unknown } | null)?.line_items);
   const totalAllocated = lineRows.reduce((s, r) => s + (Number.isFinite(r.allocated) ? r.allocated : 0), 0);
@@ -200,13 +210,20 @@ export default async function TreasuryCabinetPage() {
         />
       ) : null}
 
-      <TreasuryTools
-        summary={(dashboard as Record<string, unknown> | null) ?? {}}
-        settings={settingsFy}
-        rows={rows}
-        issueWarningsAction={treasuryIssueTaxWarnings}
-        applyPenaltiesAction={treasuryApplyTaxPenalties}
-      />
+      {canActTreasury ? (
+        <TreasuryTools
+          summary={(dashboard as Record<string, unknown> | null) ?? {}}
+          settings={settingsForTools}
+          rows={rows}
+          issueWarningsAction={treasuryIssueTaxWarnings}
+          applyPenaltiesAction={treasuryApplyTaxPenalties}
+        />
+      ) : (
+        <p className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-sm text-[var(--psc-muted)]">
+          Only the Secretary of the Treasury may issue tax warnings or apply penalties from this cabinet station. Other
+          principals and cabinet members can still review balances and the appropriations pipeline.
+        </p>
+      )}
     </div>
   );
 }

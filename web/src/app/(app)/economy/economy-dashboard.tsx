@@ -21,20 +21,13 @@ import {
 import { NavRouteButton } from "@/components/nav-route-button";
 import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { EconomyBlackjack } from "./economy-blackjack";
+import { EconomyPublicLedgerList } from "@/components/economy-public-ledger-list";
+import type { EconomyLedgerDisplayRow } from "@/lib/economy-ledger-view";
 
 type WalletRow = { balance: number; last_collected_at: string };
 type PacRow = { level: number } | null;
 type InvRow = { sku: string; quantity: number } | null;
-type LedgerRow = {
-  id: string;
-  wallet_user_id: string;
-  walletName: string;
-  relatedName: string | null;
-  delta: number;
-  kind: string;
-  detail: unknown;
-  created_at: string;
-};
+type LedgerRow = EconomyLedgerDisplayRow;
 type FlashSection = "balance" | "pac" | "ads" | "payments" | "tax";
 type FlashDetail = { label: string; value: string; tone?: "positive" | "negative" | "neutral" };
 
@@ -92,11 +85,6 @@ function formatCollectWait(ms: number): string {
 
 function formatMoney(amount: number | null | undefined): string {
   return `$${Number(amount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
-
-function formatSignedMoney(amount: number): string {
-  const sign = amount >= 0 ? "+" : "-";
-  return `${sign}$${Math.abs(amount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function useIncomeCollectGate(lastCollectedAtIso: string | undefined) {
@@ -205,7 +193,7 @@ export function EconomyDashboard({
           <p className="mt-2 leading-relaxed">
             Staff have frozen economic activity for this simulation (manual shutdown). Collects, purchases, gambling, PACs,
             and party treasury actions stay blocked until administrators clear the freeze on the active fiscal year.
-            Appropriations deadlines alone no longer auto-stop the economy — shutdown is staff-controlled.{" "}
+            The appropriations countdown is a staff-started reminder only; shutdown is staff-controlled.{" "}
             {showFederalBudgetLink ? (
               <NavRouteButton
                 href="/economy/federal"
@@ -521,27 +509,7 @@ export function EconomyDashboard({
         </div>
       </section>
 
-      <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Recent public ledger</h2>
-          <p className="text-xs text-[var(--psc-muted)]">Showing latest public transactions</p>
-        </div>
-        <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto font-mono text-[11px] text-[var(--psc-muted)]">
-          {recentLedger.map((row) => (
-            <li key={row.id} className="grid gap-1 border-b border-[var(--psc-border)]/60 py-2 md:grid-cols-[150px_minmax(0,1fr)_150px_120px] md:items-center">
-              <span>{new Date(row.created_at).toLocaleString()}</span>
-              <span className="min-w-0">
-                <span className="font-semibold text-[var(--psc-ink)]">{row.walletName}</span>
-                {row.relatedName ? <span className="ml-2 text-[var(--psc-muted)]">with {row.relatedName}</span> : null}
-              </span>
-              <span className="text-[var(--psc-ink)]">{row.kind}</span>
-              <span className={`md:text-right ${row.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                {formatSignedMoney(Number(row.delta))}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <EconomyPublicLedgerList rows={recentLedger} />
     </div>
   );
 }

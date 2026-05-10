@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
-import { getServerAuth } from "@/lib/supabase/server";
+import { getServerAuth, tryCreateClient } from "@/lib/supabase/server";
+import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
 type Snapshot = {
   players: number;
@@ -11,7 +12,9 @@ type Snapshot = {
 };
 
 async function loadSnapshot(): Promise<Snapshot | null> {
-  const { supabase } = await getServerAuth();
+  // Marketing counts must not rely on the visitor's JWT: RLS hides rows from anon users,
+  // which incorrectly showed zeros. Prefer service role (server-only); fall back to session client.
+  const supabase = createServiceRoleSupabase() ?? (await tryCreateClient());
   if (!supabase) return null;
 
   const [profiles, elections, laws, bills, partyOrgs] = await Promise.all([
