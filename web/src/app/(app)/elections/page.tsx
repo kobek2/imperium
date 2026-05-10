@@ -12,9 +12,16 @@ import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data
 import { OrientationTourPanelElections } from "@/components/orientation-tour-panel";
 import { RpDatePill } from "@/components/rp-date-pill";
 import {
+  candidateCountForElectionDashboard,
+  fetchElectionCandidateSummaryRows,
+} from "@/lib/election-candidate-queries";
+import {
   ElectionsDashboard,
   type DashboardElection,
 } from "./elections-dashboard";
+
+/** Avoid stale election rows / counts from RSC caching between navigations. */
+export const dynamic = "force-dynamic";
 
 export default async function ElectionsPage() {
   const { supabase, user } = await getServerAuth();
@@ -75,27 +82,17 @@ export default async function ElectionsPage() {
   const countsById: Record<string, number> = {};
   if (activeIds.length) {
     const phaseById = new Map(active.map((e) => [e.id, e.phase]));
-    const { data: candRows } = await supabase
-      .from("election_candidates")
-      .select("election_id, primary_winner")
-      .in("election_id", activeIds);
-
-    const allById: Record<string, number> = {};
-    const winnersById: Record<string, number> = {};
-    for (const row of (candRows ?? []) as Array<{ election_id: string; primary_winner: boolean | null }>) {
-      const id = row.election_id;
-      allById[id] = (allById[id] ?? 0) + 1;
-      if (row.primary_winner) {
-        winnersById[id] = (winnersById[id] ?? 0) + 1;
-      }
+    const candRows = await fetchElectionCandidateSummaryRows(supabase, activeIds);
+    const rowsByElection = new Map<string, Array<{ primary_winner: boolean | null }>>();
+    for (const row of candRows) {
+      const list = rowsByElection.get(row.election_id) ?? [];
+      list.push(row);
+      rowsByElection.set(row.election_id, list);
     }
 
     for (const id of activeIds) {
-      const phase = phaseById.get(id);
-      const winnerCount = winnersById[id] ?? 0;
-      const allCount = allById[id] ?? 0;
-      countsById[id] =
-        (phase === "general" || phase === "closed") && winnerCount > 0 ? winnerCount : allCount;
+      const phase = phaseById.get(id) ?? "filing";
+      countsById[id] = candidateCountForElectionDashboard(phase, rowsByElection.get(id) ?? []);
     }
   }
 

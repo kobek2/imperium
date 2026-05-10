@@ -9,6 +9,7 @@ import { isPresident } from "@/lib/president";
 import { CALENDAR_EVENT_DEFINITIONS } from "@/lib/calendar-events-registry";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
+import { countElectionCandidatesByElectionIds } from "@/lib/election-candidate-queries";
 import {
   AdminElectionsList,
   type AdminElectionRow,
@@ -83,20 +84,12 @@ export default async function AdminElectionsPage({
 
   const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
 
-  const countsById: Record<string, number> = {};
-  if (list.length) {
-    const { data: candRows } = await supabase
-      .from("election_candidates")
-      .select("election_id")
-      .in(
-        "election_id",
+  const countsById = list.length
+    ? await countElectionCandidatesByElectionIds(
+        supabase,
         list.map((r) => r.id),
-      );
-    for (const row of candRows ?? []) {
-      const id = row.election_id as string;
-      countsById[id] = (countsById[id] ?? 0) + 1;
-    }
-  }
+      )
+    : {};
 
   const dashboardRows: AdminElectionRow[] = list.map((r) => ({
     ...r,

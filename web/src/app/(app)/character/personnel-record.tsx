@@ -54,7 +54,7 @@ export function PersonnelRecord({
             id="personnel-record-heading"
             className="mt-1 text-2xl font-semibold tracking-tight text-[var(--psc-ink)]"
           >
-            {primaryTitle} {name}
+            {name}
           </h1>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Party: <span className="font-semibold text-[var(--psc-ink)]">{partyShort(profile.party)}</span>
