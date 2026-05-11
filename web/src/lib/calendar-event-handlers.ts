@@ -161,6 +161,16 @@ async function seatInaugurationCalendarElections(
  * the old Speaker/SML `elections` leadership rows (filing through general_closes_at).
  * Members file for one role and vote on all roles (Speaker, PPT, majority/minority leaders, whips).
  */
+function isLeadershipSessionOpenConflict(error: { code?: string; message?: string } | null): boolean {
+  const msg = (error?.message ?? "").toLowerCase();
+  return (
+    error?.code === "23505" ||
+    msg.includes("duplicate key") ||
+    msg.includes("unique constraint") ||
+    msg.includes("leadership_sessions_one_open_per_chamber")
+  );
+}
+
 async function openChamberLeadershipSessionsIfNone(supabase: SupabaseClient): Promise<void> {
   const sched = leadershipRaceScheduleFromNow();
   const closesAt = sched.general_closes_at;
@@ -168,16 +178,17 @@ async function openChamberLeadershipSessionsIfNone(supabase: SupabaseClient): Pr
 
   const chambers: Chamber[] = ["house", "senate"];
   for (const chamber of chambers) {
-    const { count, error: cntErr } = await supabase
+    const { data: existingOpen, error: exErr } = await supabase
       .from("leadership_sessions")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .eq("chamber", chamber)
-      .eq("phase", "open");
-    if (cntErr) {
-      errors.push(`${chamber} leadership session (count): ${cntErr.message}`);
+      .eq("phase", "open")
+      .maybeSingle();
+    if (exErr) {
+      errors.push(`${chamber} leadership session (lookup): ${exErr.message}`);
       continue;
     }
-    if ((count ?? 0) > 0) continue;
+    if (existingOpen) continue;
 
     const majorityParty = await inferMajorityParty(supabase, chamber);
     const { error } = await supabase.from("leadership_sessions").insert({
@@ -186,7 +197,11 @@ async function openChamberLeadershipSessionsIfNone(supabase: SupabaseClient): Pr
       majority_party: majorityParty,
       closes_at: closesAt,
     });
-    if (error) errors.push(`${chamber} leadership session: ${error.message}`);
+    if (error) {
+      // Another tick or admin may have opened this chamber between lookup and insert; index still enforces one open row.
+      if (isLeadershipSessionOpenConflict(error)) continue;
+      errors.push(`${chamber} leadership session: ${error.message}`);
+    }
   }
 
   if (errors.length) {
