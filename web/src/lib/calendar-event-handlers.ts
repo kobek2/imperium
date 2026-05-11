@@ -392,7 +392,7 @@ export async function handleMidtermElectionOpen(supabase: SupabaseClient, electi
   if (await calendarSuccessExists(supabase, eventKey)) return;
 
   const cycleKey = `midterms_${electionYear}`;
-  const schedule = seatRaceScheduleFromNow("congress");
+  const schedule = seatRaceScheduleFromNow();
 
   const districts = await loadAllDistrictCodes(supabase);
   for (const code of districts) {
@@ -441,8 +441,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, e
   if (await calendarSuccessExists(supabase, eventKey)) return;
 
   const cycleKey = `presidential_${electionYear}`;
-  const scheduleCongress = seatRaceScheduleFromNow("congress");
-  const schedulePresident = seatRaceScheduleFromNow("president");
+  const schedule = seatRaceScheduleFromNow();
 
   const districts = await loadAllDistrictCodes(supabase);
   for (const code of districts) {
@@ -456,7 +455,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, e
         senate_class: null,
         calendar_cycle_key: cycleKey,
       },
-      scheduleCongress,
+      schedule,
     );
   }
 
@@ -473,7 +472,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, e
         senate_class: 3,
         calendar_cycle_key: cycleKey,
       },
-      scheduleCongress,
+      schedule,
     );
   }
 
@@ -485,7 +484,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, e
     .maybeSingle();
 
   if (!presExists) {
-    const { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at } = schedulePresident;
+    const { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at } = schedule;
     await supabase.from("elections").insert({
       office: "president",
       state: null,

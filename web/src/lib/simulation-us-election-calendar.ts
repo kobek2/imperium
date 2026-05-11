@@ -8,7 +8,7 @@
  * | **Jan 2029** — new president + Congress | RP **January 2029** (`inauguration_2029`). Current RP month/year comes from `simulation_start_at` + {@link RP_MONTHS_PER_REAL_DAY} in `simulation-calendar-constants.ts`. |
  * | **Nov 2030** — midterm general election | We do **not** give November its own RP month. The midterm **seat** cycle opens the first time RP reaches **January 2031** (the month the new Congress is sworn in). All filing / primary / general phases then run on **real wall-clock** timers (congressional races: 24h / 24h / 24h). |
  * | **Jan 2031** — new Congress begins      | After every House + Senate (class 2) race in `calendar_cycle_key = midterms_2030` is **closed**, `handleMidtermSeating` applies calendar seating and sets `simulation_start_at` so RP reads **January 2031** at that instant. |
- * | **Nov 2032** — presidential + Congress  | Same pattern: seat cycle opens first RP **January 2033** (inauguration month of the new term). `calendar_cycle_key = presidential_2032` (election **year**). Congressional races 24h/24h/24h; president 24h/24h/48h general. |
+ * | **Nov 2032** — presidential + Congress  | Same pattern: seat cycle opens first RP **January 2033** (inauguration month of the new term). `calendar_cycle_key = presidential_2032` (election **year**). All calendar seat races use 24h/24h/24h wall-clock phases. |
  * | **Jan 2033** — new president + Congress | `handlePresidentialCycleSeating` seats when all races in that cycle are **closed**, then snaps RP to **January 2033**. |
  *
  * **Seating rule:** A new Congress / new president is applied only after **every** seat race in that

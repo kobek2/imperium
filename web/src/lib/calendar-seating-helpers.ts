@@ -144,8 +144,6 @@ export async function processSeatElectionCalendarSeating(
 }
 
 /** Calendar-created seat races: wall-clock phase lengths. RP months advance separately via {@link RP_MONTHS_PER_REAL_DAY}. */
-export type SeatRaceScheduleKind = "congress" | "president";
-
 export type SeatRaceSchedule = {
   filing_opens_at: string;
   filing_closes_at: string;
@@ -153,16 +151,13 @@ export type SeatRaceSchedule = {
   general_closes_at: string;
 };
 
-/**
- * Congress (House/Senate): 24h filing, 24h primary, 24h general (72h total).
- * President: 24h filing, 24h primary, 48h general (96h total) — longer general for the national race.
- */
-export function seatRaceScheduleFromNow(kind: SeatRaceScheduleKind = "congress"): SeatRaceSchedule {
+/** House, Senate, and President calendar races: 24h filing, 24h primary, 24h general (72h total). */
+export function seatRaceScheduleFromNow(): SeatRaceSchedule {
   const t0 = Date.now();
   const msHour = 60 * 60 * 1000;
   const filingH = 24;
   const primaryH = 24;
-  const generalH = kind === "president" ? 48 : 24;
+  const generalH = 24;
   const filing_opens_at = new Date(t0).toISOString();
   const filing_closes_at = new Date(t0 + filingH * msHour).toISOString();
   const primary_closes_at = new Date(t0 + (filingH + primaryH) * msHour).toISOString();
