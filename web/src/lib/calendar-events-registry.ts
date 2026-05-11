@@ -12,13 +12,22 @@ export const CALENDAR_EVENT_DEFINITIONS = [
     key: "midterms_seated_2030",
     label: "2030 midterm — seating; RP snaps to January 2031 (new Congress)",
   },
-  { key: "presidential_election_open_2033", label: "Presidential cycle — January 2033 (four years after inauguration)" },
-  { key: "presidential_seated_2033", label: "Presidential cycle seating — House + Class 3 Senate + President" },
+  {
+    key: "presidential_election_open_2032",
+    label: "2032 presidential election — filings open (first RP January 2033; Nov 2032 not modeled separately)",
+  },
+  {
+    key: "presidential_seated_2032",
+    label: "2032 presidential cycle — seating; RP snaps to January 2033 (new president + Congress)",
+  },
   {
     key: "leadership_close_midterm_2030",
     label: "Leadership close — 25h after 2030 midterm seating",
   },
-  { key: "leadership_close_post_pres_2033", label: "Leadership close — 25h after presidential cycle seating (2033)" },
+  {
+    key: "leadership_close_post_pres_2032",
+    label: "Leadership close — 25h after 2032 presidential cycle seating",
+  },
   { key: "budget_open_2030_09", label: "Budget window — September 2030" },
   { key: "budget_deadline_2030_10", label: "Budget deadline — October 2030" },
   { key: "budget_open_2031_09", label: "Budget window — September 2031" },

@@ -6,6 +6,6 @@ set calendar_cycle_key = 'midterms_2030'
 where calendar_cycle_key = 'midterms_2031';
 
 comment on column public.elections.calendar_cycle_key is
-  'Optional grouping key when calendar creates races (e.g. midterms_2030 = 2030 U.S. midterm election cycle, presidential_2033).';
+  'Optional grouping key when calendar creates races (e.g. midterms_2030, presidential_2032).';
 
 notify pgrst, 'reload schema';

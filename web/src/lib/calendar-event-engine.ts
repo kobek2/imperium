@@ -18,6 +18,14 @@ import {
 } from "@/lib/calendar-event-handlers";
 import { computeRpDate } from "@/lib/simulation-calendar-constants";
 import type { SimulationSettingsRow } from "@/lib/simulation-calendar";
+import {
+  RP_YEAR_MONTH_FIRST_OPEN_MIDTERM_SEAT_CYCLE,
+  RP_YEAR_MONTH_FIRST_OPEN_PRESIDENTIAL_SEAT_CYCLE,
+  US_INAUGURAL_RP_YEAR,
+  US_MIDTERM_ELECTION_YEAR,
+  US_PRESIDENTIAL_ELECTION_YEAR,
+  rpAtOrPastMonth,
+} from "@/lib/simulation-us-election-calendar";
 
 export type SimulationSettingsV2 = SimulationSettingsRow & {
   simulation_start_at?: string | null;
@@ -66,19 +74,19 @@ async function maybeFireDeferredLeadershipCloses(
     ctx: LeadershipCloseContext;
   }> = [
     {
-      parentKey: "inauguration_2029",
-      closeKey: "leadership_close_2029",
-      ctx: { kind: "inauguration", year: 2029 },
+      parentKey: `inauguration_${US_INAUGURAL_RP_YEAR}`,
+      closeKey: `leadership_close_${US_INAUGURAL_RP_YEAR}`,
+      ctx: { kind: "inauguration", year: US_INAUGURAL_RP_YEAR },
     },
     {
-      parentKey: "midterms_seated_2030",
-      closeKey: "leadership_close_midterm_2030",
-      ctx: { kind: "midterm", cycleYear: 2030 },
+      parentKey: `midterms_seated_${US_MIDTERM_ELECTION_YEAR}`,
+      closeKey: `leadership_close_midterm_${US_MIDTERM_ELECTION_YEAR}`,
+      ctx: { kind: "midterm", cycleYear: US_MIDTERM_ELECTION_YEAR },
     },
     {
-      parentKey: "presidential_seated_2033",
-      closeKey: "leadership_close_post_pres_2033",
-      ctx: { kind: "post_presidential", cycleOpenYear: 2033 },
+      parentKey: `presidential_seated_${US_PRESIDENTIAL_ELECTION_YEAR}`,
+      closeKey: `leadership_close_post_pres_${US_PRESIDENTIAL_ELECTION_YEAR}`,
+      ctx: { kind: "post_presidential", cycleOpenYear: US_PRESIDENTIAL_ELECTION_YEAR },
     },
   ];
 
@@ -97,6 +105,9 @@ async function maybeFireDeferredLeadershipCloses(
 /**
  * Runs automated calendar events when `calendar_is_active` is true.
  * Safe to call from cron or after reads; no-ops when inactive.
+ *
+ * U.S. cadence vs. RP opens/seating: see {@link US_MIDTERM_ELECTION_YEAR} and related exports in
+ * `simulation-us-election-calendar.ts`.
  */
 export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void> {
   const settings = await getSimulationSettingsV2(supabase);
@@ -134,8 +145,8 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
 
   const pending: Array<{ key: string; run: () => Promise<void> }> = [];
 
-  if (rp.year >= 2029 && rp.month >= 1 && !fired.has("inauguration_2029")) {
-    pending.push({ key: "inauguration_2029", run: () => handleInauguration(supabase, 2029) });
+  if (rpAtOrPastMonth(rp, { year: US_INAUGURAL_RP_YEAR, month: 1 }) && !fired.has(`inauguration_${US_INAUGURAL_RP_YEAR}`)) {
+    pending.push({ key: `inauguration_${US_INAUGURAL_RP_YEAR}`, run: () => handleInauguration(supabase, US_INAUGURAL_RP_YEAR) });
   }
 
   if (rp.year === 2029 && rp.month >= 9 && !fired.has("budget_open_2029_09")) {
@@ -146,15 +157,23 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     pending.push({ key: "budget_deadline_2029_10", run: () => handleBudgetDeadlineMiss(supabase, 2029) });
   }
 
-  // Midterm **election year** 2030 (U.S. usage); filings open first RP January after 2029 (RP Jan 2031).
-  if (rp.year === 2031 && rp.month >= 1 && !fired.has("midterms_open_2030")) {
-    pending.push({ key: "midterms_open_2030", run: () => handleMidtermElectionOpen(supabase, 2030) });
+  if (
+    rpAtOrPastMonth(rp, RP_YEAR_MONTH_FIRST_OPEN_MIDTERM_SEAT_CYCLE) &&
+    !fired.has(`midterms_open_${US_MIDTERM_ELECTION_YEAR}`)
+  ) {
+    pending.push({
+      key: `midterms_open_${US_MIDTERM_ELECTION_YEAR}`,
+      run: () => handleMidtermElectionOpen(supabase, US_MIDTERM_ELECTION_YEAR),
+    });
   }
 
-  if (rp.year === 2033 && rp.month >= 1 && !fired.has("presidential_election_open_2033")) {
+  if (
+    rpAtOrPastMonth(rp, RP_YEAR_MONTH_FIRST_OPEN_PRESIDENTIAL_SEAT_CYCLE) &&
+    !fired.has(`presidential_election_open_${US_PRESIDENTIAL_ELECTION_YEAR}`)
+  ) {
     pending.push({
-      key: "presidential_election_open_2033",
-      run: () => handlePresidentialElectionOpen(supabase, 2033),
+      key: `presidential_election_open_${US_PRESIDENTIAL_ELECTION_YEAR}`,
+      run: () => handlePresidentialElectionOpen(supabase, US_PRESIDENTIAL_ELECTION_YEAR),
     });
   }
 
@@ -178,12 +197,18 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
 
   fired = await loadSuccessfulCalendarEventKeys(supabase);
 
-  await runCalendarStep(supabase, "midterms_seated_2030", () => handleMidtermSeating(supabase, 2030), {
-    step: "handleMidtermSeating",
-  });
-  await runCalendarStep(supabase, "presidential_seated_2033", () => handlePresidentialCycleSeating(supabase, 2033), {
-    step: "handlePresidentialCycleSeating",
-  });
+  await runCalendarStep(
+    supabase,
+    `midterms_seated_${US_MIDTERM_ELECTION_YEAR}`,
+    () => handleMidtermSeating(supabase, US_MIDTERM_ELECTION_YEAR),
+    { step: "handleMidtermSeating" },
+  );
+  await runCalendarStep(
+    supabase,
+    `presidential_seated_${US_PRESIDENTIAL_ELECTION_YEAR}`,
+    () => handlePresidentialCycleSeating(supabase, US_PRESIDENTIAL_ELECTION_YEAR),
+    { step: "handlePresidentialCycleSeating" },
+  );
 
   fired = await loadSuccessfulCalendarEventKeys(supabase);
   await maybeFireDeferredLeadershipCloses(supabase, fired, now);
