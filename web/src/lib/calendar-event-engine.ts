@@ -71,14 +71,14 @@ async function maybeFireDeferredLeadershipCloses(
       ctx: { kind: "inauguration", year: 2029 },
     },
     {
-      parentKey: "midterms_seated_2030",
-      closeKey: "leadership_close_midterm_2030",
-      ctx: { kind: "midterm", cycleYear: 2030 },
+      parentKey: "midterms_seated_2031",
+      closeKey: "leadership_close_midterm_2031",
+      ctx: { kind: "midterm", cycleYear: 2031 },
     },
     {
-      parentKey: "presidential_seated_2031",
-      closeKey: "leadership_close_post_pres_2031",
-      ctx: { kind: "post_presidential", cycleOpenYear: 2031 },
+      parentKey: "presidential_seated_2033",
+      closeKey: "leadership_close_post_pres_2033",
+      ctx: { kind: "post_presidential", cycleOpenYear: 2033 },
     },
   ];
 
@@ -146,18 +146,19 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     pending.push({ key: "budget_deadline_2029_10", run: () => handleBudgetDeadlineMiss(supabase, 2029) });
   }
 
-  if (rp.year === 2030 && rp.month >= 1 && !fired.has("midterms_open_2030")) {
-    pending.push({ key: "midterms_open_2030", run: () => handleMidtermElectionOpen(supabase, 2030) });
+  // Real-world cadence in RP calendar: inaug Jan 2029 → midterms Jan 2031 → presidential Jan 2033.
+  if (rp.year === 2031 && rp.month >= 1 && !fired.has("midterms_open_2031")) {
+    pending.push({ key: "midterms_open_2031", run: () => handleMidtermElectionOpen(supabase, 2031) });
   }
 
-  if (rp.year === 2031 && rp.month >= 1 && !fired.has("presidential_election_open_2031")) {
+  if (rp.year === 2033 && rp.month >= 1 && !fired.has("presidential_election_open_2033")) {
     pending.push({
-      key: "presidential_election_open_2031",
-      run: () => handlePresidentialElectionOpen(supabase, 2031),
+      key: "presidential_election_open_2033",
+      run: () => handlePresidentialElectionOpen(supabase, 2033),
     });
   }
 
-  for (let y = 2030; y <= 2035; y += 1) {
+  for (let y = 2030; y <= 2038; y += 1) {
     const openKey = `budget_open_${y}_09`;
     const deadKey = `budget_deadline_${y}_10`;
     if (rp.year === y && rp.month >= 9 && !fired.has(openKey)) {
@@ -177,10 +178,10 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
 
   fired = await loadSuccessfulCalendarEventKeys(supabase);
 
-  await runCalendarStep(supabase, "midterms_seated_2030", () => handleMidtermSeating(supabase, 2030), {
+  await runCalendarStep(supabase, "midterms_seated_2031", () => handleMidtermSeating(supabase, 2031), {
     step: "handleMidtermSeating",
   });
-  await runCalendarStep(supabase, "presidential_seated_2031", () => handlePresidentialCycleSeating(supabase, 2031), {
+  await runCalendarStep(supabase, "presidential_seated_2033", () => handlePresidentialCycleSeating(supabase, 2033), {
     step: "handlePresidentialCycleSeating",
   });
 
