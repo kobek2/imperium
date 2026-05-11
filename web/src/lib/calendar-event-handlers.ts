@@ -382,11 +382,16 @@ async function insertSeatRace(
   if (error) console.warn("[calendar] insertSeatRace", row, error.message);
 }
 
-export async function handleMidtermElectionOpen(supabase: SupabaseClient, rpYear: number): Promise<void> {
-  const eventKey = `midterms_open_${rpYear}`;
+/**
+ * @param electionYear U.S. midterm **election** year (e.g. 2030). `calendar_cycle_key` is `midterms_<year>`.
+ * Engine opens this race when the RP calendar first reaches January of the year **after** that election
+ * (e.g. 2030 cycle opens in RP January 2031).
+ */
+export async function handleMidtermElectionOpen(supabase: SupabaseClient, electionYear: number): Promise<void> {
+  const eventKey = `midterms_open_${electionYear}`;
   if (await calendarSuccessExists(supabase, eventKey)) return;
 
-  const cycleKey = `midterms_${rpYear}`;
+  const cycleKey = `midterms_${electionYear}`;
   const schedule = seatRaceScheduleFromNow("congress");
 
   const districts = await loadAllDistrictCodes(supabase);
@@ -424,7 +429,7 @@ export async function handleMidtermElectionOpen(supabase: SupabaseClient, rpYear
 
   // TODO: Discord webhook — midterm elections open #announcements
 
-  await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });
+  await insertCalendarEventSuccess(supabase, eventKey, { electionYear, cycleKey });
 }
 
 export async function handlePresidentialElectionOpen(supabase: SupabaseClient, rpYear: number): Promise<void> {
@@ -527,14 +532,18 @@ async function seatCalendarCycleElections(supabase: SupabaseClient, cycleKey: st
   return n;
 }
 
-export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
-  const eventKey = `midterms_seated_${rpYear}`;
+/**
+ * @param electionYear Same U.S. midterm election year as {@link handleMidtermElectionOpen} (e.g. 2030).
+ * After seating, RP is snapped to **January (electionYear + 1)** (new Congress year).
+ */
+export async function handleMidtermSeating(supabase: SupabaseClient, electionYear: number): Promise<void> {
+  const eventKey = `midterms_seated_${electionYear}`;
   if (await calendarSuccessExists(supabase, eventKey)) {
     await openChamberLeadershipSessionsIfNone(supabase);
     return;
   }
 
-  const cycleKey = `midterms_${rpYear}`;
+  const cycleKey = `midterms_${electionYear}`;
   if (!(await allCycleSeatRacesClosed(supabase, cycleKey))) return;
 
   // TODO: Discord webhook — midterm results certified #announcements
@@ -549,7 +558,8 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
   await rpcOpenPartyLeadershipWindows(supabase, 25);
 
   const anchorMid = new Date();
-  const startAtMid = isoSimulationStartForRpInstantAt(anchorMid, rpYear, 1);
+  const congressJanuaryYear = electionYear + 1;
+  const startAtMid = isoSimulationStartForRpInstantAt(anchorMid, congressJanuaryYear, 1);
   const { error: snapMidErr } = await supabase
     .from("simulation_settings")
     .update({ simulation_start_at: startAtMid, updated_at: anchorMid.toISOString() })
@@ -558,7 +568,7 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
     console.warn("[calendar] simulation_start_at snap after midterm seating:", snapMidErr.message);
   }
 
-  await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });
+  await insertCalendarEventSuccess(supabase, eventKey, { electionYear, congressJanuaryYear, cycleKey });
 }
 
 export async function handlePresidentialCycleSeating(supabase: SupabaseClient, rpYear: number): Promise<void> {
