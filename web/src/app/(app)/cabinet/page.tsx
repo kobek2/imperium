@@ -19,9 +19,22 @@ export default async function CabinetOverviewPage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Department overview</h1>
+      <header className="space-y-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Department overview</h1>
+        </div>
+        <Link
+          href="/cabinet/nsc"
+          className="inline-flex max-w-xl items-center rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 text-sm font-semibold text-[var(--psc-ink)] shadow-sm transition hover:border-[var(--psc-accent)] hover:bg-[color-mix(in_srgb,var(--psc-accent)_8%,white)]"
+        >
+          <span className="flex-1">
+            <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--psc-muted)]">
+              Situation Room
+            </span>
+            <span className="block text-[var(--psc-accent)]">Open NSC briefing (State heat + Defense posture) →</span>
+          </span>
+        </Link>
       </header>
 
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

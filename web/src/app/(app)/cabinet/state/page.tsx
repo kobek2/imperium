@@ -50,12 +50,20 @@ export default async function StateCabinetPage() {
           engagement hours. Passive desk time is steady; intensive dialogues cost more hours but can recover ground faster
           and are logged for staff-led RP events.
         </p>
-        <Link
-          href="/cabinet"
-          className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
-        >
-          ← Cabinet overview
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/cabinet"
+            className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+          >
+            ← Cabinet overview
+          </Link>
+          <Link
+            href="/cabinet/nsc"
+            className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+          >
+            Situation Room briefing →
+          </Link>
+        </div>
       </header>
 
       {!dataReady ? (

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import { startIntensiveDiplomacyDialogue, stateSpendPassiveDiplomacy } from "@/app/actions/diplomacy";
 import { SubmitButton } from "@/components/submit-button";
@@ -34,7 +35,12 @@ function CriticalBilateralStandingBanner({
       </div>
       <p className="mt-1">
         {nations.map((n) => `${n.name} (${n.us_relation})`).join(" · ")} — a Situation Room-grade thread is appropriate;
-        all principals have been alerted in their inboxes.
+        the President, Vice President, Chief of Staff, Secretary of State, and Secretary of Defense receive an inbox
+        alert with a link to the{" "}
+        <Link href="/cabinet/nsc" className="font-semibold text-[var(--psc-accent)] underline-offset-2 hover:underline">
+          shared NSC briefing
+        </Link>
+        .
       </p>
       {preview ? (
         <p className="mt-2 text-xs text-amber-900/80">

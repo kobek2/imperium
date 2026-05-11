@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { defenseSpendHours } from "@/app/actions/cabinet-portfolios";
+import { DiplomacyRiskHeatmap } from "@/components/diplomacy-risk-heatmap";
 import { SubmitButton } from "@/components/submit-button";
 import { canActAsSecretaryOfDefense, canViewDefenseDepartment } from "@/lib/cabinet-hub";
 import { cabinetDayStartIso } from "@/lib/cabinet-week";
@@ -26,16 +27,18 @@ export default async function DefenseCabinetPage() {
 
   const canAct = canActAsSecretaryOfDefense(roleKeys);
   const dayUtc = cabinetDayStartIso();
-  const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }] = await Promise.all([
-    supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "defense").maybeSingle(),
-    supabase
-      .from("cabinet_daily_hours")
-      .select("hours_budget, hours_used")
-      .eq("user_id", user.id)
-      .eq("role_key", "secretary_of_defense")
-      .eq("day_utc", dayUtc)
-      .maybeSingle(),
-  ]);
+  const [{ data: metrics, error: mErr }, { data: hoursRow, error: hErr }, { data: nations, error: dipErr }] =
+    await Promise.all([
+      supabase.from("rp_cabinet_department_metrics").select("body").eq("portfolio_key", "defense").maybeSingle(),
+      supabase
+        .from("cabinet_daily_hours")
+        .select("hours_budget, hours_used")
+        .eq("user_id", user.id)
+        .eq("role_key", "secretary_of_defense")
+        .eq("day_utc", dayUtc)
+        .maybeSingle(),
+      supabase.from("rp_foreign_nations").select("code, name, us_relation").order("name", { ascending: true }),
+    ]);
 
   const body = ((metrics as { body?: DefenseBody } | null)?.body ?? {}) as DefenseBody;
   const readiness = Number(body.readiness ?? 0);
@@ -45,7 +48,8 @@ export default async function DefenseCabinetPage() {
   const hoursBudget = hoursRow ? Number((hoursRow as { hours_budget: number }).hours_budget) : 20;
   const hoursUsed = hoursRow ? Number((hoursRow as { hours_used: number }).hours_used) : 0;
   const hoursLeft = Math.max(0, hoursBudget - hoursUsed);
-  const dataReady = !mErr && !hErr;
+  const nationList = (nations ?? []) as Array<{ code: string; name: string; us_relation: number }>;
+  const dataReady = !mErr && !hErr && !dipErr;
 
   const actions = [
     { key: "field_exercise", label: "Alliance field exercise", hours: 5, blurb: "+readiness, +logistics stress" },
@@ -62,12 +66,20 @@ export default async function DefenseCabinetPage() {
           Steer attention across readiness, logistics, and exercises. Costs are in daily engagement hours (UTC) — numbers
           are illustrative for RP threads.
         </p>
-        <Link
-          href="/cabinet"
-          className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
-        >
-          ← Cabinet overview
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/cabinet"
+            className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+          >
+            ← Cabinet overview
+          </Link>
+          <Link
+            href="/cabinet/nsc"
+            className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+          >
+            Situation Room briefing →
+          </Link>
+        </div>
       </header>
 
       {!dataReady ? (
@@ -75,6 +87,19 @@ export default async function DefenseCabinetPage() {
           Defense dashboard data not found. Apply migrations through{" "}
           <code className="font-mono">20260515120000_cabinet_daily_hours_diplomacy.sql</code>.
         </div>
+      ) : null}
+
+      {nationList.length > 0 ? (
+        <section className={cardClass}>
+          <DiplomacyRiskHeatmap nations={nationList} variant="compact" />
+          <p className="mt-3 text-xs text-[var(--psc-muted)]">
+            Shared with the{" "}
+            <Link href="/cabinet/nsc" className="font-semibold text-[var(--psc-accent)] underline-offset-2 hover:underline">
+              Situation Room briefing
+            </Link>{" "}
+            so principals see the same heat map alongside readiness.
+          </p>
+        </section>
       ) : null}
 
       <section className={cardClass}>

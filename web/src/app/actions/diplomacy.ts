@@ -149,6 +149,7 @@ export async function stateSpendPassiveDiplomacy(formData: FormData): Promise<vo
 
   revalidatePath("/cabinet");
   revalidatePath("/cabinet/state");
+  revalidatePath("/cabinet/nsc");
 }
 
 async function createOpenIntensiveStorySessionId(
@@ -291,5 +292,6 @@ export async function stateCompleteIntensiveDiplomacy(input: {
 
   revalidatePath("/cabinet");
   revalidatePath("/cabinet/state");
+  revalidatePath("/cabinet/nsc");
   revalidatePath(`/cabinet/state/dialogue/${input.sessionId}`);
 }

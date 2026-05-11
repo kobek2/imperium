@@ -95,7 +95,7 @@ const PORTFOLIO_BLURB: Partial<Record<string, string>> = {
   secretary_of_state:
     "Daily diplomatic hours, bilateral relationship scores, passive outreach, and intensive leader dialogues.",
   secretary_of_defense:
-    "Force readiness, logistics strain, and alliance exercises — spend engagement hours on priorities.",
+    "Readiness and exercises; escalation heat from State’s tracker and the Situation Room briefing for principals.",
   secretary_of_homeland_security:
     "Threat index, border caseload, and cyber alerts — coordinate taskings to move the needle.",
   attorney_general:

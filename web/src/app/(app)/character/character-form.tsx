@@ -121,7 +121,13 @@ export function CharacterForm({
     [formatBytes],
   );
 
-  async function onSubmit(formData: FormData) {
+  /**
+   * Submit via onSubmit + preventDefault (not <form action={...}>).
+   * React 19 resets uncontrolled fields after a successful form `action` callback;
+   * our defaults come from SSR `profile`, which is still stale until navigation/refresh,
+   * so users saw the form wipe right after a successful save.
+   */
+  async function handleSubmit(formData: FormData) {
     setPending(true);
     setMessage(null);
     formData.set("residence_state", state);
@@ -174,7 +180,13 @@ export function CharacterForm({
   const isOnboarding = variant === "onboarding";
 
   return (
-    <form action={onSubmit} className="grid gap-6 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-8">
+    <form
+      className="grid gap-6 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-8"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void handleSubmit(new FormData(e.currentTarget));
+      }}
+    >
       <div>
         <h2 className="text-lg font-semibold">
           {isOnboarding ? "Required information" : "Edit personnel record"}

@@ -124,6 +124,7 @@ export async function defenseSpendHours(formData: FormData): Promise<void> {
 
   revalidatePath("/cabinet");
   revalidatePath("/cabinet/defense");
+  revalidatePath("/cabinet/nsc");
 }
 
 export async function homelandSpendHours(formData: FormData): Promise<void> {
