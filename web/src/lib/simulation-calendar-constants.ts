@@ -21,3 +21,18 @@ export function computeRpDate(simulationStartAt: Date, now: Date = new Date()): 
 export function rpDateKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
+
+/**
+ * Value to store in `simulation_settings.simulation_start_at` so that, at wall-clock `anchor`,
+ * {@link computeRpDate} reports `year` / `month` (RP calendar).
+ *
+ * Used after major election seating so RP “ticks” to January of the new Congress / inauguration
+ * while keeping the global RP pace ({@link RP_MONTHS_PER_REAL_DAY}) unchanged going forward.
+ */
+export function isoSimulationStartForRpInstantAt(anchor: Date, year: number, month: number): string {
+  const targetTotalMonths = (year - 1) * 12 + (month - 1);
+  const baseTotalMonths = (RP_START_YEAR - 1) * 12 + (RP_START_MONTH - 1);
+  const deltaMonths = targetTotalMonths - baseTotalMonths;
+  const elapsedDays = deltaMonths / RP_MONTHS_PER_REAL_DAY;
+  return new Date(anchor.getTime() - elapsedDays * MS_PER_DAY).toISOString();
+}

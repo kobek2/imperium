@@ -4,6 +4,7 @@ import {
   processSeatElectionCalendarSeating,
   seatRaceScheduleFromNow,
   type SeatElectionRow,
+  type SeatRaceSchedule,
 } from "@/lib/calendar-seating-helpers";
 import {
   calendarSuccessExists,
@@ -11,6 +12,7 @@ import {
   insertCalendarEventSuccess,
 } from "@/lib/calendar-event-log";
 import type { SimulationSettingsRow } from "@/lib/simulation-calendar";
+import { isoSimulationStartForRpInstantAt } from "@/lib/simulation-calendar-constants";
 import type { Chamber } from "@/lib/leadership";
 import { inferMajorityParty } from "@/lib/leadership-majority";
 
@@ -360,7 +362,7 @@ async function insertSeatRace(
     senate_class: number | null;
     calendar_cycle_key: string;
   },
-  schedule: ReturnType<typeof seatRaceScheduleFromNow>,
+  schedule: SeatRaceSchedule,
 ): Promise<void> {
   const { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at } = schedule;
   const { error } = await supabase.from("elections").insert({
@@ -385,7 +387,7 @@ export async function handleMidtermElectionOpen(supabase: SupabaseClient, rpYear
   if (await calendarSuccessExists(supabase, eventKey)) return;
 
   const cycleKey = `midterms_${rpYear}`;
-  const schedule = seatRaceScheduleFromNow();
+  const schedule = seatRaceScheduleFromNow("congress");
 
   const districts = await loadAllDistrictCodes(supabase);
   for (const code of districts) {
@@ -430,7 +432,8 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, r
   if (await calendarSuccessExists(supabase, eventKey)) return;
 
   const cycleKey = `presidential_${rpYear}`;
-  const schedule = seatRaceScheduleFromNow();
+  const scheduleCongress = seatRaceScheduleFromNow("congress");
+  const schedulePresident = seatRaceScheduleFromNow("president");
 
   const districts = await loadAllDistrictCodes(supabase);
   for (const code of districts) {
@@ -444,7 +447,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, r
         senate_class: null,
         calendar_cycle_key: cycleKey,
       },
-      schedule,
+      scheduleCongress,
     );
   }
 
@@ -461,7 +464,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, r
         senate_class: 3,
         calendar_cycle_key: cycleKey,
       },
-      schedule,
+      scheduleCongress,
     );
   }
 
@@ -473,7 +476,7 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, r
     .maybeSingle();
 
   if (!presExists) {
-    const { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at } = schedule;
+    const { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at } = schedulePresident;
     await supabase.from("elections").insert({
       office: "president",
       state: null,
@@ -545,6 +548,16 @@ export async function handleMidtermSeating(supabase: SupabaseClient, rpYear: num
   await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, 25);
 
+  const anchorMid = new Date();
+  const startAtMid = isoSimulationStartForRpInstantAt(anchorMid, rpYear, 1);
+  const { error: snapMidErr } = await supabase
+    .from("simulation_settings")
+    .update({ simulation_start_at: startAtMid, updated_at: anchorMid.toISOString() })
+    .eq("id", 1);
+  if (snapMidErr) {
+    console.warn("[calendar] simulation_start_at snap after midterm seating:", snapMidErr.message);
+  }
+
   await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });
 }
 
@@ -566,6 +579,16 @@ export async function handlePresidentialCycleSeating(supabase: SupabaseClient, r
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, 25);
+
+  const anchorPres = new Date();
+  const startAtPres = isoSimulationStartForRpInstantAt(anchorPres, rpYear, 1);
+  const { error: snapPresErr } = await supabase
+    .from("simulation_settings")
+    .update({ simulation_start_at: startAtPres, updated_at: anchorPres.toISOString() })
+    .eq("id", 1);
+  if (snapPresErr) {
+    console.warn("[calendar] simulation_start_at snap after presidential seating:", snapPresErr.message);
+  }
 
   await insertCalendarEventSuccess(supabase, eventKey, { rpYear, cycleKey });
 }

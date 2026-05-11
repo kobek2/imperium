@@ -143,18 +143,30 @@ export async function processSeatElectionCalendarSeating(
   await markElectionCalendarSeated(supabase, row.id);
 }
 
-export function seatRaceScheduleFromNow(): {
+/** Calendar-created seat races: wall-clock phase lengths. RP months advance separately via {@link RP_MONTHS_PER_REAL_DAY}. */
+export type SeatRaceScheduleKind = "congress" | "president";
+
+export type SeatRaceSchedule = {
   filing_opens_at: string;
   filing_closes_at: string;
   primary_closes_at: string;
   general_closes_at: string;
-} {
+};
+
+/**
+ * Congress (House/Senate): 24h filing, 24h primary, 24h general (72h total).
+ * President: 24h filing, 24h primary, 48h general (96h total) — longer general for the national race.
+ */
+export function seatRaceScheduleFromNow(kind: SeatRaceScheduleKind = "congress"): SeatRaceSchedule {
   const t0 = Date.now();
-  const ms = 60 * 60 * 1000;
+  const msHour = 60 * 60 * 1000;
+  const filingH = 24;
+  const primaryH = 24;
+  const generalH = kind === "president" ? 48 : 24;
   const filing_opens_at = new Date(t0).toISOString();
-  const filing_closes_at = new Date(t0 + 24 * ms).toISOString();
-  const primary_closes_at = new Date(t0 + 48 * ms).toISOString();
-  const general_closes_at = new Date(t0 + 72 * ms).toISOString();
+  const filing_closes_at = new Date(t0 + filingH * msHour).toISOString();
+  const primary_closes_at = new Date(t0 + (filingH + primaryH) * msHour).toISOString();
+  const general_closes_at = new Date(t0 + (filingH + primaryH + generalH) * msHour).toISOString();
   return { filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at };
 }
 
