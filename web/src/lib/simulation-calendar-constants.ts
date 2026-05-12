@@ -18,6 +18,29 @@ export function computeRpDate(simulationStartAt: Date, now: Date = new Date()): 
   return { year, month };
 }
 
+/**
+ * Same as {@link computeRpDate} unless a calendar seat-cycle freeze is active (November of the
+ * election year until midterm/presidential seating clears it).
+ */
+export function computeRpDateForCalendarTick(
+  simulationStartAt: Date,
+  now: Date,
+  freezeYear?: number | null,
+  freezeMonth?: number | null,
+): { year: number; month: number } {
+  if (
+    freezeYear != null &&
+    freezeMonth != null &&
+    Number.isFinite(freezeYear) &&
+    Number.isFinite(freezeMonth) &&
+    freezeMonth >= 1 &&
+    freezeMonth <= 12
+  ) {
+    return { year: Math.trunc(freezeYear), month: Math.trunc(freezeMonth) };
+  }
+  return computeRpDate(simulationStartAt, now);
+}
+
 export function rpDateKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }

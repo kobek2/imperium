@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CALENDAR_LEADERSHIP_WINDOW_HOURS } from "@/lib/simulation-us-election-calendar";
 
 export type SeatElectionRow = {
   id: string;
@@ -171,8 +172,9 @@ export function leadershipRaceScheduleFromNow(): {
   general_closes_at: string;
 } {
   const opens = new Date();
-  const filing_closes_at = new Date(opens.getTime() + 60 * 60 * 1000).toISOString();
-  const general_closes_at = new Date(opens.getTime() + 25 * 60 * 60 * 1000).toISOString();
+  const msHour = 60 * 60 * 1000;
+  const filing_closes_at = new Date(opens.getTime() + msHour).toISOString();
+  const general_closes_at = new Date(opens.getTime() + CALENDAR_LEADERSHIP_WINDOW_HOURS * msHour).toISOString();
   return {
     filing_opens_at: opens.toISOString(),
     filing_closes_at,

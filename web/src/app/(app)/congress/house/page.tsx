@@ -36,8 +36,17 @@ export default async function CongressHousePage() {
   if (!user) redirect("/login");
 
   const docket = await loadCongressDocket(supabase, user.id);
-  const { billList, votesByBill, voterById, roleKeys, viewerParty, leadershipSessions, isRunningMate, canBreakSenateTie } =
-    docket;
+  const {
+    billList,
+    votesByBill,
+    voterById,
+    roleKeys,
+    viewerParty,
+    viewerWhipByBillId,
+    leadershipSessions,
+    isRunningMate,
+    canBreakSenateTie,
+  } = docket;
 
   const houseBills = filterBillsForHouseDocket(billList);
   const showHouseFiling = canFileLegislationInChamber(roleKeys, "house");
@@ -111,6 +120,7 @@ export default async function CongressHousePage() {
         userId={user.id}
         roleKeys={roleKeys}
         viewerParty={viewerParty}
+        viewerWhipByBillId={viewerWhipByBillId}
         userChambers={userChambers}
         isRunningMate={isRunningMate}
         canBreakSenateTie={canBreakSenateTie}

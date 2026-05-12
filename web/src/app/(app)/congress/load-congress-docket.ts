@@ -15,6 +15,8 @@ export type CongressDocketPayload = {
   voterById: Map<string, VoterProfile>;
   roleKeys: string[];
   viewerParty: string | null;
+  /** For the viewer's party + active floor chamber: leadership whip instruction (yea/nay), keyed by bill id. */
+  viewerWhipByBillId: Map<string, "yea" | "nay">;
   leadershipSessions: CongressLeadershipSession[];
   isRunningMate: boolean;
   canBreakSenateTie: boolean;
@@ -152,12 +154,34 @@ export async function loadCongressDocket(supabase: SupabaseClient, userId: strin
     votesByBill.set(v.bill_id, list);
   }
 
+  const viewerWhipByBillId = new Map<string, "yea" | "nay">();
+  const partyKey = String((profile as { party?: string | null } | null)?.party ?? "")
+    .trim()
+    .toLowerCase();
+  if (billIds.length && (partyKey === "democrat" || partyKey === "republican" || partyKey === "independent")) {
+    const { data: whipRows } = await supabase
+      .from("bill_whip_instructions")
+      .select("bill_id, chamber, party, instructed_vote")
+      .in("bill_id", billIds);
+    for (const raw of whipRows ?? []) {
+      const w = raw as { bill_id: string; chamber: string; party: string; instructed_vote: string };
+      if (String(w.party ?? "").trim().toLowerCase() !== partyKey) continue;
+      const iv = String(w.instructed_vote ?? "").toLowerCase();
+      if (iv !== "yea" && iv !== "nay") continue;
+      const b = billList.find((row) => row.id === w.bill_id);
+      if (!b) continue;
+      if (b.status === "house_floor" && w.chamber === "house") viewerWhipByBillId.set(w.bill_id, iv as "yea" | "nay");
+      if (b.status === "senate_floor" && w.chamber === "senate") viewerWhipByBillId.set(w.bill_id, iv as "yea" | "nay");
+    }
+  }
+
   return {
     billList,
     votesByBill,
     voterById,
     roleKeys,
     viewerParty: ((profile as { party?: string | null } | null)?.party ?? null),
+    viewerWhipByBillId,
     leadershipSessions: (leadershipSessions ?? []) as CongressLeadershipSession[],
     isRunningMate,
     canBreakSenateTie,

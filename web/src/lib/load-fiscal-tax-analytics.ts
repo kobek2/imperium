@@ -1,4 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  isMissingPostgrestRpcError,
+  loadScheduledHourlyGrossWithoutRpc,
+} from "@/lib/economy-scheduled-hourly";
 import { computeMarginalBracketAnalytics } from "@/lib/fiscal-bracket-analytics";
 import type { FiscalTaxBracket } from "@/lib/fiscal-tax";
 
@@ -37,6 +41,32 @@ export async function loadAnnualInflowsForFiscalYear(
   fiscalYearStartedAt: string,
 ): Promise<number[]> {
   return loadAnnualInflowsForFiscalYearWindow(supabase, fiscalYearStartedAt, null);
+}
+
+/**
+ * One value per profile: scheduled `hourly_income` gross (role salary + PAC) for a single sim-hour collect,
+ * matching `economy_collect_income` before the elapsed-hours multiplier.
+ *
+ * Uses RPC `fiscal_list_player_scheduled_hourly_gross` when present (full PAC visibility via SECURITY DEFINER).
+ * If the migration is not applied yet, falls back to the same formula from `profiles` + `government_role_grants`
+ * + visible `economy_pacs` rows (PAC may be incomplete for callers who are not economy staff auditors).
+ */
+export async function loadScheduledHourlyGrossForAllProfiles(supabase: SupabaseClient): Promise<number[]> {
+  const { data, error } = await supabase.rpc("fiscal_list_player_scheduled_hourly_gross");
+  if (!error && data != null) {
+    const rows = data as Array<{ hourly_gross?: unknown }>;
+    return rows.map((row) => Number(row.hourly_gross ?? 0));
+  }
+  if (error && !isMissingPostgrestRpcError(error)) {
+    throw new Error(error.message);
+  }
+  if (process.env.NODE_ENV === "development") {
+    // eslint-disable-next-line no-console -- migration hint for local / preview DBs
+    console.warn(
+      "[federal budget] fiscal_list_player_scheduled_hourly_gross RPC missing; using client role+PAC preview. Apply supabase/migrations/20260511200000_fiscal_scheduled_hourly_gross_preview_rpc.sql for full PAC coverage.",
+    );
+  }
+  return loadScheduledHourlyGrossWithoutRpc(supabase);
 }
 
 export function buildBracketAnalytics(

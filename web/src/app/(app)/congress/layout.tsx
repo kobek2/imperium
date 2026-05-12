@@ -2,16 +2,27 @@ import Link from "next/link";
 import { processBillDeadlines } from "@/lib/bill-pipeline";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { AppropriationsCountdownBar } from "@/components/appropriations-countdown-bar";
+import { getCongressAttentionSnapshotForRequest } from "@/lib/congress-viewer-attention";
 import { getServerAuth } from "@/lib/supabase/server";
-import { CongressChamberNav } from "./congress-chamber-nav";
+import { CongressChamberNav, type CongressChamberBadgeCounts } from "./congress-chamber-nav";
 import { billStatusDisplay } from "@/lib/bill-display-status";
 
 export default async function CongressLayout({ children }: { children: React.ReactNode }) {
   const { supabase, user } = await getServerAuth();
   let appropriationsNotice: { deadlineAt: string | null; enrolled: boolean; economyFrozen: boolean } | null = null;
   let appropriationsTracker: { id: string; title: string; status: string } | null = null;
+  let chamberBadges: CongressChamberBadgeCounts | null = null;
   if (supabase) {
-    await Promise.all([processBillDeadlines(supabase), runElectionPhaseSchedule(supabase)]);
+    const [, , attentionSnap] = await Promise.all([
+      processBillDeadlines(supabase),
+      runElectionPhaseSchedule(supabase),
+      user ? getCongressAttentionSnapshotForRequest(supabase, user.id) : Promise.resolve(null),
+    ]);
+    if (attentionSnap) {
+      chamberBadges = {
+        hopper: attentionSnap.hopperLeadershipBadge,
+      };
+    }
     const { data: fy } = await supabase
       .from("rp_fiscal_years")
       .select("id, appropriation_deadline_at, appropriations_act_bill_id, economy_activity_frozen")
@@ -75,7 +86,7 @@ export default async function CongressLayout({ children }: { children: React.Rea
           </p>
         </div>
       ) : null}
-      <CongressChamberNav showHopper={showHopper} />
+      <CongressChamberNav showHopper={showHopper} chamberBadges={chamberBadges} />
       {children}
     </div>
   );

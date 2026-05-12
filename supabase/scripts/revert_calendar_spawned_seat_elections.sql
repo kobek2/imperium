@@ -21,6 +21,13 @@
 
 begin;
 
+-- Drop RP freeze from an in-progress reverted cycle (if columns exist)
+update public.simulation_settings
+set
+  calendar_seat_cycle_freeze_rp_year = null,
+  calendar_seat_cycle_freeze_rp_month = null
+where id = 1;
+
 -- Clear calendar dedupe for midterm/presidential cycles only (keeps inauguration_2029, budget_*, etc.)
 delete from public.simulation_calendar_events
 where event_key like 'midterms%'

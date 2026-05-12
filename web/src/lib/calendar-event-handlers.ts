@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CALENDAR_LEADERSHIP_WINDOW_HOURS } from "@/lib/simulation-us-election-calendar";
 import {
   leadershipRaceScheduleFromNow,
   processSeatElectionCalendarSeating,
@@ -241,7 +242,7 @@ export async function handleInauguration(supabase: SupabaseClient, year: number)
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
-  await rpcOpenPartyLeadershipWindows(supabase, 25);
+  await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 
   const sched = leadershipRaceScheduleFromNow();
   await insertCalendarEventSuccess(supabase, key, {
@@ -384,8 +385,7 @@ async function insertSeatRace(
 
 /**
  * @param electionYear U.S. midterm **election** year (e.g. 2030). `calendar_cycle_key` is `midterms_<year>`.
- * Engine opens this race when the RP calendar first reaches January of the year **after** that election
- * (e.g. 2030 cycle opens in RP January 2031).
+ * Opens when RP first reaches **November** of that year; freezes RP at that month until seating.
  */
 export async function handleMidtermElectionOpen(supabase: SupabaseClient, electionYear: number): Promise<void> {
   const eventKey = `midterms_open_${electionYear}`;
@@ -430,11 +430,22 @@ export async function handleMidtermElectionOpen(supabase: SupabaseClient, electi
   // TODO: Discord webhook — midterm elections open #announcements
 
   await insertCalendarEventSuccess(supabase, eventKey, { electionYear, cycleKey });
+
+  const freezeAt = new Date();
+  const { error: frErr } = await supabase
+    .from("simulation_settings")
+    .update({
+      calendar_seat_cycle_freeze_rp_year: electionYear,
+      calendar_seat_cycle_freeze_rp_month: 11,
+      updated_at: freezeAt.toISOString(),
+    })
+    .eq("id", 1);
+  if (frErr) console.warn("[calendar] midterm RP freeze:", frErr.message);
 }
 
 /**
  * @param electionYear U.S. presidential **general election** year (e.g. 2032 for Nov 2032). Races use
- * `calendar_cycle_key = presidential_<year>`. Opens first RP **January 2033** (see `RP_YEAR_MONTH_FIRST_OPEN_PRESIDENTIAL_SEAT_CYCLE`).
+ * `calendar_cycle_key = presidential_<year>`. Opens when RP first reaches **November** of that year; freezes RP until seating.
  */
 export async function handlePresidentialElectionOpen(supabase: SupabaseClient, electionYear: number): Promise<void> {
   const eventKey = `presidential_election_open_${electionYear}`;
@@ -504,6 +515,17 @@ export async function handlePresidentialElectionOpen(supabase: SupabaseClient, e
   // TODO: Discord webhook — presidential election cycle open #announcements
 
   await insertCalendarEventSuccess(supabase, eventKey, { electionYear, cycleKey });
+
+  const freezeAt = new Date();
+  const { error: frErr } = await supabase
+    .from("simulation_settings")
+    .update({
+      calendar_seat_cycle_freeze_rp_year: electionYear,
+      calendar_seat_cycle_freeze_rp_month: 11,
+      updated_at: freezeAt.toISOString(),
+    })
+    .eq("id", 1);
+  if (frErr) console.warn("[calendar] presidential RP freeze:", frErr.message);
 }
 
 async function allCycleSeatRacesClosed(supabase: SupabaseClient, cycleKey: string): Promise<boolean> {
@@ -558,14 +580,19 @@ export async function handleMidtermSeating(supabase: SupabaseClient, electionYea
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
-  await rpcOpenPartyLeadershipWindows(supabase, 25);
+  await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 
   const anchorMid = new Date();
   const congressJanuaryYear = electionYear + 1;
   const startAtMid = isoSimulationStartForRpInstantAt(anchorMid, congressJanuaryYear, 1);
   const { error: snapMidErr } = await supabase
     .from("simulation_settings")
-    .update({ simulation_start_at: startAtMid, updated_at: anchorMid.toISOString() })
+    .update({
+      simulation_start_at: startAtMid,
+      calendar_seat_cycle_freeze_rp_year: null,
+      calendar_seat_cycle_freeze_rp_month: null,
+      updated_at: anchorMid.toISOString(),
+    })
     .eq("id", 1);
   if (snapMidErr) {
     console.warn("[calendar] simulation_start_at snap after midterm seating:", snapMidErr.message);
@@ -595,14 +622,19 @@ export async function handlePresidentialCycleSeating(supabase: SupabaseClient, e
 
   await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
-  await rpcOpenPartyLeadershipWindows(supabase, 25);
+  await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 
   const anchorPres = new Date();
   const inaugurationJanuaryYear = electionYear + 1;
   const startAtPres = isoSimulationStartForRpInstantAt(anchorPres, inaugurationJanuaryYear, 1);
   const { error: snapPresErr } = await supabase
     .from("simulation_settings")
-    .update({ simulation_start_at: startAtPres, updated_at: anchorPres.toISOString() })
+    .update({
+      simulation_start_at: startAtPres,
+      calendar_seat_cycle_freeze_rp_year: null,
+      calendar_seat_cycle_freeze_rp_month: null,
+      updated_at: anchorPres.toISOString(),
+    })
     .eq("id", 1);
   if (snapPresErr) {
     console.warn("[calendar] simulation_start_at snap after presidential seating:", snapPresErr.message);

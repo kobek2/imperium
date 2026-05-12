@@ -172,7 +172,18 @@ export function CharacterForm({
       }
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Unable to save.");
+      const raw = err instanceof Error ? err.message : "";
+      const lower = raw.toLowerCase();
+      const looksLikeNetwork =
+        lower.includes("failed to fetch") ||
+        lower.includes("networkerror") ||
+        lower.includes("load failed") ||
+        lower.includes("network request failed");
+      setMessage(
+        looksLikeNetwork
+          ? "Could not reach the server (network error). Check your connection, wait a moment, and try again. If it keeps happening, refresh the page."
+          : raw || "Unable to save.",
+      );
       setPending(false);
     }
   }

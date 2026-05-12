@@ -295,11 +295,14 @@ export function BillCard({
   userId,
   roleKeys,
   viewerParty,
+  viewerWhipInstruction = null,
   userChambers,
   isPresidentialRunningMate = false,
   canBreakSenateTie = false,
   /** When true, floor vote forms are omitted unless the viewer may cast that vote (cleaner observe-only UX). */
   suppressVoteForms = false,
+  /** Highlight when this bill has leadership work or a floor vote awaiting you. */
+  showAttentionDot = false,
 }: {
   bill: BillForCard;
   votes: BillVote[];
@@ -307,11 +310,14 @@ export function BillCard({
   userId: string;
   roleKeys: string[];
   viewerParty: string | null;
+  /** Leadership whip for the viewer's party on this bill's active floor (if any). */
+  viewerWhipInstruction?: "yea" | "nay" | null;
   /** Chambers the viewer holds a floor-voting role in. */
   userChambers: Array<"house" | "senate">;
   isPresidentialRunningMate?: boolean;
   canBreakSenateTie?: boolean;
   suppressVoteForms?: boolean;
+  showAttentionDot?: boolean;
 }) {
   const houseVotes = votes.filter((v) => v.chamber === "house");
   const senateVotes = votes.filter((v) => v.chamber === "senate");
@@ -335,6 +341,7 @@ export function BillCard({
       : whipChamber === "senate"
         ? roleKeys.some((k) => SENATE_WHIP_SET.has(k))
         : false;
+  const showWhipCorner = Boolean(viewerWhipInstruction && !canSetWhip);
   const canActOriginatingLeadership = canAcceptRejectHopperForChamber(roleKeys, originatingChamber);
   const canActReceivingLeadership = canAcceptRejectHopperForChamber(roleKeys, receivingChamber);
   const openVoteChamber =
@@ -360,14 +367,21 @@ export function BillCard({
   return (
     <article className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
             {billStatusDisplay(bill.status, { originatingChamber: bill.originating_chamber })}
           </p>
-          <h3 className="text-lg font-semibold text-[var(--psc-ink)]">
-            <Link href={`/bill/${bill.id}`} className="hover:underline">
+          <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-[var(--psc-ink)]">
+            <Link href={`/bill/${bill.id}`} className="min-w-0 hover:underline">
               {bill.title}
             </Link>
+            {showAttentionDot ? (
+              <span
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-red-600 shadow-sm ring-2 ring-[var(--psc-panel)]"
+                aria-label="Needs your attention"
+                title="Needs your attention"
+              />
+            ) : null}
           </h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
             Filed {fmt(bill.created_at)} · Originating chamber:{" "}
@@ -404,6 +418,19 @@ export function BillCard({
             <BillVoteCountdown endsAtIso={bill.chamber_vote_deadline_at} />
           ) : null}
         </div>
+        {showWhipCorner ? (
+          <div
+            className="shrink-0 rounded-md border border-amber-300/90 bg-amber-50 px-2.5 py-1.5 text-right shadow-sm"
+            title="Caucus guidance from chamber leadership"
+          >
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-amber-900">Caucus whip</p>
+            <p className="mt-0.5 text-[11px] font-semibold leading-tight text-amber-950">
+              Directed to vote{" "}
+              <span className="whitespace-nowrap">{viewerWhipInstruction === "yea" ? "Aye" : "Nay"}</span>
+              <span className="font-normal text-amber-900/90"> by leadership</span>
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <BillBody content_html={bill.content_html} content_md={bill.content_md} />

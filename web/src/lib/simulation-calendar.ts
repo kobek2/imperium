@@ -1,4 +1,4 @@
-import { computeRpDate, rpDateKey } from "@/lib/simulation-calendar-constants";
+import { computeRpDateForCalendarTick, rpDateKey } from "@/lib/simulation-calendar-constants";
 
 const MS_PER_DAY = 86_400_000;
 /** Mean Gregorian month length (365.2425 / 12). */
@@ -18,6 +18,9 @@ export type SimulationSettingsRow = {
   simulation_start_at?: string | null;
   calendar_is_active?: boolean | null;
   simulation_start_unlocked?: boolean | null;
+  /** During calendar midterm/presidential seat races, RP is held at this year until seating. */
+  calendar_seat_cycle_freeze_rp_year?: number | null;
+  calendar_seat_cycle_freeze_rp_month?: number | null;
 };
 
 function parseISODateOnly(s: string): { y: number; m: number; d: number } {
@@ -97,7 +100,12 @@ export function computeSimulationRpInstant(
   if (settings.calendar_is_active && settings.simulation_start_at) {
     const start = new Date(settings.simulation_start_at);
     if (!Number.isNaN(start.getTime())) {
-      const rp = computeRpDate(start, now);
+      const rp = computeRpDateForCalendarTick(
+        start,
+        now,
+        settings.calendar_seat_cycle_freeze_rp_year,
+        settings.calendar_seat_cycle_freeze_rp_month,
+      );
       const yearMonthKey = rpDateKey(rp.year, rp.month);
       const at = new Date(Date.UTC(rp.year, rp.month - 1, 1, 12, 0, 0));
       const label = `${MONTH_NAMES[rp.month - 1] ?? "Month"} ${rp.year}`;
@@ -176,5 +184,7 @@ export function defaultSimulationSettingsForDisplay(): SimulationSettingsRow {
     simulation_start_at: null,
     calendar_is_active: false,
     simulation_start_unlocked: false,
+    calendar_seat_cycle_freeze_rp_year: null,
+    calendar_seat_cycle_freeze_rp_month: null,
   };
 }

@@ -4,12 +4,18 @@ export function TaxBracketAnalyticsTable({
   bands,
   totalIncome,
   totalTax,
-  playerCountWithIncome,
+  totalsFootnote,
+  incomeColumnLabel = "Income in band",
+  revenueColumnLabel = "Revenue from band",
 }: {
   bands: BracketBandStat[];
   totalIncome: number;
   totalTax: number;
-  playerCountWithIncome: number;
+  /** Explains what “income” and the player count represent (e.g. hourly vs closed-year ledger). */
+  totalsFootnote: string;
+  /** Table header for the income column (e.g. est. annual vs closed-year actual). */
+  incomeColumnLabel?: string;
+  revenueColumnLabel?: string;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -20,8 +26,8 @@ export function TaxBracketAnalyticsTable({
             <th className="py-2 pr-2">Ceiling</th>
             <th className="py-2 pr-2">Rate</th>
             <th className="py-2 pr-2">Players w/ income here</th>
-            <th className="py-2 pr-2">Income in band</th>
-            <th className="py-2">Revenue from band</th>
+            <th className="py-2 pr-2">{incomeColumnLabel}</th>
+            <th className="py-2">{revenueColumnLabel}</th>
           </tr>
         </thead>
         <tbody>
@@ -41,7 +47,7 @@ export function TaxBracketAnalyticsTable({
         <tfoot>
           <tr className="border-t border-[var(--psc-border)] font-semibold text-[var(--psc-ink)]">
             <td className="py-2 pr-2" colSpan={3}>
-              Totals ({playerCountWithIncome} players with positive inflows this FY)
+              Totals ({totalsFootnote})
             </td>
             <td className="py-2 pr-2">—</td>
             <td className="py-2 pr-2 font-mono tabular-nums">${totalIncome.toLocaleString()}</td>

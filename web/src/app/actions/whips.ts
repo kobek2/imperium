@@ -79,25 +79,6 @@ export async function setBillWhipInstruction(formData: FormData): Promise<void> 
   );
   throwIfPostgrestError(error);
 
-  const chamberRole = chamber === "house" ? "representative" : "senator";
-  const { data: targets } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("party", party)
-    .eq("office_role", chamberRole);
-  const dedupe = `whip:${billId}:${chamber}:${party}:${instructedVote}:${Date.now()}`;
-  const inboxRows = (targets ?? []).map((t) => ({
-    user_id: String((t as { id: string }).id),
-    kind: "whip_instruction",
-    title: `${chamber === "house" ? "House" : "Senate"} whip guidance`,
-    body: `${String((bill as { title?: string }).title ?? "Bill")}: ${party} caucus instructed vote is ${instructedVote.toUpperCase()}.`,
-    href: `/bill/${billId}`,
-    dedupe_key: dedupe,
-  }));
-  if (inboxRows.length) {
-    await supabase.from("inbox_items").insert(inboxRows).select("id");
-  }
-
   revalidatePath(`/bill/${billId}`);
   revalidatePath("/");
   revalidatePath("/congress");

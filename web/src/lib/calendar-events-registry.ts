@@ -1,12 +1,12 @@
 /** Static registry for admin UI (status resolved against simulation_calendar_events at runtime). */
 export const CALENDAR_EVENT_DEFINITIONS = [
   { key: "inauguration_2029", label: "Inauguration 2029 — seat Congress, expire bills, open leadership races" },
-  { key: "leadership_close_2029", label: "Leadership close (25h after inauguration)" },
+  { key: "leadership_close_2029", label: "Leadership close (12h after inauguration seating)" },
   { key: "budget_open_2029_09", label: "Budget window — September 2029" },
   { key: "budget_deadline_2029_10", label: "Budget deadline — October 2029 (freeze if no appropriations)" },
   {
     key: "midterms_open_2030",
-    label: "2030 midterm election — filings open (first RP January after 2029 inaugural Congress)",
+    label: "2030 midterm election — filings open (first RP November 2030)",
   },
   {
     key: "midterms_seated_2030",
@@ -14,7 +14,7 @@ export const CALENDAR_EVENT_DEFINITIONS = [
   },
   {
     key: "presidential_election_open_2032",
-    label: "2032 presidential election — filings open (first RP January 2033; Nov 2032 not modeled separately)",
+    label: "2032 presidential election — filings open (first RP November 2032; seating RP January 2033)",
   },
   {
     key: "presidential_seated_2032",
@@ -22,11 +22,11 @@ export const CALENDAR_EVENT_DEFINITIONS = [
   },
   {
     key: "leadership_close_midterm_2030",
-    label: "Leadership close — 25h after 2030 midterm seating",
+    label: "Leadership close — 12h after 2030 midterm seating",
   },
   {
     key: "leadership_close_post_pres_2032",
-    label: "Leadership close — 25h after 2032 presidential cycle seating",
+    label: "Leadership close — 12h after 2032 presidential cycle seating",
   },
   { key: "budget_open_2030_09", label: "Budget window — September 2030" },
   { key: "budget_deadline_2030_10", label: "Budget deadline — October 2030" },

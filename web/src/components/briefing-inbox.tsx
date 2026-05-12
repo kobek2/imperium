@@ -23,6 +23,8 @@ function kindEyebrow(kind: BriefingMoment["kind"]) {
       return "Election";
     case "bill_milestone":
       return "Legislation";
+    case "whip_instruction":
+      return "Floor whip";
     case "party_leadership":
       return "Party";
     case "executive_order":

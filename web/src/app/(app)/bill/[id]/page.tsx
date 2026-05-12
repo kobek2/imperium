@@ -184,6 +184,10 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     .eq("chamber", whipChamber ?? chamber)
     .order("set_at", { ascending: false });
   const viewerParty = String((profile as { party?: string | null } | null)?.party ?? "").trim().toLowerCase();
+  const whipPartyFormValue =
+    viewerParty === "democrat" || viewerParty === "republican" || viewerParty === "independent"
+      ? viewerParty
+      : "independent";
   const viewerWhip = (whipRows ?? []).find((w) => String((w as { party?: string }).party ?? "").toLowerCase() === viewerParty) as
     | { instructed_vote?: string; rationale?: string | null; set_at?: string }
     | undefined;
@@ -263,6 +267,22 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         ) : null}
       </header>
 
+      {(bill.status === "house_floor" || bill.status === "senate_floor") &&
+      viewerWhip?.instructed_vote &&
+      !canSetWhip ? (
+        <aside className="rounded-lg border border-amber-300/90 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-900">Caucus whip</p>
+          <p className="mt-1 leading-snug">
+            Leadership directs you to vote{" "}
+            <strong>{String(viewerWhip.instructed_vote).toLowerCase() === "nay" ? "Nay" : "Aye"}</strong> on this
+            question.
+            {viewerWhip.set_at ? (
+              <span className="text-xs font-normal text-amber-900/85"> Updated {fmt(viewerWhip.set_at)}.</span>
+            ) : null}
+          </p>
+        </aside>
+      ) : null}
+
       {canCloseFloorVote ? (
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm text-[var(--psc-ink)]">
           <h2 className="text-sm font-semibold">Close floor vote</h2>
@@ -284,10 +304,18 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         <section className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
           <h2 className="text-sm font-semibold text-[var(--psc-ink)]">Whip vote</h2>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">
-            Send a caucus-wide whip call for your party ({whipChamber === "house" ? "House" : "Senate"} floor). Members
-            receive an inbox notification.
+            Send a caucus-wide whip for your party on the {whipChamber === "house" ? "House" : "Senate"} floor. Members
+            see the call on this bill and on the Congress docket — no separate inbox fan-out.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {viewerWhip?.instructed_vote ? (
+              <p className="text-xs font-semibold text-[var(--psc-ink)]">
+                Current published call: vote{" "}
+                <strong>{String(viewerWhip.instructed_vote).toLowerCase() === "nay" ? "Nay" : "Aye"}</strong>
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)]">No published call for your party yet.</p>
+            )}
             {viewerWhip?.set_at ? (
               <p className="text-xs text-[var(--psc-muted)]">Last updated {fmt(viewerWhip.set_at)}</p>
             ) : null}
@@ -295,6 +323,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
           <div className="mt-2 flex flex-wrap gap-2">
             <form action={setBillWhipInstruction}>
               <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="party" value={whipPartyFormValue} />
               <input type="hidden" name="instructed_vote" value="yea" />
               <SubmitButton className="rounded border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
                 Whip Aye
@@ -302,6 +331,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
             </form>
             <form action={setBillWhipInstruction}>
               <input type="hidden" name="bill_id" value={bill.id} />
+              <input type="hidden" name="party" value={whipPartyFormValue} />
               <input type="hidden" name="instructed_vote" value="nay" />
               <SubmitButton className="rounded border border-rose-700 bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white">
                 Whip Nay
@@ -310,7 +340,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
           </div>
           <form action={setBillWhipInstruction} className="hidden">
             <input type="hidden" name="bill_id" value={bill.id} />
-            <input type="hidden" name="party" value={viewerParty || "independent"} />
+            <input type="hidden" name="party" value={whipPartyFormValue} />
           </form>
         </section>
       ) : null}

@@ -18,6 +18,12 @@ import type { FederalBudgetPriorYearTutorialContext } from "@/lib/federal-budget
 import { buildFederalAppropriationsBillHtml } from "@/lib/build-federal-appropriations-bill-html";
 import { buildBracketAnalytics } from "@/lib/load-fiscal-tax-analytics";
 import {
+  annualizeScheduledHourlyGrossForFederalBracketPreview,
+  FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER,
+  FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR,
+  ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT,
+} from "@/lib/federal-bracket-preview-annualization";
+import {
   budgetSurplusTiers,
   computeServerGdpIndexRatio,
   lineItemDefaultLabel,
@@ -56,7 +62,7 @@ export function FederalBudgetPanel({
   isAdmin,
   isTreasurySecretary = false,
   closedFiscalYears,
-  taxBaseWalletBalances,
+  bracketPreviewIncomes,
   nationalMetrics,
   priorYearBudgetSummary,
   showInteractiveFederalTutorial = false,
@@ -93,8 +99,11 @@ export function FederalBudgetPanel({
     gdp_opening_total: number | null;
     gdp_closing_total: number | null;
   }>;
-  /** Per-player wallet balances for the current server state (all players, not only hourly collectors). */
-  taxBaseWalletBalances: number[];
+  /**
+   * Per-profile scheduled gross for one sim-hour collect (government role + PAC), same basis as
+   * `economy_collect_income` before elapsed hours — used for marginal-bracket preview only.
+   */
+  bracketPreviewIncomes: number[];
   nationalMetrics: NationalMetricsRow | null;
   /** Latest closed FY appropriations + estimated tax (for YoY). Null if no closed year on file. */
   priorYearBudgetSummary: PriorFiscalYearBudgetSummary | null;
@@ -148,9 +157,15 @@ export function FederalBudgetPanel({
   const [lines, setLines] = useState<FiscalLineItemRow[]>(initialLines);
   const [billPreviewOpen, setBillPreviewOpen] = useState(false);
 
+  const annualizedBracketPreviewIncomes = useMemo(
+    () =>
+      bracketPreviewIncomes.map((gross) => annualizeScheduledHourlyGrossForFederalBracketPreview(Number(gross) || 0)),
+    [bracketPreviewIncomes],
+  );
+
   const liveBracketAnalytics = useMemo(
-    () => buildBracketAnalytics(taxBaseWalletBalances, brackets as FiscalTaxBracket[]),
-    [taxBaseWalletBalances, brackets],
+    () => buildBracketAnalytics(annualizedBracketPreviewIncomes, brackets as FiscalTaxBracket[]),
+    [annualizedBracketPreviewIncomes, brackets],
   );
 
   const appropriationsPreviewHtml = useMemo(() => {
@@ -453,13 +468,23 @@ export function FederalBudgetPanel({
             {liveBracketAnalytics.bands.length > 0 ? (
               <div className="mt-6 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--psc-ink)]">
-                  Bracket impact (all player wallet balances × draft brackets)
+                  Bracket impact (estimated annual collections × draft brackets)
                 </h3>
+                <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
+                  Scheduled gross is the same role + PAC rate as one sim-hour of pay. For planning we scale to an estimated
+                  calendar year: multiply by {ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT} (max sim-hours paid per collect, same cap
+                  as live collect) × {FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR} (one collect per day). That is ×
+                  {FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()} per profile before brackets. FY close
+                  still uses actual summed <code className="font-mono text-[10px]">hourly_income</code> ledger totals for the
+                  year.
+                </p>
                 <TaxBracketAnalyticsTable
                   bands={liveBracketAnalytics.bands}
                   totalIncome={liveBracketAnalytics.totalIncome}
                   totalTax={liveBracketAnalytics.totalTax}
-                  playerCountWithIncome={liveBracketAnalytics.playerCountWithIncome}
+                  incomeColumnLabel="Est. annual income in band"
+                  revenueColumnLabel="Est. annual tax from band"
+                  totalsFootnote={`${liveBracketAnalytics.playerCountWithIncome} profiles with est. annual gross > $0 (×${FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()})`}
                 />
               </div>
             ) : (
@@ -546,8 +571,13 @@ export function FederalBudgetPanel({
             <div id="federal-budget-analytics" className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Budget analytics (this draft)</h3>
               <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
-                Tax analytics here are modeled from the current wallet distribution across all players. Appropriations are the
-                sum of your line items. Net (tax − appropriations) is a planning snapshot, not a full cash-flow model.
+                Tax analytics use each profile&apos;s scheduled hourly pay (roles + PAC), scaled to an{" "}
+                <strong className="text-[var(--psc-ink)]">estimated calendar-year</strong> inflow (daily collect ×{" "}
+                {ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT}h cap × {FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR} days) so draft
+                brackets sit on the same scale as annual appropriations. This is a planning model, not FY-to-date cash or final
+                settlement (FY close uses summed <code className="font-mono text-[10px]">hourly_income</code> ledger totals).
+                Appropriations are the sum of your line items. Net (tax − appropriations) is a snapshot, not a full cash-flow
+                model.
               </p>
               <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -576,7 +606,7 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Est. income tax (draft brackets × all player wallet balances)
+                    Est. income tax (draft brackets × est. annual gross)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${estimatedTaxYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -584,14 +614,14 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Tax base (all player wallet balances)
+                    Tax base (sum of est. annual gross)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
                     ${taxableSalaryIncomeYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </dd>
                   <dd className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
-                    {taxBaseWalletBalances.length} player
-                    {taxBaseWalletBalances.length === 1 ? "" : "s"} included
+                    {bracketPreviewIncomes.length} profile{bracketPreviewIncomes.length === 1 ? "" : "s"} × hourly ×{" "}
+                    {FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()}
                   </dd>
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -666,7 +696,7 @@ export function FederalBudgetPanel({
                         ${priorYearBudgetSummary.estimatedIncomeTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </dd>
                       <dd className="mt-1 text-[10px] text-[var(--psc-muted)]">
-                        Draft preview (FY-to-date now) minus that closed-year total:{" "}
+                        Draft model (est. annual tax from daily collects) minus that closed-year actual:{" "}
                         <span className="font-mono font-semibold text-[var(--psc-ink)]">
                           {estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax >= 0 ? "+" : ""}$
                           {(estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax).toLocaleString(undefined, {

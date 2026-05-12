@@ -2878,7 +2878,7 @@ export function declineToDefendOutcome(agenda: CourtAgenda): { outcomeTier: Cour
   return {
     outcomeTier: "decisive_loss",
     summary:
-      `The United States declined to defend ${agenda.defendPosition}. The Court accepted plaintiffs' arguments without government opposition. The position was struck.`,
+      `At oral argument, no government advocate rose to defend ${agenda.defendPosition}. The bench's questions assumed the absence of a contrary federal position; petitioners' counsel walked the Court through the statutory and constitutional defects without meaningful pushback. The Court accepted plaintiffs' arguments in full and left the United States' prior position without support in precedent. The judgment effectively strikes the government's stance.`,
   };
 }
 
@@ -2886,13 +2886,13 @@ function describeOutcome(agenda: CourtAgenda, side: "defend" | "challenge", tier
   const position = side === "defend" ? agenda.defendPosition : agenda.challengePosition;
   switch (tier) {
     case "decisive_win":
-      return `In a decisive ruling, the Court accepted the United States' position and held in favor of the government's stance on ${position}. The opinion adopts the government's framing largely intact.`;
+      return `During oral argument, the Solicitor General's opening framed ${position} around the government's strongest precedents; rebuttal deflected the opposing side's hypotheticals and the Court's skeptical lines returned largely to administrative practice, not constitutional doubt. In a decisive ruling, the Court embraced that framing: the majority opinion tracks the government's principal themes, adopts its proposed limiting principles, and leaves little daylight for lower courts to second-guess the United States on ${position}.`;
     case "narrow_win":
-      return `By a narrow margin, the Court ruled in favor of the United States on ${position}. The opinion accepts the result but reserves several issues for future adjudication.`;
+      return `Argument sessions showed a bench split on ${position}: several Justices pressed the government on remedy and severability, while others worried about unsettling reliance interests if the United States lost. The Court ultimately sided with the government, but the narrow majority hedges—explicitly reserving fact-bound applications, inviting future clarification, and declining to endorse every auxiliary argument the Solicitor General offered.`;
     case "narrow_loss":
-      return `In a closely-divided opinion, the Court ruled against the United States on ${position}. The dissent largely tracked the government's brief; the next administration may have room to revisit through further litigation.`;
+      return `The United States pressed ${position} through a structured merits argument—opening, rebuttal, and answers to three rounds of bench questions—but the Court's center held against the government. The majority opinion rejects the United States' core inference while borrowing a few narrower points from the government's brief. A vigorous dissent channels much of the government's reasoning, signaling that ${position} could be relitigated when facts or personnel change.`;
     case "decisive_loss":
-      return `The Court ruled decisively against the United States on ${position}. The opinion forecloses several lines of argument the United States had relied on.`;
+      return `From the first question at oral argument, the bench signaled deep skepticism of ${position}; rebuttal could not recover lost ground. The Court's decisive opinion repudiates the government's central statutory theory, narrows or overrules supporting precedents the United States invoked, and closes off several fallback arguments the Solicitor General attempted at the lectern. The judgment leaves the government to refashion policy outside the lines the Court drew.`;
   }
 }
 
@@ -2900,11 +2900,11 @@ function describeAmicusOutcome(agenda: CourtAgenda, tier: CourtOutcomeTier): str
   switch (tier) {
     case "decisive_win":
     case "narrow_win":
-      return `The Court's opinion in ${agenda.caseLabel} adopted significant portions of the United States' amicus framing on the legal question.`;
+      return `Because the United States appeared only as amicus, argument time was limited, but the Department's brief supplied the vocabulary the Court adopted: the majority opinion repeatedly cites the government's framing of the standard of review and the government-proposed limiting construction. On ${agenda.topic}, the Court's result aligns closely with the amicus position even though the United States was not a principal party in ${agenda.caseLabel}.`;
     case "narrow_loss":
-      return `The Court's opinion in ${agenda.caseLabel} acknowledged the United States' amicus filing but ultimately ruled in the opposite direction on the merits.`;
+      return `The Department's amicus brief in ${agenda.caseLabel} steered the Court toward a modest, federalism-sensitive resolution; oral colloquy showed several Justices engaging seriously with that roadmap. The final opinion nevertheless resolves the merits against the posture the United States urged—while acknowledging the government's filing and incorporating a few of its narrower factual points. The practical loss is contained but real for DOJ's preferred rule.`;
     case "decisive_loss":
-      return `The Court's opinion in ${agenda.caseLabel} largely set aside the United States' amicus framing.`;
+      return `The amicus the United States filed in ${agenda.caseLabel} failed to move the Court's center of gravity: questioning at argument treated the government's suggestions as peripheral, and the controlling opinion distances itself from the Department's reasoning. The judgment leaves the United States' amicus position without meaningful purchase on the merits.`;
   }
 }
 

@@ -16,11 +16,11 @@ import {
   handlePresidentialElectionOpen,
   type LeadershipCloseContext,
 } from "@/lib/calendar-event-handlers";
-import { computeRpDate } from "@/lib/simulation-calendar-constants";
+import { computeRpDateForCalendarTick } from "@/lib/simulation-calendar-constants";
 import type { SimulationSettingsRow } from "@/lib/simulation-calendar";
 import {
-  RP_YEAR_MONTH_FIRST_OPEN_MIDTERM_SEAT_CYCLE,
-  RP_YEAR_MONTH_FIRST_OPEN_PRESIDENTIAL_SEAT_CYCLE,
+  CALENDAR_LEADERSHIP_WINDOW_HOURS,
+  CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR,
   US_INAUGURAL_RP_YEAR,
   US_MIDTERM_ELECTION_YEAR,
   US_PRESIDENTIAL_ELECTION_YEAR,
@@ -31,6 +31,8 @@ export type SimulationSettingsV2 = SimulationSettingsRow & {
   simulation_start_at?: string | null;
   calendar_is_active?: boolean | null;
   simulation_start_unlocked?: boolean | null;
+  calendar_seat_cycle_freeze_rp_year?: number | null;
+  calendar_seat_cycle_freeze_rp_month?: number | null;
 };
 
 export async function getSimulationSettingsV2(supabase: SupabaseClient): Promise<SimulationSettingsV2 | null> {
@@ -61,7 +63,7 @@ async function runCalendarStep(
   }
 }
 
-const LEADERSHIP_CLOSE_DELAY_MS = 25 * 60 * 60 * 1000;
+const LEADERSHIP_CLOSE_DELAY_MS = CALENDAR_LEADERSHIP_WINDOW_HOURS * 60 * 60 * 1000;
 
 async function maybeFireDeferredLeadershipCloses(
   supabase: SupabaseClient,
@@ -78,17 +80,29 @@ async function maybeFireDeferredLeadershipCloses(
       closeKey: `leadership_close_${US_INAUGURAL_RP_YEAR}`,
       ctx: { kind: "inauguration", year: US_INAUGURAL_RP_YEAR },
     },
-    {
-      parentKey: `midterms_seated_${US_MIDTERM_ELECTION_YEAR}`,
-      closeKey: `leadership_close_midterm_${US_MIDTERM_ELECTION_YEAR}`,
-      ctx: { kind: "midterm", cycleYear: US_MIDTERM_ELECTION_YEAR },
-    },
-    {
-      parentKey: `presidential_seated_${US_PRESIDENTIAL_ELECTION_YEAR}`,
-      closeKey: `leadership_close_post_pres_${US_PRESIDENTIAL_ELECTION_YEAR}`,
-      ctx: { kind: "post_presidential", cycleOpenYear: US_PRESIDENTIAL_ELECTION_YEAR },
-    },
   ];
+  for (
+    let electionYear = US_MIDTERM_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
+  ) {
+    jobs.push({
+      parentKey: `midterms_seated_${electionYear}`,
+      closeKey: `leadership_close_midterm_${electionYear}`,
+      ctx: { kind: "midterm", cycleYear: electionYear },
+    });
+  }
+  for (
+    let electionYear = US_PRESIDENTIAL_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
+  ) {
+    jobs.push({
+      parentKey: `presidential_seated_${electionYear}`,
+      closeKey: `leadership_close_post_pres_${electionYear}`,
+      ctx: { kind: "post_presidential", cycleOpenYear: electionYear },
+    });
+  }
 
   for (const job of jobs) {
     if (!fired.has(job.parentKey) || fired.has(job.closeKey)) continue;
@@ -139,7 +153,13 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     step: "autoCloseCalendarPresidentElectionsIfDue",
   });
 
-  const rp = computeRpDate(start, now);
+  /** Seat-cycle freeze holds RP (and thus budget / inauguration gates) until seating — avoids natural RP sprinting during 72h races. */
+  const rp = computeRpDateForCalendarTick(
+    start,
+    now,
+    settings.calendar_seat_cycle_freeze_rp_year,
+    settings.calendar_seat_cycle_freeze_rp_month,
+  );
 
   let fired = await loadSuccessfulCalendarEventKeys(supabase);
 
@@ -157,24 +177,36 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     pending.push({ key: "budget_deadline_2029_10", run: () => handleBudgetDeadlineMiss(supabase, 2029) });
   }
 
-  if (
-    rpAtOrPastMonth(rp, RP_YEAR_MONTH_FIRST_OPEN_MIDTERM_SEAT_CYCLE) &&
-    !fired.has(`midterms_open_${US_MIDTERM_ELECTION_YEAR}`)
+  for (
+    let electionYear = US_MIDTERM_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
   ) {
-    pending.push({
-      key: `midterms_open_${US_MIDTERM_ELECTION_YEAR}`,
-      run: () => handleMidtermElectionOpen(supabase, US_MIDTERM_ELECTION_YEAR),
-    });
+    if (
+      rpAtOrPastMonth(rp, { year: electionYear, month: 11 }) &&
+      !fired.has(`midterms_open_${electionYear}`)
+    ) {
+      pending.push({
+        key: `midterms_open_${electionYear}`,
+        run: () => handleMidtermElectionOpen(supabase, electionYear),
+      });
+    }
   }
 
-  if (
-    rpAtOrPastMonth(rp, RP_YEAR_MONTH_FIRST_OPEN_PRESIDENTIAL_SEAT_CYCLE) &&
-    !fired.has(`presidential_election_open_${US_PRESIDENTIAL_ELECTION_YEAR}`)
+  for (
+    let electionYear = US_PRESIDENTIAL_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
   ) {
-    pending.push({
-      key: `presidential_election_open_${US_PRESIDENTIAL_ELECTION_YEAR}`,
-      run: () => handlePresidentialElectionOpen(supabase, US_PRESIDENTIAL_ELECTION_YEAR),
-    });
+    if (
+      rpAtOrPastMonth(rp, { year: electionYear, month: 11 }) &&
+      !fired.has(`presidential_election_open_${electionYear}`)
+    ) {
+      pending.push({
+        key: `presidential_election_open_${electionYear}`,
+        run: () => handlePresidentialElectionOpen(supabase, electionYear),
+      });
+    }
   }
 
   for (let y = 2030; y <= 2038; y += 1) {
@@ -197,18 +229,30 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
 
   fired = await loadSuccessfulCalendarEventKeys(supabase);
 
-  await runCalendarStep(
-    supabase,
-    `midterms_seated_${US_MIDTERM_ELECTION_YEAR}`,
-    () => handleMidtermSeating(supabase, US_MIDTERM_ELECTION_YEAR),
-    { step: "handleMidtermSeating" },
-  );
-  await runCalendarStep(
-    supabase,
-    `presidential_seated_${US_PRESIDENTIAL_ELECTION_YEAR}`,
-    () => handlePresidentialCycleSeating(supabase, US_PRESIDENTIAL_ELECTION_YEAR),
-    { step: "handlePresidentialCycleSeating" },
-  );
+  for (
+    let electionYear = US_MIDTERM_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
+  ) {
+    await runCalendarStep(
+      supabase,
+      `midterms_seated_${electionYear}`,
+      () => handleMidtermSeating(supabase, electionYear),
+      { step: "handleMidtermSeating", electionYear },
+    );
+  }
+  for (
+    let electionYear = US_PRESIDENTIAL_ELECTION_YEAR;
+    electionYear <= CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR;
+    electionYear += 4
+  ) {
+    await runCalendarStep(
+      supabase,
+      `presidential_seated_${electionYear}`,
+      () => handlePresidentialCycleSeating(supabase, electionYear),
+      { step: "handlePresidentialCycleSeating", electionYear },
+    );
+  }
 
   fired = await loadSuccessfulCalendarEventKeys(supabase);
   await maybeFireDeferredLeadershipCloses(supabase, fired, now);

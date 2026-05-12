@@ -58,7 +58,7 @@ export function FederalPriorYearSidebar({ snapshot }: { snapshot: FederalPriorYe
             bands={a.bands}
             totalIncome={a.totalIncome}
             totalTax={a.totalTax}
-            playerCountWithIncome={a.playerCountWithIncome}
+            totalsFootnote={`${a.playerCountWithIncome} players with positive hourly_income (salary + PAC) in ${snapshot.label}`}
           />
         ) : (
           <p className="text-xs text-[var(--psc-muted)]">No bracket rows on file for that year.</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import {
   agDeclineToDefend,
@@ -384,22 +385,27 @@ export function AttorneyGeneralCourtWorkbench({
           </header>
           <ul className="space-y-2">
             {recent.map((c) => (
-              <li
-                key={c.id}
-                className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-3 text-sm shadow-sm"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-semibold text-[var(--psc-ink)]">{c.caseLabel}</span>
-                  <span className="rounded bg-[var(--psc-canvas)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--psc-ink)]">
-                    {c.outcomeTier ? c.outcomeTier.replace(/_/g, " ") : c.status}
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--psc-muted)]">
-                  {c.topic} · {c.sideTaken ? `Posture: ${c.sideTaken}` : "No appearance"}
-                </p>
-                {c.outcomeSummary ? (
-                  <p className="mt-1 text-xs text-[var(--psc-ink)]">{c.outcomeSummary}</p>
-                ) : null}
+              <li key={c.id}>
+                <Link
+                  href={`/docket/${c.id}`}
+                  className="block rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-3 text-sm shadow-sm transition-colors hover:border-[var(--psc-accent)]/40 hover:bg-[var(--psc-canvas)]/40"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-semibold text-[var(--psc-ink)]">{c.caseLabel}</span>
+                    <span className="rounded bg-[var(--psc-canvas)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--psc-ink)]">
+                      {c.outcomeTier ? c.outcomeTier.replace(/_/g, " ") : c.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--psc-muted)]">
+                    {c.topic} · {c.sideTaken ? `Posture: ${c.sideTaken}` : "No appearance"}
+                  </p>
+                  {c.outcomeSummary ? (
+                    <p className="mt-1 line-clamp-4 text-xs leading-relaxed text-[var(--psc-ink)]">{c.outcomeSummary}</p>
+                  ) : null}
+                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-accent)]">
+                    Read dispatch →
+                  </p>
+                </Link>
               </li>
             ))}
           </ul>

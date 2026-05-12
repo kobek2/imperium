@@ -1,4 +1,5 @@
 import { BillCard, type BillForCard, type BillVote, type VoterProfile } from "./bill-card";
+import { billNeedsViewerAttention } from "@/lib/congress-viewer-attention";
 
 type StageBucketKey = "floor" | "debate" | "review" | "docket" | "submitted" | "other";
 
@@ -24,6 +25,7 @@ export function CongressDocketSection({
   userId,
   roleKeys,
   viewerParty,
+  viewerWhipByBillId,
   userChambers,
   isRunningMate,
   canBreakSenateTie,
@@ -42,6 +44,7 @@ export function CongressDocketSection({
   userId: string;
   roleKeys: string[];
   viewerParty: string | null;
+  viewerWhipByBillId: Map<string, "yea" | "nay">;
   userChambers: Array<"house" | "senate">;
   isRunningMate: boolean;
   canBreakSenateTie: boolean;
@@ -92,21 +95,36 @@ export function CongressDocketSection({
                   {meta.hint ? <p className="text-[11px] text-[var(--psc-muted)]">{meta.hint}</p> : null}
                 </div>
                 <div className="space-y-3">
-                  {stageBills.map((bill) => (
-                    <BillCard
-                      key={bill.id}
-                      bill={bill}
-                      votes={votesByBill.get(bill.id) ?? []}
-                      voterById={voterById}
-                      userId={userId}
-                      roleKeys={roleKeys}
-                      viewerParty={viewerParty}
-                      userChambers={userChambers}
-                      isPresidentialRunningMate={isRunningMate}
-                      canBreakSenateTie={canBreakSenateTie}
-                      suppressVoteForms={suppressVoteForms}
-                    />
-                  ))}
+                  {stageBills.map((bill) => {
+                    const votes = votesByBill.get(bill.id) ?? [];
+                    const showAttentionDot = billNeedsViewerAttention({
+                      bill,
+                      votes,
+                      userId,
+                      roleKeys,
+                      userChambers,
+                      isRunningMate,
+                      canBreakSenateTie,
+                    });
+                    const viewerWhipInstruction = viewerWhipByBillId.get(bill.id) ?? null;
+                    return (
+                      <BillCard
+                        key={bill.id}
+                        bill={bill}
+                        votes={votes}
+                        voterById={voterById}
+                        userId={userId}
+                        roleKeys={roleKeys}
+                        viewerParty={viewerParty}
+                        viewerWhipInstruction={viewerWhipInstruction}
+                        userChambers={userChambers}
+                        isPresidentialRunningMate={isRunningMate}
+                        canBreakSenateTie={canBreakSenateTie}
+                        suppressVoteForms={suppressVoteForms}
+                        showAttentionDot={showAttentionDot}
+                      />
+                    );
+                  })}
                 </div>
               </section>
             );

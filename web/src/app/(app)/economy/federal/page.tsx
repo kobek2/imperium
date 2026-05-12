@@ -4,7 +4,11 @@ import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getIsAdmin } from "@/lib/is-admin";
 import { getStaffAccess } from "@/lib/staff-access";
-import { buildBracketAnalytics, loadAnnualInflowsForFiscalYearWindow } from "@/lib/load-fiscal-tax-analytics";
+import {
+  buildBracketAnalytics,
+  loadAnnualInflowsForFiscalYearWindow,
+  loadScheduledHourlyGrossForAllProfiles,
+} from "@/lib/load-fiscal-tax-analytics";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
 import { parseTaxBrackets } from "@/lib/fiscal-tax";
 import { isPresident } from "@/lib/president";
@@ -134,7 +138,8 @@ export default async function FederalEconomyPage({
     ? await supabase.from("national_metrics").select("*").eq("fiscal_year_id", fy.id).maybeSingle()
     : { data: null };
 
-  const walletBalances = (wallets ?? []).map((w) => Number((w as { balance?: number }).balance ?? 0));
+  const bracketPreviewIncomes =
+    fy != null ? await loadScheduledHourlyGrossForAllProfiles(supabase) : [];
 
   const nationalMetrics = (nationalMetricsRow as NationalMetricsRow | null) ?? null;
 
@@ -327,7 +332,7 @@ export default async function FederalEconomyPage({
                   gdp_closing_total: number | null;
                 }>
               }
-              taxBaseWalletBalances={walletBalances}
+              bracketPreviewIncomes={bracketPreviewIncomes}
               nationalMetrics={nationalMetrics}
               priorYearBudgetSummary={priorYearBudgetSummary}
             />
