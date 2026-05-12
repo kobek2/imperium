@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SignOut } from "@/components/sign-out";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -86,6 +87,10 @@ export async function ProfileQuickDock() {
           <Link href="/leaderboard" className="rounded border border-[var(--psc-border)] bg-white px-2 py-1 text-[var(--psc-ink)]">
             Leaderboard
           </Link>
+        </div>
+
+        <div className="mt-3 border-t border-[var(--psc-border)] pt-3">
+          <SignOut />
         </div>
       </div>
     </details>

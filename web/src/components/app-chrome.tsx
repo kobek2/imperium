@@ -155,21 +155,20 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
               </Link>
             ) : null}
           </nav>
-          <div className="flex items-center gap-3 text-sm text-[var(--psc-muted)]">
-            {user ? (
-              <>
-                <span className="font-mono text-xs">Session active</span>
+          {!user || needsCharacterSetup ? (
+            <div className="flex shrink-0 items-center gap-3 text-sm">
+              {!user ? (
+                <Link
+                  href="/login"
+                  className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
+                >
+                  Sign in
+                </Link>
+              ) : (
                 <SignOut />
-              </>
-            ) : (
-              <Link
-                href="/login"
-                className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
-              >
-                Sign in
-              </Link>
-            )}
-          </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-10">

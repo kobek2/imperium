@@ -17,12 +17,7 @@ import { FederalBudgetInteractiveTutorial } from "@/components/federal-budget-in
 import type { FederalBudgetPriorYearTutorialContext } from "@/lib/federal-budget-tutorial-types";
 import { buildFederalAppropriationsBillHtml } from "@/lib/build-federal-appropriations-bill-html";
 import { buildBracketAnalytics } from "@/lib/load-fiscal-tax-analytics";
-import {
-  annualizeScheduledHourlyGrossForFederalBracketPreview,
-  FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER,
-  FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR,
-  ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT,
-} from "@/lib/federal-bracket-preview-annualization";
+import { FEDERAL_BRACKET_RP_YEAR_SIM_HOURS } from "@/lib/federal-bracket-preview-annualization";
 import {
   budgetSurplusTiers,
   computeServerGdpIndexRatio,
@@ -157,15 +152,9 @@ export function FederalBudgetPanel({
   const [lines, setLines] = useState<FiscalLineItemRow[]>(initialLines);
   const [billPreviewOpen, setBillPreviewOpen] = useState(false);
 
-  const annualizedBracketPreviewIncomes = useMemo(
-    () =>
-      bracketPreviewIncomes.map((gross) => annualizeScheduledHourlyGrossForFederalBracketPreview(Number(gross) || 0)),
-    [bracketPreviewIncomes],
-  );
-
   const liveBracketAnalytics = useMemo(
-    () => buildBracketAnalytics(annualizedBracketPreviewIncomes, brackets as FiscalTaxBracket[]),
-    [annualizedBracketPreviewIncomes, brackets],
+    () => buildBracketAnalytics(bracketPreviewIncomes, brackets as FiscalTaxBracket[]),
+    [bracketPreviewIncomes, brackets],
   );
 
   const appropriationsPreviewHtml = useMemo(() => {
@@ -201,9 +190,11 @@ export function FederalBudgetPanel({
 
   const aggregateSurplusOverMinimum = useMemo(() => Math.max(0, totalAllocated - totalMinimum), [totalAllocated, totalMinimum]);
 
-  const estimatedTaxYtd = liveBracketAnalytics.totalTax;
-  const taxableSalaryIncomeYtd = liveBracketAnalytics.totalIncome;
-  const draftNetTaxVsAppropriations = estimatedTaxYtd - totalAllocated;
+  const estimatedBracketTaxHourly = liveBracketAnalytics.totalTax;
+  const hourlyBracketIncomeTotal = liveBracketAnalytics.totalIncome;
+  const estimatedBracketTaxRpYear = estimatedBracketTaxHourly * FEDERAL_BRACKET_RP_YEAR_SIM_HOURS;
+  const bracketSalaryBaseRpYear = hourlyBracketIncomeTotal * FEDERAL_BRACKET_RP_YEAR_SIM_HOURS;
+  const draftNetTaxVsAppropriations = estimatedBracketTaxRpYear - totalAllocated;
   const cashRemainingVsSpend = Math.max(0, totalAllocated - taxPaidYtd);
   const cashSurplusDeficit = taxPaidYtd - totalAllocated;
   const canFileAppropriationsBill =
@@ -383,7 +374,7 @@ export function FederalBudgetPanel({
             gdpOpeningTotal={gdpOpeningTotal}
             taxPaidYtd={taxPaidYtd}
             playersTaxPaidActiveFy={playersTaxPaidActiveFy}
-            estimatedTaxYtd={estimatedTaxYtd}
+            estimatedTaxYtd={estimatedBracketTaxRpYear}
             totalAllocated={totalAllocated}
             draftNetTaxVsAppropriations={draftNetTaxVsAppropriations}
             treasuryBalance={treasuryBalance}
@@ -468,23 +459,23 @@ export function FederalBudgetPanel({
             {liveBracketAnalytics.bands.length > 0 ? (
               <div className="mt-6 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--psc-ink)]">
-                  Bracket impact (estimated annual collections × draft brackets)
+                  Bracket impact (hourly pay vs bands, then ×{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS} RP-year est.)
                 </h3>
                 <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
-                  Scheduled gross is the same role + PAC rate as one sim-hour of pay. For planning we scale to an estimated
-                  calendar year: multiply by {ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT} (max sim-hours paid per collect, same cap
-                  as live collect) × {FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR} (one collect per day). That is ×
-                  {FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()} per profile before brackets. FY close
-                  still uses actual summed <code className="font-mono text-[10px]">hourly_income</code> ledger totals for the
-                  year.
+                  Player counts and <strong className="text-[var(--psc-ink)]">hourly income in band</strong> use scheduled
+                  gross <strong className="text-[var(--psc-ink)]">per sim hour</strong> (role + PAC) against your ceilings —
+                  same marginal idea as four people at $50k / $100k / $200k / $1M per hour filling 4 / 3 / 2 / 1 in successive
+                  bands. The next columns multiply each band&apos;s hourly slice and tax by{" "}
+                  <strong className="text-[var(--psc-ink)]">{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS}</strong> sim-hours (~one RP
+                  calendar year of pay at the sim pace staff use for planning). FY close still uses actual{" "}
+                  <code className="font-mono text-[10px]">hourly_income</code> ledger totals.
                 </p>
                 <TaxBracketAnalyticsTable
                   bands={liveBracketAnalytics.bands}
                   totalIncome={liveBracketAnalytics.totalIncome}
                   totalTax={liveBracketAnalytics.totalTax}
-                  incomeColumnLabel="Est. annual income in band"
-                  revenueColumnLabel="Est. annual tax from band"
-                  totalsFootnote={`${liveBracketAnalytics.playerCountWithIncome} profiles with est. annual gross > $0 (×${FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()})`}
+                  rpYearSimHoursMultiplier={FEDERAL_BRACKET_RP_YEAR_SIM_HOURS}
+                  totalsFootnote={`${liveBracketAnalytics.playerCountWithIncome} profiles with scheduled hourly gross > $0`}
                 />
               </div>
             ) : (
@@ -571,13 +562,12 @@ export function FederalBudgetPanel({
             <div id="federal-budget-analytics" className="mt-6 space-y-4 border-t border-[var(--psc-border)] pt-6">
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Budget analytics (this draft)</h3>
               <p className="text-[10px] leading-relaxed text-[var(--psc-muted)]">
-                Tax analytics use each profile&apos;s scheduled hourly pay (roles + PAC), scaled to an{" "}
-                <strong className="text-[var(--psc-ink)]">estimated calendar-year</strong> inflow (daily collect ×{" "}
-                {ECONOMY_MAX_SIM_HOURS_PAID_PER_COLLECT}h cap × {FEDERAL_BRACKET_PREVIEW_COLLECTS_PER_IRL_YEAR} days) so draft
-                brackets sit on the same scale as annual appropriations. This is a planning model, not FY-to-date cash or final
-                settlement (FY close uses summed <code className="font-mono text-[10px]">hourly_income</code> ledger totals).
-                Appropriations are the sum of your line items. Net (tax − appropriations) is a snapshot, not a full cash-flow
-                model.
+                Brackets are evaluated on <strong className="text-[var(--psc-ink)]">scheduled hourly</strong> gross (roles +
+                PAC). RP-year columns multiply hourly slices and marginal tax by{" "}
+                <strong className="text-[var(--psc-ink)]">{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS}</strong> so totals sit near one
+                RP calendar year of salary for planning vs appropriations. FY close uses summed{" "}
+                <code className="font-mono text-[10px]">hourly_income</code> ledger cash, not this model. Net (tax −
+                appropriations) uses the RP-year tax column. Not a full cash-flow model.
               </p>
               <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -606,22 +596,26 @@ export function FederalBudgetPanel({
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Est. income tax (draft brackets × est. annual gross)
+                    Est. RP-year income tax (×{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS} on hourly model)
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
-                    ${estimatedTaxYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    ${estimatedBracketTaxRpYear.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </dd>
+                  <dd className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
+                    Hourly marginal tax before ×{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS}: $
+                    {estimatedBracketTaxHourly.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </dd>
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
                   <dt className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                    Tax base (sum of est. annual gross)
+                    Tax base (hourly slices, then ×{FEDERAL_BRACKET_RP_YEAR_SIM_HOURS})
                   </dt>
                   <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-[var(--psc-ink)]">
-                    ${taxableSalaryIncomeYtd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    ${bracketSalaryBaseRpYear.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </dd>
                   <dd className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
-                    {bracketPreviewIncomes.length} profile{bracketPreviewIncomes.length === 1 ? "" : "s"} × hourly ×{" "}
-                    {FEDERAL_BRACKET_PREVIEW_ANNUALIZATION_MULTIPLIER.toLocaleString()}
+                    {bracketPreviewIncomes.length} profile{bracketPreviewIncomes.length === 1 ? "" : "s"}; hourly slice sum $
+                    {hourlyBracketIncomeTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </dd>
                 </div>
                 <div className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-2.5">
@@ -696,10 +690,11 @@ export function FederalBudgetPanel({
                         ${priorYearBudgetSummary.estimatedIncomeTax.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </dd>
                       <dd className="mt-1 text-[10px] text-[var(--psc-muted)]">
-                        Draft model (est. annual tax from daily collects) minus that closed-year actual:{" "}
+                        Draft RP-year model (hourly brackets × {FEDERAL_BRACKET_RP_YEAR_SIM_HOURS}h) minus that closed-year
+                        actual:{" "}
                         <span className="font-mono font-semibold text-[var(--psc-ink)]">
-                          {estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax >= 0 ? "+" : ""}$
-                          {(estimatedTaxYtd - priorYearBudgetSummary.estimatedIncomeTax).toLocaleString(undefined, {
+                          {estimatedBracketTaxRpYear - priorYearBudgetSummary.estimatedIncomeTax >= 0 ? "+" : ""}$
+                          {(estimatedBracketTaxRpYear - priorYearBudgetSummary.estimatedIncomeTax).toLocaleString(undefined, {
                             maximumFractionDigits: 0,
                           })}
                         </span>{" "}

@@ -253,10 +253,9 @@ export function FederalBudgetInteractiveTutorial({
             is drafting the budget for the <strong>upcoming</strong> <strong>{budgetTargetYearLabel}</strong>.
           </p>
           <p>
-            For <strong>{budgetTargetYearLabel}</strong>, estimated income tax from the live bracket model (each
-            profile&apos;s pay scaled to an <strong>estimated calendar-year</strong> inflow — daily collect × 24 sim-hours ×
-            365, then × your draft brackets — <strong>not</strong> wallet balances or cash receipts) is{" "}
-            <strong>{money(estimatedTaxYtd)}</strong>. This draft
+            For <strong>{budgetTargetYearLabel}</strong>, estimated income tax from the live bracket model (hourly scheduled
+            pay vs your draft bands, then × <strong>72</strong> sim-hours for an RP-year planning view —{" "}
+            <strong>not</strong> wallet balances or cash receipts) is <strong>{money(estimatedTaxYtd)}</strong>. This draft
             appropriates <strong>{money(totalAllocated)}</strong> for the <strong>{budgetTargetYearLabel}</strong> budget.
           </p>
           <p>
