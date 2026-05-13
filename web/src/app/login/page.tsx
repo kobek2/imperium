@@ -52,14 +52,6 @@ export default async function LoginPage({
         <div className="mt-8">
           <SignInDiscord />
         </div>
-        <p className="mt-6 text-xs text-[var(--psc-muted)]">
-          In Supabase: Auth → Providers → Discord. In the Discord app, set OAuth2
-          redirect to{" "}
-          <code className="font-mono break-all">
-            https://&lt;your-project-ref&gt;.supabase.co/auth/v1/callback
-          </code>{" "}
-          using the same project ref as Project Settings → API → Project URL.
-        </p>
         <Link
           href="/"
           className="mt-8 inline-block text-sm font-medium text-[var(--psc-accent)] underline-offset-4 hover:underline"
