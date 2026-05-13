@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useFormStatus } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
-import { endSelectedElections } from "@/app/actions/elections";
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
 
 export type AdminElectionRow = {
@@ -132,23 +130,12 @@ function searchBlob(r: AdminElectionRow): string {
     .toLowerCase();
 }
 
-function canSelectRaceForEnd(r: AdminElectionRow): boolean {
-  if (r.leadership_role) return false;
-  if (r.phase === "closed") return false;
-  return r.office === "house" || r.office === "senate" || r.office === "president";
+/** Year-round DB placeholders: not an opened race until staff starts the filing window. */
+function isDormantSeatTemplate(r: AdminElectionRow): boolean {
+  return r.phase === "filing" && !r.leadership_role && !r.filing_window_started_at;
 }
 
-function OperateChip({
-  r,
-  endSelection,
-  selected,
-  onToggleSelect,
-}: {
-  r: AdminElectionRow;
-  endSelection?: boolean;
-  selected?: boolean;
-  onToggleSelect?: (id: string, next: boolean) => void;
-}) {
+function OperateChip({ r }: { r: AdminElectionRow }) {
   /** Avoid Date.now() on SSR + first paint — deadlines vs "now" drift between server and client. */
   const [mounted, setMounted] = useState(false);
   const [, setMinuteBump] = useState(0);
@@ -166,7 +153,6 @@ function OperateChip({
     r.general_closes_at,
   ]);
   const cd = mounted ? countdown(r) : null;
-  const selectable = !!endSelection && canSelectRaceForEnd(r);
   const link = (
     <Link
       href={`/admin/elections/${r.id}`}
@@ -190,34 +176,7 @@ function OperateChip({
       ) : null}
     </Link>
   );
-  if (!selectable) return link;
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        type="checkbox"
-        checked={!!selected}
-        onChange={(e) => {
-          onToggleSelect?.(r.id, e.target.checked);
-        }}
-        className="h-3.5 w-3.5 shrink-0"
-        aria-label={`Select ${seatLabel(r)} for bulk end`}
-      />
-      {link}
-    </div>
-  );
-}
-
-function EndSelectedSubmit({ count }: { count: number }) {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending || count < 1}
-      className="rounded border border-rose-900/40 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-rose-100 hover:bg-rose-900/50 disabled:opacity-50"
-    >
-      {pending ? "Ending…" : `End selected (${count})`}
-    </button>
-  );
+  return link;
 }
 
 function FilterChip({
@@ -258,26 +217,37 @@ function FilterChip({
 export function AdminElectionsList({
   rows,
   view = "active",
-  enableEndSelection = false,
 }: {
   rows: AdminElectionRow[];
   view?: "active" | "archive";
-  /** When true (active tab), non-closed House/Senate/President races show a checkbox for targeted closeout. */
-  enableEndSelection?: boolean;
 }) {
   const archiveOnly = view === "archive";
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [showDormantSeatTemplates, setShowDormantSeatTemplates] = useState(false);
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
   const [officeFilter, setOfficeFilter] = useState<Office | "all">("all");
   const [showClosed, setShowClosed] = useState(false);
 
-  /** Rows included in phase/chamber counts — matches the default list (active tab hides closed). */
+  const dormantSeatCount = useMemo(
+    () =>
+      !archiveOnly
+        ? rows.filter((r) => r.phase !== "closed" && isDormantSeatTemplate(r)).length
+        : 0,
+    [rows, archiveOnly],
+  );
+
+  /** Rows included in phase/chamber counts — active tab hides closed; by default also hides dormant seat templates. */
   const statsRows = useMemo(() => {
-    if (archiveOnly) return rows.filter((r) => r.phase === "closed");
-    if (showClosed) return rows;
-    return rows.filter((r) => r.phase !== "closed");
-  }, [rows, archiveOnly, showClosed]);
+    let basis: AdminElectionRow[];
+    if (archiveOnly) basis = rows.filter((r) => r.phase === "closed");
+    else if (showClosed) basis = rows;
+    else basis = rows.filter((r) => r.phase !== "closed");
+
+    if (!archiveOnly && !showDormantSeatTemplates) {
+      basis = basis.filter((r) => !isDormantSeatTemplate(r));
+    }
+    return basis;
+  }, [rows, archiveOnly, showClosed, showDormantSeatTemplates]);
 
   const totalClosedCount = useMemo(() => rows.filter((r) => r.phase === "closed").length, [rows]);
 
@@ -309,12 +279,15 @@ export function AdminElectionsList({
       } else if (!showClosed && r.phase === "closed") {
         return false;
       }
+      if (!archiveOnly && !showDormantSeatTemplates && isDormantSeatTemplate(r)) {
+        return false;
+      }
       if (phaseFilter !== "all" && r.phase !== phaseFilter) return false;
       if (officeFilter !== "all" && bucketFor(r) !== officeFilter) return false;
       if (q && !searchBlob(r).includes(q)) return false;
       return true;
     });
-  }, [rows, query, phaseFilter, officeFilter, showClosed, archiveOnly]);
+  }, [rows, query, phaseFilter, officeFilter, showClosed, archiveOnly, showDormantSeatTemplates]);
 
   const grouped = useMemo(() => {
     const byOffice = new Map<Office, AdminElectionRow[]>();
@@ -330,15 +303,6 @@ export function AdminElectionsList({
 
   const hasAnyClosed = useMemo(() => rows.some((r) => r.phase === "closed"), [rows]);
 
-  function toggleSelect(id: string, next: boolean) {
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
-      if (next) n.add(id);
-      else n.delete(id);
-      return n;
-    });
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -347,15 +311,28 @@ export function AdminElectionsList({
         </h2>
         <div className="flex items-center gap-2">
           {!archiveOnly ? (
-            <label className="flex items-center gap-2 text-xs text-[var(--psc-muted)]">
-              <input
-                type="checkbox"
-                checked={showClosed}
-                onChange={(e) => setShowClosed(e.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              Show closed ({totalClosedCount})
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-[var(--psc-muted)]">
+                <input
+                  type="checkbox"
+                  checked={showClosed}
+                  onChange={(e) => setShowClosed(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                Show closed ({totalClosedCount})
+              </label>
+              {dormantSeatCount > 0 ? (
+                <label className="flex items-center gap-2 text-xs text-[var(--psc-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={showDormantSeatTemplates}
+                    onChange={(e) => setShowDormantSeatTemplates(e.target.checked)}
+                    className="h-3.5 w-3.5"
+                  />
+                  Show dormant seat templates ({dormantSeatCount})
+                </label>
+              ) : null}
+            </div>
           ) : null}
           <Link
             href="/admin/elections/new"
@@ -427,27 +404,14 @@ export function AdminElectionsList({
               </p>
             )}
 
-            {enableEndSelection && !archiveOnly ? (
-              <form
-                action={endSelectedElections}
-                className="flex flex-wrap items-center gap-2 rounded border border-rose-900/25 bg-rose-950/15 px-3 py-2"
-              >
-                {[...selectedIds].map((id) => (
-                  <input key={id} type="hidden" name="election_id" value={id} />
-                ))}
-                <p className="text-[11px] text-[var(--psc-muted)]">
-                  Check races below, then end only those (same closeout as opening a race and setting Closed).
-                </p>
-                <EndSelectedSubmit count={selectedIds.size} />
-              </form>
-            ) : null}
-
             <div className="space-y-1.5">
               {!archiveOnly && !showClosed ? (
                 <p className="text-[10px] leading-snug text-[var(--psc-muted)]">
                   Chamber counts are <strong className="text-[var(--psc-ink)]">non-closed</strong> races only (same as
-                  the list below). Old House/Senate/President cycles remain in the database as closed rows — enable
-                  “Show closed” to see them in counts and filters.
+                  the list below). <strong className="text-[var(--psc-ink)]">Dormant</strong> House/Senate/President rows
+                  (filing phase, filing window not started) stay in the database as templates — they are hidden here by
+                  default; use “Show dormant seat templates” if you need them. Old cycles also remain as closed rows —
+                  enable “Show closed” to include those in counts and filters.
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
@@ -486,7 +450,9 @@ export function AdminElectionsList({
                 ? "No closed elections yet. Finished races appear here once their phase is closed."
                 : archiveOnly
                   ? "No archived races match your filters."
-                  : "No races match your filters."}
+                  : !showDormantSeatTemplates && dormantSeatCount > 0
+                    ? `Nothing to show with current filters. ${dormantSeatCount} dormant seat template(s) are hidden — check “Show dormant seat templates” above, or use the Begin / Close controls at the top of this page.`
+                    : "No races match your filters."}
             </p>
           ) : (
             <div className="space-y-4">
@@ -511,13 +477,7 @@ export function AdminElectionsList({
                       </summary>
                       <div className="flex flex-wrap gap-1.5 border-t border-[var(--psc-border)] p-4">
                         {list.map((r) => (
-                          <OperateChip
-                            key={r.id}
-                            r={r}
-                            endSelection={enableEndSelection && !archiveOnly}
-                            selected={selectedIds.has(r.id)}
-                            onToggleSelect={toggleSelect}
-                          />
+                          <OperateChip key={r.id} r={r} />
                         ))}
                       </div>
                     </details>
@@ -572,13 +532,7 @@ export function AdminElectionsList({
                                 return ac.localeCompare(bc);
                               })
                               .map((r) => (
-                                <OperateChip
-                                  key={r.id}
-                                  r={r}
-                                  endSelection={enableEndSelection && !archiveOnly}
-                                  selected={selectedIds.has(r.id)}
-                                  onToggleSelect={toggleSelect}
-                                />
+                                <OperateChip key={r.id} r={r} />
                               ))}
                           </div>
                         </div>

@@ -1,20 +1,24 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SimulationRpBanner } from "@/components/simulation-rp-banner";
 import { CalendarSystemAdminPanel } from "@/components/calendar-system-admin-panel";
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffAccess, requireStaffPageAny } from "@/lib/staff-access";
 import { isPresident } from "@/lib/president";
-import { CALENDAR_EVENT_DEFINITIONS } from "@/lib/calendar-events-registry";
-import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
+import {
+  computeSimulationRpInstant,
+  formatRpCalendarShort,
+  type SimulationSettingsRow,
+} from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { countElectionCandidatesByElectionIds } from "@/lib/election-candidate-queries";
 import {
   AdminElectionsList,
   type AdminElectionRow,
 } from "./admin-elections-list";
-import { BulkEndElectionsForm } from "./bulk-end-elections-form";
+import { AdminElectionSimulationButtons } from "./admin-election-simulation-buttons";
+import { AdminCongressAppointmentsClient } from "./admin-congress-appointments-client";
+import { loadChamberSeatHolders } from "@/lib/admin-congress-appointment-queries";
 import { recomputeClosedLeadershipSession } from "@/app/actions/leadership-sessions";
 
 type LeadershipArchiveSession = {
@@ -58,10 +62,9 @@ export default async function AdminElectionsPage({
     isPresident(supabase, user.id),
   ]);
   const canCloseFiscalYear = Boolean(staffAccess?.hasFullStaff || pres);
+  const canStartAppropriationsClock = Boolean(staffAccess?.hasFullStaff);
 
-  const registryEventKeys = CALENDAR_EVENT_DEFINITIONS.map((d) => d.key);
-
-  const [{ data: rows }, simSettingsRes, calEventsRes, calRegistrySuccessRes, activeFyRes] = await Promise.all([
+  const [{ data: rows }, simSettingsRes, activeFyRes] = await Promise.all([
       supabase
         .from("elections")
         .select(
@@ -69,16 +72,6 @@ export default async function AdminElectionsPage({
         )
         .order("filing_opens_at", { ascending: false }),
       supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
-      supabase
-        .from("simulation_calendar_events")
-        .select("id, event_key, fired_at, status, error_message")
-        .order("fired_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("simulation_calendar_events")
-        .select("event_key")
-        .eq("status", "success")
-        .in("event_key", registryEventKeys),
       supabase.from("rp_fiscal_years").select("label, year_index").eq("status", "active").maybeSingle(),
     ]);
 
@@ -116,9 +109,15 @@ export default async function AdminElectionsPage({
     (activeFy?.label && String(activeFy.label).trim()) ||
     (activeFy?.year_index != null ? `FY ${activeFy.year_index}` : "the active fiscal year");
 
-  const calendarRegistrySuccessKeys = new Set(
-    ((calRegistrySuccessRes.data ?? []) as Array<{ event_key: string }>).map((r) => r.event_key),
-  );
+  const canAppointSeats = Boolean(staffAccess?.hasFullStaff);
+  let houseAppointmentMembers: Awaited<ReturnType<typeof loadChamberSeatHolders>> = [];
+  let senateAppointmentMembers: Awaited<ReturnType<typeof loadChamberSeatHolders>> = [];
+  if (canAppointSeats) {
+    [houseAppointmentMembers, senateAppointmentMembers] = await Promise.all([
+      loadChamberSeatHolders(supabase, "house"),
+      loadChamberSeatHolders(supabase, "senate"),
+    ]);
+  }
 
   let leadershipArchive: LeadershipArchiveSession[] = [];
   if (electionView === "archive") {
@@ -192,35 +191,18 @@ export default async function AdminElectionsPage({
 
   return (
     <div className="space-y-6">
-      {rpNow ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-medium text-[var(--psc-ink)]">Simulation date</p>
-          <SimulationRpBanner rp={rpNow} />
-        </div>
-      ) : null}
       <CalendarSystemAdminPanel
-        registrySuccessKeys={calendarRegistrySuccessKeys}
-        recentCalendarRows={
-          (calEventsRes.data ?? []) as Array<{
-            id: string;
-            event_key: string;
-            fired_at: string;
-            status: string;
-            error_message: string | null;
-          }>
-        }
         canCloseFiscalYear={canCloseFiscalYear}
+        canStartAppropriationsClock={canStartAppropriationsClock}
         fiscalYearLabel={fiscalYearLabel}
+        simDateLabel={rpNow ? formatRpCalendarShort(rpNow) : null}
       />
-      <p className="text-xs text-[var(--psc-muted)]">
-        House and Senate <strong className="text-[var(--psc-ink)]">leadership elections</strong> (caucus officer races){" "}
-        live on{" "}
-        <Link href="/admin/leadership" className="font-semibold text-[var(--psc-accent)] underline underline-offset-2">
-          Admin → Chamber leadership
-        </Link>
-        .
-      </p>
-      <BulkEndElectionsForm />
+      <AdminElectionSimulationButtons />
+      <AdminCongressAppointmentsClient
+        canAppoint={canAppointSeats}
+        houseMembers={houseAppointmentMembers}
+        senateMembers={senateAppointmentMembers}
+      />
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--psc-border)] pb-3">
           <Link
@@ -251,12 +233,7 @@ export default async function AdminElectionsPage({
             </span>
           </Link>
         </div>
-        <AdminElectionsList
-          key={electionView}
-          rows={dashboardRows}
-          view={electionView}
-          enableEndSelection={electionView === "active"}
-        />
+        <AdminElectionsList key={electionView} rows={dashboardRows} view={electionView} />
         {electionView === "archive" && leadershipArchive.length ? (
           <section className="space-y-3 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
             <h3 className="text-lg font-semibold text-[var(--psc-ink)]">

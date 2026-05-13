@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { adminStartPartyLeadershipFiling } from "@/app/actions/party";
 import { SubmitButton } from "@/components/submit-button";
 import { getServerAuth } from "@/lib/supabase/server";
-import { requireStaffPage } from "@/lib/staff-access";
+import { getStaffAccess, requireStaffPage } from "@/lib/staff-access";
+import { AdminPartyOfficerAppointCard } from "./admin-party-officer-appoint-card";
 
 type OrgRow = {
   party_key: string;
@@ -70,6 +71,9 @@ export default async function AdminPartyLeadershipPage() {
   const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
+  const staffAccess = await getStaffAccess();
+  const canAppointPartyOfficers = Boolean(staffAccess?.hasFullStaff);
+
   const { data: orgs, error } = await supabase
     .from("party_organizations")
     .select(
@@ -90,7 +94,7 @@ export default async function AdminPartyLeadershipPage() {
   const rep = rows.find((r) => r.party_key === "republican");
 
   return (
-    <div className="max-w-3xl space-y-6 text-sm">
+    <div className="max-w-5xl space-y-8 text-sm">
       <nav className="text-xs">
         <Link href="/admin" className="font-semibold text-[var(--psc-accent)] underline">
           ← Admin overview
@@ -133,6 +137,26 @@ export default async function AdminPartyLeadershipPage() {
       ) : (
         <p className="text-[var(--psc-muted)]">Could not load party organizations.</p>
       )}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Officer appointments</h2>
+        <p className="max-w-2xl text-xs text-[var(--psc-muted)]">
+          Anyone with party console access can search. Only full staff (admin or staff_super) can run an appointment.
+          The character&apos;s party on their profile must match the card (Democrat or Republican).
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <AdminPartyOfficerAppointCard
+            partyKey="democrat"
+            partyLabel="Democratic Party — appoint"
+            canAppoint={canAppointPartyOfficers}
+          />
+          <AdminPartyOfficerAppointCard
+            partyKey="republican"
+            partyLabel="Republican Party — appoint"
+            canAppoint={canAppointPartyOfficers}
+          />
+        </div>
+      </section>
     </div>
   );
 }

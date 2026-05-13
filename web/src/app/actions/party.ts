@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
+import { hasFullStaffAccess } from "@/lib/staff-permissions";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 function assertPartyTreasuryKey(party: string): string | null {
@@ -14,6 +17,110 @@ function revalidatePartyPaths(partyKey: string) {
   revalidatePath("/economy");
   revalidatePath("/parties");
   revalidatePath(`/parties/${partyKey}`);
+}
+
+async function requireStaffAdminSupabase() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  const keys = await fetchEffectiveRoleKeys(supabase, user.id, profile ?? null);
+  if (!hasFullStaffAccess(keys)) {
+    throw new Error("Only full staff (admin or staff_super) may appoint party officers.");
+  }
+  return { supabase };
+}
+
+async function requirePartyConsoleSupabase() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+  const access = await getStaffAccess();
+  if (!access?.canAccessPanel) throw new Error("Forbidden");
+  if (!access.hasFullStaff && !access.permissions.has("parties")) {
+    throw new Error("Forbidden");
+  }
+  return { supabase };
+}
+
+function sanitizeIlikeFragment(q: string): string {
+  return q.replace(/\\/g, "").replace(/%/g, "").replace(/_/g, "").trim();
+}
+
+export type PartyMemberSearchHit = {
+  id: string;
+  character_name: string;
+  discord_username: string | null;
+  residence_state: string | null;
+  home_district_code: string | null;
+};
+
+export async function searchPartyAffiliateProfiles(
+  partyKey: string,
+  query: string,
+): Promise<PartyMemberSearchHit[]> {
+  const pk = assertPartyTreasuryKey(partyKey.trim());
+  if (!pk) throw new Error("Invalid party.");
+  const { supabase } = await requirePartyConsoleSupabase();
+  const s = sanitizeIlikeFragment(query);
+  if (s.length < 2) return [];
+  const pattern = `%${s}%`;
+  const [{ data: byName, error: e1 }, { data: byDiscord, error: e2 }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, character_name, discord_username, residence_state, home_district_code")
+      .eq("party", pk)
+      .ilike("character_name", pattern)
+      .order("character_name", { ascending: true })
+      .limit(20),
+    supabase
+      .from("profiles")
+      .select("id, character_name, discord_username, residence_state, home_district_code")
+      .eq("party", pk)
+      .ilike("discord_username", pattern)
+      .order("character_name", { ascending: true })
+      .limit(20),
+  ]);
+  if (e1) throw new Error(e1.message);
+  if (e2) throw new Error(e2.message);
+  const byId = new Map<string, PartyMemberSearchHit>();
+  for (const r of [...(byName ?? []), ...(byDiscord ?? [])]) {
+    const row = r as PartyMemberSearchHit;
+    byId.set(row.id, row);
+  }
+  return [...byId.values()]
+    .sort((a, b) => a.character_name.localeCompare(b.character_name))
+    .slice(0, 20);
+}
+
+const PARTY_OFFICER_OFFICES = ["chair", "vice_chair", "treasurer"] as const;
+export type PartyOfficerOffice = (typeof PARTY_OFFICER_OFFICES)[number];
+
+export async function adminAppointPartyOfficer(input: {
+  partyKey: string;
+  office: string;
+  userId: string;
+}): Promise<void> {
+  const pk = assertPartyTreasuryKey(input.partyKey.trim());
+  if (!pk) throw new Error("Invalid party.");
+  const office = input.office.trim();
+  if (!(PARTY_OFFICER_OFFICES as readonly string[]).includes(office)) {
+    throw new Error("Office must be chair, vice_chair, or treasurer.");
+  }
+  const { supabase } = await requireStaffAdminSupabase();
+  const { error } = await supabase.rpc("admin_appoint_party_officer", {
+    p_party: pk,
+    p_office: office,
+    p_user_id: input.userId,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePartyPaths(pk);
+  revalidatePath("/admin/party-leadership");
+  revalidatePath("/admin/elections");
 }
 
 export async function adminStartPartyLeadershipFiling(formData: FormData): Promise<void> {

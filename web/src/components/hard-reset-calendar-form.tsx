@@ -8,8 +8,8 @@ export function HardResetCalendarForm() {
   const [confirmed, setConfirmed] = useState(false);
 
   return (
-    <form action={resetCalendarV2ToJanuary2029AndActivate} className="mt-2 grid max-w-xl gap-2 text-xs">
-      <label className="flex cursor-pointer items-start gap-2 font-semibold">
+    <form action={resetCalendarV2ToJanuary2029AndActivate} className="mt-3 flex max-w-xl flex-col gap-2 text-xs">
+      <label className="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"
           name="confirm_rp_calendar_reset"
@@ -17,18 +17,13 @@ export function HardResetCalendarForm() {
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
           required
-          className="mt-0.5 h-4 w-4"
+          className="h-4 w-4"
         />
-        <span className="font-normal text-[var(--psc-ink)]">
-          I understand this wipes the calendar event log and re-bases RP time; production impact is immediate.
-        </span>
+        <span className="text-[var(--psc-ink)]">Confirm reset</span>
       </label>
-      {!confirmed ? (
-        <p className="text-[11px] text-amber-900">Check the box above to enable the reset button.</p>
-      ) : null}
       <FormSubmitButton
         disabled={!confirmed}
-        idleLabel="Reset calendar + activate (Jan 2029 now)"
+        idleLabel="Reset simulation to Jan 2029"
         pendingLabel="Resetting…"
         className="justify-self-start rounded border border-rose-900 bg-rose-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
       />

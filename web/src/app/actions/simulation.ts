@@ -221,10 +221,8 @@ export async function manualFireCalendarEvent(formData: FormData): Promise<void>
   revalidatePath("/admin/elections");
 }
 
-export async function adminUnfreezeEconomy(formData: FormData): Promise<void> {
+export async function adminUnfreezeEconomy(): Promise<void> {
   const { supabase } = await requireAdmin();
-  const confirm = String(formData.get("confirm_unfreeze") ?? "").trim() === "1";
-  if (!confirm) throw new Error("Confirmation required.");
 
   const { data, error } = await supabase.rpc("simulation_admin_unfreeze_economy", { p_confirm: true });
   if (error) throw new Error(error.message);
@@ -265,12 +263,17 @@ export async function syncSimulationRealAnchorToNow(): Promise<void> {
 
 export type OpenSeatFilingsResult = { opened: number; skipped: number; created: number };
 
+export type CongressionalSeatScope = "all" | "house_only" | { senateClass: 1 | 2 | 3 };
+
 /**
  * Inserts dormant filing templates for House districts and Senate seats that have at least one
  * resident profile but no active (non-closed) seat race yet — so bulk-open can run a full
  * re-election cycle without hand-creating every row.
  */
-async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: SupabaseClient): Promise<number> {
+async function ensureDormantCongressionalSeatTemplatesForResidents(
+  supabase: SupabaseClient,
+  scope: CongressionalSeatScope = "all",
+): Promise<number> {
   const sched = scheduleFromNow();
 
   const [{ data: profs, error: pErr }, { data: activeHouse, error: ahErr }] = await Promise.all([
@@ -306,8 +309,13 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: Sup
 
   let created = 0;
 
+  const runHouse = scope === "all" || scope === "house_only";
+  const runSenate = scope === "all" || typeof scope === "object";
+  const senateClasses: readonly (1 | 2 | 3)[] =
+    typeof scope === "object" ? [scope.senateClass] : ([1, 2, 3] as const);
+
   const districtList = [...houseDistricts];
-  if (districtList.length) {
+  if (runHouse && districtList.length) {
     const byCode = new Map<string, string>();
     const chunkSize = 100;
     for (let i = 0; i < districtList.length; i += chunkSize) {
@@ -359,10 +367,10 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: Sup
     }),
   );
 
-  if (residenceStates.size) {
+  if (runSenate && residenceStates.size) {
     const senateInserts: Record<string, unknown>[] = [];
     for (const S of residenceStates) {
-      for (const sc of [1, 2, 3] as const) {
+      for (const sc of senateClasses) {
         const key = `${S}:${sc}`;
         if (activeSenateKeys.has(key)) continue;
         senateInserts.push({
@@ -392,7 +400,10 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(supabase: Sup
  * Opens dormant House and Senate seat races where at least one profile lives in that district or state
  * (re-election / incumbent geography). Does not include President — use the presidential race admin flow.
  */
-async function bulkOpenDormantCongressionalSeatFilings(supabase: SupabaseClient): Promise<OpenSeatFilingsResult> {
+async function bulkOpenDormantCongressionalSeatFilings(
+  supabase: SupabaseClient,
+  scope: CongressionalSeatScope = "all",
+): Promise<OpenSeatFilingsResult> {
   const { data: dormant, error } = await supabase
     .from("elections")
     .select("id, office, state, district_code, senate_class, filing_window_started_at, phase, leadership_role")
@@ -408,6 +419,15 @@ async function bulkOpenDormantCongressionalSeatFilings(supabase: SupabaseClient)
 
   for (const e of rows) {
     const office = e.office as string;
+
+    if (scope === "house_only" && office !== "house") {
+      skipped += 1;
+      continue;
+    }
+    if (typeof scope === "object" && (office !== "senate" || Number(e.senate_class) !== scope.senateClass)) {
+      skipped += 1;
+      continue;
+    }
 
     let occupied = false;
     if (office === "house") {
@@ -481,8 +501,8 @@ async function bulkOpenDormantCongressionalSeatFilings(supabase: SupabaseClient)
  */
 export async function startAllCongressionalElectionFilings(): Promise<OpenSeatFilingsResult> {
   const { supabase } = await requireAdmin();
-  const created = await ensureDormantCongressionalSeatTemplatesForResidents(supabase);
-  const { opened, skipped } = await bulkOpenDormantCongressionalSeatFilings(supabase);
+  const created = await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "all");
+  const { opened, skipped } = await bulkOpenDormantCongressionalSeatFilings(supabase, "all");
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
   return { opened, skipped, created };
@@ -494,7 +514,7 @@ export const startAllEligibleDormantElectionFilings = startAllCongressionalElect
 export const openOccupiedSeatElectionFilings = startAllCongressionalElectionFilings;
 
 /** Core open-dormant logic (admin RLS). */
-async function openOneDormantSeatElection(supabase: SupabaseClient, id: string): Promise<void> {
+export async function openOneDormantSeatElection(supabase: SupabaseClient, id: string): Promise<void> {
   const { data: e, error } = await supabase
     .from("elections")
     .select("id, office, state, district_code, senate_class, phase, leadership_role, filing_window_started_at")
@@ -594,8 +614,8 @@ export async function runJanuaryAutoOpenIfEligible(): Promise<void> {
   if (rp.month !== 1) return;
   if (s.last_auto_open_rp_key === rp.yearMonthKey) return;
 
-  await ensureDormantCongressionalSeatTemplatesForResidents(supabase);
-  await bulkOpenDormantCongressionalSeatFilings(supabase);
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "all");
+  await bulkOpenDormantCongressionalSeatFilings(supabase, "all");
 
   await supabase
     .from("simulation_settings")
@@ -607,4 +627,53 @@ export async function runJanuaryAutoOpenIfEligible(): Promise<void> {
 
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
+}
+
+async function beginSenateClassSeatFilingsInner(senateClass: 1 | 2 | 3): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const scope = { senateClass } as const;
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, scope);
+  await bulkOpenDormantCongressionalSeatFilings(supabase, scope);
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
+}
+
+/** Admin: ensure dormant House templates, then open filing windows for occupied districts. */
+export async function beginHouseCongressionalSeatFilings(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "house_only");
+  await bulkOpenDormantCongressionalSeatFilings(supabase, "house_only");
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
+}
+
+export async function beginSenateClass1SeatFilings(): Promise<void> {
+  await beginSenateClassSeatFilingsInner(1);
+}
+export async function beginSenateClass2SeatFilings(): Promise<void> {
+  await beginSenateClassSeatFilingsInner(2);
+}
+export async function beginSenateClass3SeatFilings(): Promise<void> {
+  await beginSenateClassSeatFilingsInner(3);
+}
+
+/** Admin: open dormant presidential filing windows (nationwide race rows in filing with no clock started). */
+export async function beginPresidentDormantSeatFilings(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const { data: rows, error } = await supabase
+    .from("elections")
+    .select("id")
+    .eq("office", "president")
+    .eq("phase", "filing")
+    .is("filing_window_started_at", null)
+    .is("leadership_role", null);
+  throwIfPostgrestError(error);
+  for (const r of rows ?? []) {
+    await openOneDormantSeatElection(supabase, String((r as { id: string }).id));
+  }
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
 }

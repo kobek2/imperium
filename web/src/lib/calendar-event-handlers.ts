@@ -646,3 +646,13 @@ export async function handlePresidentialCycleSeating(supabase: SupabaseClient, e
     cycleKey,
   });
 }
+
+/** Staff-triggered: open House/Senate `leadership_sessions` when none are open (same helper as inauguration / seating). */
+export async function adminManualOpenChamberLeadershipSessions(supabase: SupabaseClient): Promise<void> {
+  await openChamberLeadershipSessionsIfNone(supabase);
+}
+
+/** Staff-triggered: D/R party officer filing windows (same wall-clock window as calendar automation). */
+export async function adminManualOpenPartyLeadershipWindows(supabase: SupabaseClient): Promise<void> {
+  await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
+}

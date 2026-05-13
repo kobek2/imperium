@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/is-admin";
 import { endorsementPointsForRoles } from "@/lib/fec";
@@ -24,6 +25,7 @@ import { resolvePresidentTicketCandidate } from "@/lib/presidential-running-mate
 import {
   canReachPhaseForward,
   computeGeneralWinner,
+  type ElectionCloseRow,
   type ElectionPhase,
   finalizeElectionToClosed,
   pickPrimaryWinners,
@@ -290,34 +292,8 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
   revalidatePath(`/elections/${id}`);
 }
 
-/** End every non-closed seat race for the offices you select (House, Senate, President). */
-export async function bulkEndElections(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const endHouse = String(formData.get("end_house") ?? "") === "1";
-  const endSenate = String(formData.get("end_senate") ?? "") === "1";
-  const endPresident = String(formData.get("end_president") ?? "") === "1";
-
-  if (!endHouse && !endSenate && !endPresident) {
-    throw new Error("Select at least one of House, Senate, or President.");
-  }
-
-  const { data: rows, error: qErr } = await supabase
-    .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
-    .neq("phase", "closed")
-    .is("leadership_role", null);
-
-  throwIfPostgrestError(qErr);
-
-  const targets = (rows ?? []).filter((r) => {
-    if (r.office === "house" && endHouse) return true;
-    if (r.office === "senate" && endSenate) return true;
-    if (r.office === "president" && endPresident) return true;
-    return false;
-  });
-
-  targets.sort((a, b) => a.id.localeCompare(b.id));
-
+async function closeSeatElectionRows(supabase: SupabaseClient, rows: ElectionCloseRow[]): Promise<void> {
+  const targets = [...rows].sort((a, b) => a.id.localeCompare(b.id));
   const errors: string[] = [];
   for (const row of targets) {
     try {
@@ -337,7 +313,7 @@ export async function bulkEndElections(formData: FormData): Promise<void> {
         e_election: row.id,
       });
       if (roleErr) {
-        console.warn("[bulkEndElections] role transition warning:", roleErr.message);
+        console.warn("[closeSeatElectionRows] role transition warning:", roleErr.message);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -355,6 +331,102 @@ export async function bulkEndElections(formData: FormData): Promise<void> {
     revalidatePath(`/admin/elections/${row.id}`);
     revalidatePath(`/elections/${row.id}`);
   }
+}
+
+function asCloseRows(
+  rows: Array<{
+    id: string;
+    phase: string;
+    office: string;
+    state: string | null;
+    district_code: string | null;
+    leadership_role: string | null;
+  }> | null,
+): ElectionCloseRow[] {
+  return (rows ?? []).map((r) => ({
+    id: r.id,
+    phase: r.phase as ElectionPhase,
+    office: r.office,
+    state: r.state,
+    district_code: r.district_code,
+    leadership_role: r.leadership_role,
+  }));
+}
+
+/** End every non-closed seat race for the offices you select (House, Senate, President). */
+export async function bulkEndElections(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const endHouse = String(formData.get("end_house") ?? "") === "1";
+  const endSenate = String(formData.get("end_senate") ?? "") === "1";
+  const endPresident = String(formData.get("end_president") ?? "") === "1";
+
+  if (!endHouse && !endSenate && !endPresident) {
+    throw new Error("Select at least one of House, Senate, or President.");
+  }
+
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .neq("phase", "closed")
+    .is("leadership_role", null);
+
+  throwIfPostgrestError(qErr);
+
+  const targets = asCloseRows(rows ?? []).filter((r) => {
+    if (r.office === "house" && endHouse) return true;
+    if (r.office === "senate" && endSenate) return true;
+    if (r.office === "president" && endPresident) return true;
+    return false;
+  });
+
+  await closeSeatElectionRows(supabase, targets);
+}
+
+export async function closeHouseSeatElections(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .eq("office", "house")
+    .neq("phase", "closed")
+    .is("leadership_role", null);
+  throwIfPostgrestError(qErr);
+  await closeSeatElectionRows(supabase, asCloseRows(rows ?? []));
+}
+
+export async function closeSenateClassSeatElections(senateClass: 1 | 2 | 3): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .eq("office", "senate")
+    .eq("senate_class", senateClass)
+    .neq("phase", "closed")
+    .is("leadership_role", null);
+  throwIfPostgrestError(qErr);
+  await closeSeatElectionRows(supabase, asCloseRows(rows ?? []));
+}
+
+export async function closePresidentSeatElections(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const { data: rows, error: qErr } = await supabase
+    .from("elections")
+    .select("id, phase, office, state, district_code, leadership_role")
+    .eq("office", "president")
+    .neq("phase", "closed")
+    .is("leadership_role", null);
+  throwIfPostgrestError(qErr);
+  await closeSeatElectionRows(supabase, asCloseRows(rows ?? []));
+}
+
+export async function closeSenateClass1SeatElections(): Promise<void> {
+  return closeSenateClassSeatElections(1);
+}
+export async function closeSenateClass2SeatElections(): Promise<void> {
+  return closeSenateClassSeatElections(2);
+}
+export async function closeSenateClass3SeatElections(): Promise<void> {
+  return closeSenateClassSeatElections(3);
 }
 
 /** End specific seat races (House / Senate / President) by id — same closeout rules as bulk end. */
