@@ -14,6 +14,7 @@ import { htmlToPlainText, sanitizeBillHtml } from "@/lib/sanitize-bill-html";
 import { getStaffAccess } from "@/lib/staff-access";
 import { isPresident } from "@/lib/president";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
+import { DEFAULT_ENACTED_FY4_APPROPRIATIONS_BILL_ID } from "@/lib/fiscal-admin-constants";
 import { processYearEndParticipationApproval } from "@/lib/approval-ratings";
 
 const TREASURY_ROLE_KEY = "secretary_of_treasury";
@@ -178,10 +179,34 @@ export async function submitFiscalBudget(fiscalYearId: string): Promise<{ ok: bo
     };
   }
 
-  const { error } = await supabase.rpc("fiscal_submit_budget", { p_fiscal_year_id: fiscalYearId });
+  const { data, error } = await supabase.rpc("fiscal_submit_budget", { p_fiscal_year_id: fiscalYearId });
   if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as {
+    transition?: boolean;
+    total_tax_collected?: number;
+    tax_close_sweep_total?: number;
+    total_spending?: number;
+    us_debt_delta?: number;
+    treasury_net_delta?: number;
+  };
+  const yearEndApproval = await processYearEndParticipationApproval(supabase);
   revalidateFiscal();
-  return { ok: true, message: "Budget submitted. Economy actions are unlocked for this fiscal year." };
+  revalidatePath("/economy/federal");
+  if (d.transition) {
+    const tax = Number(d.total_tax_collected ?? 0);
+    const sweep = Number(d.tax_close_sweep_total ?? tax);
+    const spend = Number(d.total_spending ?? 0);
+    const debtDelta = Number(d.us_debt_delta ?? 0);
+    const treasuryNet = Number(d.treasury_net_delta ?? 0);
+    return {
+      ok: true,
+      message: `Fiscal year rolled forward. Income tax recorded $${tax.toLocaleString()} total ($${sweep.toLocaleString()} collected at rollover from remaining balances); spending $${spend.toLocaleString()}. Treasury net this rollover $${treasuryNet.toLocaleString()}; national debt roll-up $${debtDelta.toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s).`,
+    };
+  }
+  return {
+    ok: true,
+    message: `Budget submitted. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s).`,
+  };
 }
 
 export async function closeFiscalYear(): Promise<{ ok: boolean; message: string }> {
@@ -206,18 +231,20 @@ export async function closeFiscalYear(): Promise<{ ok: boolean; message: string 
   revalidateFiscal();
   const d = data as {
     total_tax_collected?: number;
+    tax_close_sweep_total?: number;
     total_spending?: number;
     treasury_net_delta?: number;
     us_debt_delta?: number;
     economy_frozen_until_submit?: boolean;
   } | null;
   const tax = d?.total_tax_collected ?? 0;
+  const sweep = d?.tax_close_sweep_total ?? tax;
   const spend = d?.total_spending ?? 0;
   const debtDelta = d?.us_debt_delta ?? 0;
   const treasuryNet = d?.treasury_net_delta ?? 0;
   return {
     ok: true,
-    message: `Fiscal year closed. Tax collected $${Number(tax).toLocaleString()}; spending $${Number(spend).toLocaleString()}. Treasury net $${Number(treasuryNet).toLocaleString()}; national debt roll-up $${Number(debtDelta).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
+    message: `Fiscal year closed. Income tax recorded $${Number(tax).toLocaleString()} total ($${Number(sweep).toLocaleString()} collected at close from remaining balances); spending $${Number(spend).toLocaleString()}. Treasury net this close $${Number(treasuryNet).toLocaleString()}; national debt roll-up $${Number(debtDelta).toLocaleString()}. Year-end approval balancing adjusted ${yearEndApproval.adjustedMembers} member(s). Submit a budget for the new year to unfreeze the economy.`,
   };
 }
 
@@ -262,6 +289,167 @@ export async function startAppropriationClockIfPresidentSeated(): Promise<{ ok: 
   return { ok: true, message: "Appropriations clock check complete." };
 }
 
+/**
+ * Staff-only: wipe transactional economy + fiscal timeline (keep personal wallet balances), open a single FY4,
+ * seed federal budget with FY4 law brackets and $284,067,634 appropriations table, link the enacted bill,
+ * zero treasury cash and national debt, seed empty per-player tax rows. Requires the bill to be federal appropriations in `law`.
+ * See migration `20260602100000_admin_reset_fy4_keep_wallets_from_enacted_bill.sql`.
+ */
+export async function adminResetEconomyFy4FromEnactedBill(formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "Only full staff operators (admin / staff_super) may run this FY4 reset.",
+    };
+  }
+  const rawVal = formData.get("bill_id");
+  const raw = rawVal == null || rawVal === "" ? "" : String(rawVal).trim().toLowerCase();
+  const billId =
+    raw === ""
+      ? DEFAULT_ENACTED_FY4_APPROPRIATIONS_BILL_ID
+      : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(raw)
+        ? raw
+        : null;
+  if (!billId) {
+    return { ok: false, message: "Enter a valid bill UUID, or leave blank to use the default enacted FY4 appropriations act." };
+  }
+  const { data, error } = await supabase.rpc("admin_reset_economy_fy4_keep_wallets_from_enacted_bill", {
+    p_bill_id: billId,
+  });
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as { fiscal_year_id?: string; gdp_opening_total?: number; wallet_rows?: number; bill_id?: string };
+  revalidateFiscal();
+  revalidatePath("/admin/economy/overview");
+  revalidatePath("/cabinet/treasury");
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/national-metrics");
+  revalidatePath("/congress");
+  revalidatePath(`/bill/${billId}`);
+  const gdp = Number(d.gdp_opening_total ?? 0);
+  const n = Number(d.wallet_rows ?? 0);
+  return {
+    ok: true,
+    message: `FY4 reset complete. Active fiscal year ${d.fiscal_year_id ?? "—"} linked to bill ${d.bill_id ?? billId}. GDP opening (wallet sum) ≈ $${gdp.toLocaleString(undefined, { maximumFractionDigits: 0 })} across ${n.toLocaleString()} wallet row(s). Ledger/PACs/inventory cleared; player wallet balances preserved.`,
+  };
+}
+
+/**
+ * Staff-only: on active FY4, sync enacted brackets + $284M line table to `federal_budgets`, zero treasury cash and FY4
+ * treasury outlays, clear FY4 tax events, set every player's `paid_amount` to 0 and recompute assessed/outstanding using
+ * the same basis as the federal bracket impact table: **72 × fiscal_marginal_tax(scheduled hourly gross)** — i.e. the
+ * same scaling as `estimatedBracketTaxRpYear` in the federal workbook (not `fiscal_marginal_tax(hourly×72)`, which is much
+ * larger under progressive brackets). See migration `20260602130000_fiscal_tax_bracket_preview_scale.sql`.
+ */
+export async function adminApplyFy4BudgetTaxBaseline(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "Only full staff operators (admin / staff_super) may apply the FY4 tax baseline.",
+    };
+  }
+  const { data, error } = await supabase.rpc("admin_fy4_apply_budget_tax_baseline");
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as { sum_assessed_income_tax?: number; profiles_updated?: number; fiscal_year_id?: string };
+  revalidateFiscal();
+  revalidatePath("/admin/economy/overview");
+  revalidatePath("/cabinet/treasury");
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/national-metrics");
+  const sum = Number(d.sum_assessed_income_tax ?? 0);
+  const n = Number(d.profiles_updated ?? 0);
+  return {
+    ok: true,
+    message: `FY4 budget tax baseline applied (${d.fiscal_year_id ?? "—"}). Treasury cash and FY4 deployments cleared; ${n.toLocaleString()} tax row(s) reset with paid = $0. Sum of assessed income tax ≈ $${sum.toLocaleString(undefined, { maximumFractionDigits: 0 })} using **72 × marginal tax on one scheduled hour** (same as the federal bracket impact table), not wallet balances or ledger accruals.`,
+  };
+}
+
+/** Staff-only: scripted FY3→FY4 transition (see migration `admin_simulation_transition_fy4_staff_baseline`). */
+export async function adminSimulationTransitionToFy4StaffBaseline(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "Only full staff operators (admin / staff_super) may run the FY4 simulation transition.",
+    };
+  }
+  const { data, error } = await supabase.rpc("admin_simulation_transition_fy4_staff_baseline");
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as {
+    new_fiscal_year_id?: string;
+    implied_growth_since_fy_start?: number;
+    total_line_allocated?: number;
+    tax_paid_total_distributed?: number;
+    us_debt?: number;
+    appropriation_deadline_at?: string;
+  };
+  revalidateFiscal();
+  revalidatePath("/admin/economy/overview");
+  revalidatePath("/cabinet/treasury");
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/national-metrics");
+  const growth = Number(d.implied_growth_since_fy_start ?? 0);
+  const lines = Number(d.total_line_allocated ?? 0);
+  const tax = Number(d.tax_paid_total_distributed ?? 0);
+  const debt = Number(d.us_debt ?? 0);
+  const ddl = d.appropriation_deadline_at ? new Date(String(d.appropriation_deadline_at)).toLocaleString() : "";
+  return {
+    ok: true,
+    message: `FY 4 is active (${d.new_fiscal_year_id ?? "—"}). Growth since FY start ≈ $${growth.toLocaleString()}. Line items total $${lines.toLocaleString()} (min = alloc). Income tax paid in (sum of accounts) $${tax.toLocaleString()}. us_debt $${debt.toLocaleString()}. Appropriations IRL deadline ${ddl || "—"}.`,
+  };
+}
+
+/** Staff-only: zero everyone’s income-tax owed as if fully paid (no wallet debits); credits treasury; rewrites close summaries. */
+export async function adminTaxForgiveOutstandingAndBalanceBooks(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return {
+      ok: false,
+      message: "Only full staff operators (admin / staff_super) may run this tax reset.",
+    };
+  }
+  const { data, error } = await supabase.rpc("admin_tax_forgive_all_outstanding_reset_books");
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as {
+    federal_treasury_credited?: number;
+    tax_account_rows_updated?: number;
+  };
+  revalidateFiscal();
+  revalidatePath("/admin/economy/overview");
+  revalidatePath("/cabinet/treasury");
+  revalidatePath("/economy");
+  const credited = Number(d.federal_treasury_credited ?? 0);
+  const n = Number(d.tax_account_rows_updated ?? 0);
+  return {
+    ok: true,
+    message: `Forgave outstanding income tax on ${n.toLocaleString()} account row(s); credited federal treasury $${credited.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Close summaries set as if tax matched appropriations.`,
+  };
+}
+
 /** Staff-only: start the IRL appropriations countdown on the active fiscal year (default 24h, max 168h). */
 export async function adminStartAppropriationsCountdown(hours?: number): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
@@ -273,22 +461,59 @@ export async function adminStartAppropriationsCountdown(hours?: number): Promise
   if (!staff?.hasFullStaff) {
     return {
       ok: false,
-      message: "Only full staff operators (admin / staff_super) may start the appropriations countdown.",
+      message: "Only full staff operators (admin / staff_super) may start the budget transition countdown.",
     };
   }
   const h = hours != null && Number.isFinite(Number(hours)) ? Math.floor(Number(hours)) : 24;
   const { data, error } = await supabase.rpc("admin_start_appropriations_window", { p_hours: h });
   if (error) return { ok: false, message: error.message };
-  const row = (data ?? {}) as { appropriation_deadline_at?: string; hours?: number };
+  const row = (data ?? {}) as {
+    appropriation_deadline_at?: string;
+    hours?: number;
+    pending_fiscal_year_id?: string;
+    message?: string;
+  };
   revalidateFiscal();
   revalidatePath("/congress");
   revalidatePath("/admin/economy/overview");
+  revalidatePath("/economy/federal");
   revalidatePath("/");
   const iso = row.appropriation_deadline_at ? new Date(String(row.appropriation_deadline_at)).toLocaleString() : "";
+  const pendingId = row.pending_fiscal_year_id;
+  const note = row.message;
+  const extra =
+    pendingId != null
+      ? ` Transition draft fiscal year opened (id ${pendingId}).`
+      : note
+        ? ` ${note}`
+        : "";
   return {
     ok: true,
-    message: `Appropriations window started (${row.hours ?? h}h). Deadline ${iso}.`,
+    message: `Budget transition window started (${row.hours ?? h}h). Deadline ${iso}.${extra}`,
   };
+}
+
+/** Staff-only: cancel the open transition draft (pending_activation child of active FY) and clear countdown fields. */
+export async function adminCancelBudgetTransition(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    return { ok: false, message: "Only full staff operators (admin / staff_super) may cancel a budget transition." };
+  }
+  const { data, error } = await supabase.rpc("admin_cancel_budget_transition");
+  if (error) return { ok: false, message: error.message };
+  const row = (data ?? {}) as { ok?: boolean; message?: string };
+  if (row.ok === false) {
+    return { ok: false, message: String(row.message ?? "Nothing to cancel.") };
+  }
+  revalidateFiscal();
+  revalidatePath("/economy/federal");
+  revalidatePath("/admin/economy/overview");
+  return { ok: true, message: "Budget transition draft cancelled and countdown cleared." };
 }
 
 export async function payFiscalTax(formData: FormData): Promise<{ ok: boolean; message: string }> {
@@ -303,9 +528,121 @@ export async function payFiscalTax(formData: FormData): Promise<{ ok: boolean; m
   revalidatePath("/economy");
   const paid = Number((data as { paid?: number } | null)?.paid ?? 0);
   const remaining = Number((data as { remaining?: number } | null)?.remaining ?? 0);
+  const surplus = Number((data as { voluntary_surplus?: number } | null)?.voluntary_surplus ?? 0);
+  const surplusNote =
+    surplus > 0.005
+      ? ` $${surplus.toLocaleString(undefined, { maximumFractionDigits: 2 })} was above the amount due (voluntary).`
+      : "";
   return {
     ok: true,
-    message: `Tax payment recorded: $${paid.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Remaining balance: $${remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`,
+    message: `Tax payment recorded: $${paid.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Remaining obligation: $${remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}.${surplusNote}`,
+  };
+}
+
+/** President, Secretary of the Treasury, site admin, or full staff — matches `fiscal_treasury_deploy_cash` RPC. */
+async function canDeployTreasuryCashRpc(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  profile: { office_role?: string | null } | null,
+): Promise<boolean> {
+  const pres = await isPresident(supabase, userId);
+  if (pres) return true;
+  const officeRow = { office_role: profile?.office_role ?? null };
+  const staff = await getStaffAccess(officeRow);
+  if (staff?.hasFullStaff) return true;
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, userId, officeRow);
+  return roleKeys.includes("secretary_of_treasury") || roleKeys.includes("admin");
+}
+
+export async function treasuryDeployFederalCash(input: {
+  category: "us_debt" | "budget_line";
+  lineItemKey?: string;
+  amount: number;
+  note?: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  if (!(await canDeployTreasuryCashRpc(supabase, user.id, profile))) {
+    return {
+      ok: false,
+      message: "Only the President, Secretary of the Treasury, or full staff may deploy federal treasury cash.",
+    };
+  }
+
+  const amt = Number(input.amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return { ok: false, message: "Enter a valid positive amount." };
+  }
+  const lineKey = String(input.lineItemKey ?? "").trim();
+  const { data, error } = await supabase.rpc("fiscal_treasury_deploy_cash", {
+    p_category: input.category,
+    p_line_item_key: input.category === "budget_line" ? lineKey : "",
+    p_amount: amt,
+    p_note: String(input.note ?? "").trim(),
+  });
+  if (error) return { ok: false, message: error.message };
+  const deployed = Number((data as { deployed?: number } | null)?.deployed ?? 0);
+  const after = Number((data as { treasury_balance_after?: number } | null)?.treasury_balance_after ?? 0);
+  revalidateFiscal();
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/cabinet/treasury");
+  return {
+    ok: true,
+    message: `Deployed $${deployed.toLocaleString(undefined, { maximumFractionDigits: 2 })}. Treasury cash balance is now $${after.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`,
+  };
+}
+
+/** Same deploy authority as {@link treasuryDeployFederalCash}: split treasury cash across all active budget line buckets. */
+export async function treasuryDeployFederalCashSplitLines(input: {
+  mode: "equal" | "proportional";
+  /** If set and positive, deploy at most this much (still capped by treasury cash). */
+  capAmount?: number;
+  note?: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  if (!(await canDeployTreasuryCashRpc(supabase, user.id, profile))) {
+    return {
+      ok: false,
+      message: "Only the President, Secretary of the Treasury, or full staff may deploy federal treasury cash.",
+    };
+  }
+
+  const mode = input.mode === "proportional" ? "proportional" : "equal";
+  const capRaw = input.capAmount;
+  const cap =
+    capRaw != null && Number.isFinite(Number(capRaw)) && Number(capRaw) > 0 ? Number(capRaw) : null;
+
+  const { data, error } = await supabase.rpc("fiscal_treasury_deploy_cash_split_budget_lines", {
+    p_mode: mode,
+    p_cap_amount: cap,
+    p_note: String(input.note ?? "").trim(),
+  });
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as {
+    deployed_total?: number;
+    treasury_balance_after?: number;
+    lines?: unknown;
+  };
+  const total = Number(d.deployed_total ?? 0);
+  const after = Number(d.treasury_balance_after ?? 0);
+  const nLines = Array.isArray(d.lines) ? d.lines.length : 0;
+  revalidateFiscal();
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/cabinet/treasury");
+  return {
+    ok: true,
+    message: `Split-deployed $${total.toLocaleString(undefined, { maximumFractionDigits: 2 })} across ${nLines.toLocaleString()} line bucket(s) (${mode}). Treasury cash balance is now $${after.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`,
   };
 }
 

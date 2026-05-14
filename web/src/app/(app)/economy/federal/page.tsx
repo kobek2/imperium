@@ -54,6 +54,18 @@ export default async function FederalEconomyPage({
     getStaffAccess(),
   ]);
 
+  const activeId = (activeYear as { id?: string } | null)?.id ?? null;
+  const { data: pendingTransitionYear } = activeId
+    ? await supabase
+        .from("rp_fiscal_years")
+        .select("id, label, year_index, status, started_at")
+        .eq("pending_parent_fiscal_year_id", activeId)
+        .eq("status", "pending_activation")
+        .maybeSingle()
+    : { data: null };
+
+  const workbookFyId = (pendingTransitionYear as { id?: string } | null)?.id ?? activeId;
+
   const staffFull = Boolean(staff?.hasFullStaff);
   const isTreasurySecretary = Boolean(staff?.roleKeys.includes("secretary_of_treasury"));
   if (!pres && !isAdmin && !staffFull && !isTreasurySecretary) {
@@ -92,8 +104,8 @@ export default async function FederalEconomyPage({
 
   const governmentShutdown = Boolean(fy?.economy_activity_frozen);
 
-  const { data: budgetRow } = fy
-    ? await supabase.from("federal_budgets").select("*").eq("fiscal_year_id", fy.id).maybeSingle()
+  const { data: budgetRow } = workbookFyId
+    ? await supabase.from("federal_budgets").select("*").eq("fiscal_year_id", workbookFyId).maybeSingle()
     : { data: null };
 
   const { data: taxAccountRows } = fy
@@ -262,12 +274,12 @@ export default async function FederalEconomyPage({
           <div className="rounded border border-[var(--psc-border)] bg-[color-mix(in_srgb,var(--psc-accent)_6%,var(--psc-panel))] p-4 text-sm leading-relaxed text-[var(--psc-ink)]">
             <p className="font-semibold">Which year is this workbook?</p>
             <p className="mt-2 text-[var(--psc-muted)]">
-              <strong>{fy.label}</strong> is the <strong>active</strong> federal row and tax year. You may keep a{" "}
-              <strong>draft</strong> on this page anytime; once the budget is <strong>adopted (submitted)</strong>, line items
-              and brackets are locked for the President until full staff override. To send the annual appropriations measure
-              to the House hopper, staff must first start the <strong>appropriations countdown</strong> (Admin → Economy
-              overview). When staff <strong>close</strong> this fiscal year, the next index becomes the new active year for
-              collections and drafting.
+              <strong>{fy.label}</strong> is the <strong>active</strong> federal row and tax year for collections. When staff
+              start the <strong>24-hour budget transition</strong> (Admin → Economy overview), a <strong>next-year draft</strong>{" "}
+              opens here. When Congress passes the appropriations bill and the President <strong>signs it into law</strong> from
+              the Oval Office, the simulation <strong>rolls the fiscal year</strong> (settles tax on the active year, updates
+              debt metrics, activates the new year). Full staff may <strong>force</strong> a roll from the admin economy panel
+              in an emergency. Manual economy freeze is staff only; unfreezing does not pay out hours that passed while frozen.
             </p>
           </div>
           {!fy.appropriations_act_bill_id ? (
@@ -293,8 +305,14 @@ export default async function FederalEconomyPage({
           {priorYearSnapshot ? <FederalPriorYearSidebar snapshot={priorYearSnapshot} /> : null}
           <div className="min-w-0">
             <FederalBudgetPanel
-              key={`${fy.id}-${String((budgetRow as { status?: string; updated_at?: string } | null)?.status ?? "")}-${String((budgetRow as { updated_at?: string } | null)?.updated_at ?? "")}-${String(nationalMetrics?.updated_at ?? "")}`}
+              key={`${fy.id}-${workbookFyId}-${String((budgetRow as { status?: string; updated_at?: string } | null)?.status ?? "")}-${String((budgetRow as { updated_at?: string } | null)?.updated_at ?? "")}-${String(nationalMetrics?.updated_at ?? "")}`}
               fiscalYearId={fy.id}
+              workbookFiscalYearId={workbookFyId ?? fy.id}
+              workbookYearLabel={
+                pendingTransitionYear
+                  ? String((pendingTransitionYear as { label?: string }).label ?? "Next fiscal year (draft)")
+                  : fy.label
+              }
               yearLabel={fy.label}
               fiscalYearIndex={fy.year_index}
               yearStartedAt={fy.started_at}

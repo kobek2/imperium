@@ -5,9 +5,9 @@
  *
  * | Real world (U.S.)                         | In this simulation |
  * |-------------------------------------------|--------------------|
- * | **Jan 2029** — new president + Congress | RP **January 2029** (`inauguration_2029`). Current RP month/year comes from `simulation_start_at` + {@link RP_MONTHS_PER_REAL_DAY} in `simulation-calendar-constants.ts`. |
- * | **Nov (election year)** — general election month | Midterm years **2030, 2034, …** and presidential years **2032, 2036, …** (through {@link CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR}): seat races open the first time RP reaches **November** of that year. RP is then **frozen** at that November until every race in the cycle is **closed** (72h wall-clock phases: 24h filing / 24h primary / 24h general). |
- * | **Jan (election year + 1)** — new Congress / president | After seating, `simulation_start_at` is set so RP reads **January** of the year after the election (e.g. 2032 election → Jan **2033**; 2034 midterm → Jan **2035**), and the freeze clears. Chamber + party leadership windows use {@link CALENDAR_LEADERSHIP_WINDOW_HOURS}h wall clock. |
+ * | **Jan 2032** — new president + Congress | RP **January 2032** (`inauguration_2032`). Current RP month/year comes from `simulation_start_at` + {@link RP_MONTHS_PER_REAL_DAY} in `simulation-calendar-constants.ts`. |
+ * | **Nov (election year)** — general election month | Midterm years **2034, 2038, …** and presidential years **2036, 2040, …** (through {@link CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR}): seat races open the first time RP reaches **November** of that year. RP is then **frozen** at that November until every race in the cycle is **closed** (72h wall-clock phases: 24h filing / 24h primary / 24h general). |
+ * | **Jan (election year + 1)** — new Congress / president | After seating, `simulation_start_at` is set so RP reads **January** of the year after the election (e.g. 2036 election → Jan **2037**; 2038 midterm → Jan **2039**), and the freeze clears. Chamber + party leadership windows use {@link CALENDAR_LEADERSHIP_WINDOW_HOURS}h wall clock. |
  *
  * **Seating rule:** A new Congress / new president is applied only after **every** seat race in that
  * `calendar_cycle_key` is `closed` (certified), then calendar seating + role transitions run.
@@ -18,13 +18,13 @@
  */
 
 /** RP year of the first inauguration milestone (`inauguration_${…}`). */
-export const US_INAUGURAL_RP_YEAR = 2029 as const;
+export const US_INAUGURAL_RP_YEAR = 2032 as const;
 
 /** U.S. midterm **general election** year (November of this year in real life). */
-export const US_MIDTERM_ELECTION_YEAR = 2030 as const;
+export const US_MIDTERM_ELECTION_YEAR = 2034 as const;
 
 /** U.S. presidential **general election** year (November of this year in real life). */
-export const US_PRESIDENTIAL_ELECTION_YEAR = 2032 as const;
+export const US_PRESIDENTIAL_ELECTION_YEAR = 2036 as const;
 
 /** Last U.S. election year the automated calendar will open seat cycles for (inclusive). */
 export const CALENDAR_US_FEDERAL_SEAT_CYCLE_MAX_ELECTION_YEAR = 2050 as const;

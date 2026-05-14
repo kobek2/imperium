@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { submitBill } from "@/app/actions/bills";
 import { listBillTemplates, type BillTemplateRow } from "@/app/actions/bill-templates";
 import { BillRichTextEditorWithHiddenInput } from "@/components/bill-rich-text-editor";
@@ -28,15 +29,96 @@ function normalizeOfficialStanceLabel(label: string): string {
   return label.replaceAll(" + ", " and ").replaceAll("+", " and ").trim();
 }
 
-export function FileBillForm({ originatingChamber }: { originatingChamber: "house" | "senate" }) {
+/** Blurred stand-in for the Change Policy flow; full overlay until the next Congress unlocks server-side. */
+function ChangePolicyLockedZone({
+  congressLabel,
+  detailMessage,
+}: {
+  congressLabel: string | null;
+  detailMessage: string | null;
+}) {
+  return (
+    <section
+      className="relative isolate min-h-[240px] overflow-hidden rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] shadow-inner"
+      aria-label="Change Policy filing locked for this congressional term"
+    >
+      <div className="pointer-events-none select-none p-4 blur-[3px] opacity-[0.22]" aria-hidden="true">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Preset issues</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-24 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-canvas)]" />
+          ))}
+        </div>
+        <div className="mt-6 space-y-3">
+          <div className="h-3 w-1/3 rounded bg-[var(--psc-border)]" />
+          <div className="h-16 rounded-lg border border-[var(--psc-border)] bg-white" />
+          <div className="h-16 rounded-lg border border-[var(--psc-border)] bg-white" />
+        </div>
+      </div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[color-mix(in_srgb,var(--psc-canvas)_88%,var(--psc-ink))] px-5 py-10 text-center backdrop-blur-[2px]">
+        <div className="rounded-full border border-[var(--psc-border)] bg-white/90 p-3 shadow-sm">
+          <svg className="h-8 w-8 text-[var(--psc-ink)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M7 11V8a5 5 0 0110 0v3M6 11h12v10H6V11z"
+            />
+          </svg>
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-[var(--psc-ink)]">Change Policy locked</h4>
+          {congressLabel ? (
+            <p className="mt-1 text-xs font-semibold text-[var(--psc-muted)]">Your filing for {congressLabel} is already used.</p>
+          ) : (
+            <p className="mt-1 text-xs font-semibold text-[var(--psc-muted)]">Your Change Policy filing for this term is already used.</p>
+          )}
+        </div>
+        {detailMessage ? <p className="max-w-md text-xs leading-relaxed text-[var(--psc-ink)]">{detailMessage}</p> : null}
+        <p className="max-w-sm text-[11px] text-[var(--psc-muted)]">
+          This area unlocks automatically when the simulation calendar enters the next congressional term. Custom bills below
+          stay available.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function FileBillForm({
+  originatingChamber,
+  changePolicyBlocked = false,
+  changePolicyBlockedMessage = null,
+  changePolicyCongressLabel = null,
+}: {
+  originatingChamber: "house" | "senate";
+  /** When true, "Change Policy" (preset template) filing is disabled for this user this Congress. */
+  changePolicyBlocked?: boolean;
+  changePolicyBlockedMessage?: string | null;
+  /** e.g. "119th Congress" — shown on the lock overlay. */
+  changePolicyCongressLabel?: string | null;
+}) {
   const [mode, setMode] = useState<"free" | "template">("free");
   const [templates, setTemplates] = useState<BillTemplateRow[]>([]);
   const [selectedTpl, setSelectedTpl] = useState<BillTemplateRow | null>(null);
   const [stance, setStance] = useState<Stance | null>(null);
+  const router = useRouter();
+
+  async function submitBillThenRefresh(formData: FormData) {
+    await submitBill(formData);
+    router.refresh();
+  }
 
   useEffect(() => {
     void listBillTemplates().then(setTemplates);
   }, []);
+
+  useEffect(() => {
+    if (changePolicyBlocked && mode === "template") {
+      setMode("free");
+      setSelectedTpl(null);
+      setStance(null);
+    }
+  }, [changePolicyBlocked, mode]);
 
   const policyTagsJson =
     selectedTpl && stance
@@ -60,10 +142,13 @@ export function FileBillForm({ originatingChamber }: { originatingChamber: "hous
       </button>
       <button
         type="button"
+        disabled={changePolicyBlocked}
+        title={changePolicyBlocked ? "Change Policy limit reached for this congressional term" : undefined}
         className={`rounded px-3 py-1.5 font-semibold ${
           mode === "template" ? "bg-[var(--psc-ink)] text-white" : "text-[var(--psc-muted)]"
-        }`}
+        } ${changePolicyBlocked ? "cursor-not-allowed opacity-45" : ""}`}
         onClick={() => {
+          if (changePolicyBlocked) return;
           setMode("template");
           setSelectedTpl(null);
           setStance(null);
@@ -74,38 +159,8 @@ export function FileBillForm({ originatingChamber }: { originatingChamber: "hous
     </div>
   );
 
-  if (mode === "free") {
-    return (
-      <div className="mt-4 space-y-4">
-        {modeToggle}
-        <form action={submitBill} className="grid gap-4 md:grid-cols-2">
-          <input type="hidden" name="originating_chamber" value={originatingChamber} />
-          <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-            Title
-            <input
-              name="title"
-              required
-              className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-            />
-          </label>
-          <div className="grid gap-2 text-sm font-semibold md:col-span-2">
-            <span>Bill text</span>
-            <p className="text-xs font-normal text-[var(--psc-muted)]">
-              Use the toolbar for bold, italic, underline, headings, lists, and alignment. Formatting is saved as
-              written.
-            </p>
-            <BillRichTextEditorWithHiddenInput fieldName="content_html" />
-          </div>
-          <SubmitButton
-            pendingLabel="Filing…"
-            className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
-          >
-            {originatingChamber === "house" ? "File House bill" : "File Senate bill"}
-          </SubmitButton>
-        </form>
-      </div>
-    );
-  }
+  const showTemplateFlow = !changePolicyBlocked && mode === "template";
+  const showCustomForm = mode === "free";
 
   const stances = selectedTpl ? parseStances(selectedTpl.stances) : [];
 
@@ -113,119 +168,165 @@ export function FileBillForm({ originatingChamber }: { originatingChamber: "hous
     <div className="mt-4 space-y-4">
       {modeToggle}
 
-      {!selectedTpl ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {templates.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-left transition hover:border-[var(--psc-accent)]"
-              onClick={() => {
-                setSelectedTpl(t);
-                setStance(null);
-              }}
-            >
-              <p className="text-sm font-semibold text-[var(--psc-ink)]">{t.display_name}</p>
-              <p className="mt-1 text-xs text-[var(--psc-muted)]">{t.description}</p>
-            </button>
-          ))}
-        </div>
-      ) : !stance ? (
-        <div className="space-y-3">
-          <button
-            type="button"
-            className="text-xs font-semibold text-[var(--psc-accent)] underline"
-            onClick={() => setSelectedTpl(null)}
-          >
-            ← Back to issues
-          </button>
-          <p className="text-sm font-semibold text-[var(--psc-ink)]">Choose a stance for {selectedTpl.display_name}</p>
-          <div className="grid gap-3">
-            {stances.map((s) => (
-              <label
-                key={s.stance_key}
-                className="flex cursor-pointer gap-3 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 has-[:checked]:border-[var(--psc-accent)]"
+      {changePolicyBlocked ? (
+        <ChangePolicyLockedZone congressLabel={changePolicyCongressLabel} detailMessage={changePolicyBlockedMessage} />
+      ) : null}
+
+      {showTemplateFlow ? (
+        <>
+          <p className="text-xs text-[var(--psc-muted)]">
+            One Change Policy (preset issue) bill per two-year congressional term per member; custom bills are unlimited.
+          </p>
+          {!selectedTpl ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-left transition hover:border-[var(--psc-accent)]"
+                  onClick={() => {
+                    setSelectedTpl(t);
+                    setStance(null);
+                  }}
+                >
+                  <p className="text-sm font-semibold text-[var(--psc-ink)]">{t.display_name}</p>
+                  <p className="mt-1 text-xs text-[var(--psc-muted)]">{t.description}</p>
+                </button>
+              ))}
+            </div>
+          ) : !stance ? (
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="text-xs font-semibold text-[var(--psc-accent)] underline"
+                onClick={() => setSelectedTpl(null)}
               >
+                ← Back to issues
+              </button>
+              <p className="text-sm font-semibold text-[var(--psc-ink)]">Choose a stance for {selectedTpl.display_name}</p>
+              <div className="grid gap-3">
+                {stances.map((s) => (
+                  <label
+                    key={s.stance_key}
+                    className="flex cursor-pointer gap-3 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 has-[:checked]:border-[var(--psc-accent)]"
+                  >
+                    <input
+                      type="radio"
+                      name="stance_pick"
+                      className="mt-1"
+                      checked={false}
+                      onChange={() => setStance(s)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-[var(--psc-ink)]">{s.label}</span>
+                      <span className="mt-1 block text-xs text-[var(--psc-muted)]">{s.summary}</span>
+                      <span className="mt-2 block">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                          Policy position
+                        </span>
+                        <span className="relative mt-1 block h-2 w-full rounded-full bg-gradient-to-r from-red-500 via-slate-300 to-blue-600">
+                          <span
+                            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[var(--psc-ink)] shadow"
+                            style={{ left: `${spectrumPct(s.policy_value)}%` }}
+                          />
+                        </span>
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <form action={submitBillThenRefresh} className="grid gap-4 md:grid-cols-2">
+              <input type="hidden" name="originating_chamber" value={originatingChamber} />
+              <input type="hidden" name="template_id" value={selectedTpl.id} />
+              <input type="hidden" name="policy_tags_json" value={policyTagsJson} />
+              <input type="hidden" name="template_core_md" value={stance.full_text} />
+
+              <button
+                type="button"
+                className="text-left text-xs font-semibold text-[var(--psc-accent)] underline md:col-span-2"
+                onClick={() => setStance(null)}
+              >
+                ← Change stance
+              </button>
+
+              <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+                Title
                 <input
-                  type="radio"
-                  name="stance_pick"
-                  className="mt-1"
-                  checked={false}
-                  onChange={() => setStance(s)}
+                  key={stance.stance_key}
+                  name="title"
+                  required
+                  defaultValue={`${selectedTpl.display_name} Act — ${normalizeOfficialStanceLabel(stance.label)}`}
+                  className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
                 />
-                <span className="min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-[var(--psc-ink)]">{s.label}</span>
-                  <span className="mt-1 block text-xs text-[var(--psc-muted)]">{s.summary}</span>
-                  <span className="mt-2 block">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                      Policy position
-                    </span>
-                    <span className="relative mt-1 block h-2 w-full rounded-full bg-gradient-to-r from-red-500 via-slate-300 to-blue-600">
-                      <span
-                        className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[var(--psc-ink)] shadow"
-                        style={{ left: `${spectrumPct(s.policy_value)}%` }}
-                      />
-                    </span>
-                  </span>
-                </span>
               </label>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <form action={submitBill} className="grid gap-4 md:grid-cols-2">
-          <input type="hidden" name="originating_chamber" value={originatingChamber} />
-          <input type="hidden" name="template_id" value={selectedTpl.id} />
-          <input type="hidden" name="policy_tags_json" value={policyTagsJson} />
-          <input type="hidden" name="template_core_md" value={stance.full_text} />
 
-          <button
-            type="button"
-            className="text-left text-xs font-semibold text-[var(--psc-accent)] underline md:col-span-2"
-            onClick={() => setStance(null)}
-          >
-            ← Change stance
-          </button>
+              <div className="grid gap-2 text-sm font-semibold md:col-span-2">
+                <span>Optional preamble / personal statement</span>
+                <p className="text-xs font-normal text-[var(--psc-muted)]">
+                  Appears before the statutory template text. The template text itself cannot be changed.
+                </p>
+                <BillRichTextEditorWithHiddenInput fieldName="preamble_html" />
+              </div>
 
-          <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-            Title
-            <input
-              key={stance.stance_key}
-              name="title"
-              required
-              defaultValue={`${selectedTpl.display_name} Act — ${normalizeOfficialStanceLabel(stance.label)}`}
-              className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-            />
-          </label>
+              <div className="md:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                  Statutory text (read-only)
+                </p>
+                <div
+                  className="mt-2 max-h-80 overflow-y-auto rounded border border-[var(--psc-border)] bg-white p-3 text-sm [&_p]:mb-2"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeBillHtml(legacyMdToEditorHtml(stance.full_text) ?? ""),
+                  }}
+                />
+              </div>
 
-          <div className="grid gap-2 text-sm font-semibold md:col-span-2">
-            <span>Optional preamble / personal statement</span>
-            <p className="text-xs font-normal text-[var(--psc-muted)]">
-              Appears before the statutory template text. The template text itself cannot be changed.
+              <SubmitButton
+                pendingLabel="Filing…"
+                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
+              >
+                {originatingChamber === "house" ? "File House bill" : "File Senate bill"}
+              </SubmitButton>
+            </form>
+          )}
+        </>
+      ) : null}
+
+      {showCustomForm ? (
+        <>
+          <div className="rounded-lg border border-[var(--psc-border)] border-dashed bg-[var(--psc-canvas)]/60 px-3 py-2">
+            <p className="text-xs text-[var(--psc-muted)]">
+              <span className="font-semibold text-[var(--psc-ink)]">Custom bills</span> — no limit per term. Change Policy
+              (preset issues) is limited to one per two-year congressional term per member.
             </p>
-            <BillRichTextEditorWithHiddenInput fieldName="preamble_html" />
           </div>
-
-          <div className="md:col-span-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-              Statutory text (read-only)
-            </p>
-            <div
-              className="mt-2 max-h-80 overflow-y-auto rounded border border-[var(--psc-border)] bg-white p-3 text-sm [&_p]:mb-2"
-              dangerouslySetInnerHTML={{
-                __html: sanitizeBillHtml(legacyMdToEditorHtml(stance.full_text) ?? ""),
-              }}
-            />
-          </div>
-
-          <SubmitButton
-            pendingLabel="Filing…"
-            className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
-          >
-            {originatingChamber === "house" ? "File House bill" : "File Senate bill"}
-          </SubmitButton>
-        </form>
-      )}
+          <form action={submitBillThenRefresh} className="grid gap-4 md:grid-cols-2">
+            <input type="hidden" name="originating_chamber" value={originatingChamber} />
+            <label className="grid gap-2 text-sm font-semibold md:col-span-2">
+              Title
+              <input
+                name="title"
+                required
+                className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
+              />
+            </label>
+            <div className="grid gap-2 text-sm font-semibold md:col-span-2">
+              <span>Bill text</span>
+              <p className="text-xs font-normal text-[var(--psc-muted)]">
+                Use the toolbar for bold, italic, underline, headings, lists, and alignment. Formatting is saved as written.
+              </p>
+              <BillRichTextEditorWithHiddenInput fieldName="content_html" />
+            </div>
+            <SubmitButton
+              pendingLabel="Filing…"
+              className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-white md:col-span-2 hover:brightness-110"
+            >
+              {originatingChamber === "house" ? "File House bill" : "File Senate bill"}
+            </SubmitButton>
+          </form>
+        </>
+      ) : null}
     </div>
   );
 }

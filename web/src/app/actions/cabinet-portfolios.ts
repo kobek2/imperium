@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { cabinetDayStartIso } from "@/lib/cabinet-week";
+import {
+  applyDefenseProcurementMetricDeltas,
+  isDefenseProcurementCategory,
+} from "@/lib/defense-procurement-budget";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 
 /** Only the portfolio secretary (or site operators) may mutate a department dashboard. */
@@ -79,48 +83,50 @@ async function applyDepartmentPatch(
   if (u) throw new Error(u.message);
 }
 
-export async function defenseSpendHours(formData: FormData): Promise<void> {
-  const action = String(formData.get("action") ?? "");
-  const cost =
-    action === "field_exercise" ? 5 : action === "acquisition_review" ? 4 : action === "personnel_surge" ? 6 : 0;
-  if (!cost) throw new Error("Unknown action.");
+/**
+ * Obligate defense line appropriations toward modernization / platforms (capped by active FY federal budget).
+ * Does not move treasury cash — RP obligation ledger vs the defense `allocated` line item.
+ */
+export async function defenseObligateProcurement(formData: FormData): Promise<void> {
+  const { supabase } = await assertPortfolioSecretary("secretary_of_defense");
 
-  const { userId, supabase } = await assertPortfolioSecretary("secretary_of_defense");
-  const dayRow = await loadOrCreateDailyHours(supabase, userId, "secretary_of_defense");
-  const remaining = Number(dayRow.hours_budget) - Number(dayRow.hours_used);
-  if (remaining < cost) throw new Error("Not enough hours left today.");
+  const { data: fy } = await supabase.from("rp_fiscal_years").select("id").eq("status", "active").maybeSingle();
+  if (!fy) throw new Error("No active fiscal year.");
 
-  await applyDepartmentPatch(supabase, "defense", (b) => {
-    const readiness = Number(b.readiness ?? 50);
-    const logistics = Number(b.logistics_stress ?? 40);
-    const exercises = Number(b.alliance_exercises_completed ?? 0);
-    if (action === "field_exercise") {
-      return {
-        ...b,
-        readiness: clamp(readiness + 5, 0, 100),
-        logistics_stress: clamp(logistics + 2, 0, 100),
-        alliance_exercises_completed: exercises + 1,
-      };
-    }
-    if (action === "acquisition_review") {
-      return {
-        ...b,
-        readiness: clamp(readiness + 1, 0, 100),
-        logistics_stress: clamp(logistics - 6, 0, 100),
-      };
-    }
-    return {
-      ...b,
-      readiness: clamp(readiness + 3, 0, 100),
-      logistics_stress: clamp(logistics - 4, 0, 100),
-    };
+  const fiscalYearId = String((fy as { id: string }).id);
+
+  const category = String(formData.get("category") ?? "").trim();
+  if (!isDefenseProcurementCategory(category)) throw new Error("Pick a procurement category.");
+
+  const quickRaw = String(formData.get("quick_amount") ?? "").trim().replace(/,/g, "");
+  const typedRaw = String(formData.get("amount_obligated") ?? "").replace(/,/g, "");
+  const amountRaw = Number(quickRaw || typedRaw);
+  if (!Number.isFinite(amountRaw) || amountRaw <= 0) throw new Error("Enter an amount or pick a quick spend.");
+  const amount = Math.round(amountRaw * 100) / 100;
+
+  const memo = String(formData.get("memo") ?? "").trim();
+
+  const { data: rpcJson, error: rpcErr } = await supabase.rpc("rp_defense_obligate_procurement", {
+    p_fiscal_year_id: fiscalYearId,
+    p_category: category,
+    p_amount: amount,
+    p_memo: memo,
   });
 
-  const { error: u1 } = await supabase
-    .from("cabinet_daily_hours")
-    .update({ hours_used: Number(dayRow.hours_used) + cost })
-    .eq("id", dayRow.id);
-  if (u1) throw new Error(u1.message);
+  if (rpcErr) {
+    const m = rpcErr.message ?? "";
+    if (m.includes("INSUFFICIENT_DEFENSE_APPROPRIATION")) {
+      throw new Error("That obligation exceeds remaining defense appropriations for this fiscal year.");
+    }
+    throw new Error(m || "Could not record procurement obligation.");
+  }
+
+  const cap = Number((rpcJson as { defense_line_cap?: unknown } | null)?.defense_line_cap ?? 0);
+  if (cap > 0) {
+    await applyDepartmentPatch(supabase, "defense", (b) =>
+      applyDefenseProcurementMetricDeltas(category, amount, cap, b),
+    );
+  }
 
   revalidatePath("/cabinet");
   revalidatePath("/cabinet/defense");

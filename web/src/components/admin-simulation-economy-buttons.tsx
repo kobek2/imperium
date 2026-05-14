@@ -42,14 +42,19 @@ export function AdminSimulationEconomyButtons({
             });
           }}
         >
-          {pending ? "Working…" : "Start 24-hour clock"}
+          {pending ? "Working…" : "Start 24-hour transition"}
         </button>
         <button
           type="button"
           disabled={pending || !canCloseFiscalYear}
           className={btn}
           onClick={() => {
-            if (!window.confirm(`Close economy for ${fiscalYearLabel}?`)) return;
+            if (
+              !window.confirm(
+                `Close fiscal year (${fiscalYearLabel})? This runs year-end closeout: requires a submitted federal budget, withholds income tax from wallets, and opens the next FY. It is not the manual economy freeze. Continue?`,
+              )
+            )
+              return;
             start(async () => {
               setMsg(null);
               const r = await closeFiscalYear();
@@ -58,7 +63,7 @@ export function AdminSimulationEconomyButtons({
             });
           }}
         >
-          {pending ? "Working…" : "Close economy"}
+          {pending ? "Working…" : "Close fiscal year"}
         </button>
         <button
           type="button"
@@ -81,7 +86,7 @@ export function AdminSimulationEconomyButtons({
         </button>
       </div>
       {!canStartAppropriationsClock ? (
-        <p className="text-[10px] text-amber-950">24-hour clock requires full staff (admin / staff_super).</p>
+        <p className="text-[10px] text-amber-950">24-hour transition requires full staff (admin / staff_super).</p>
       ) : null}
       {!canCloseFiscalYear ? (
         <p className="text-[10px] text-amber-950">

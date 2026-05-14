@@ -4,6 +4,7 @@ import { CalendarSystemAdminPanel } from "@/components/calendar-system-admin-pan
 import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffAccess, requireStaffPageAny } from "@/lib/staff-access";
+import { getIsAdmin } from "@/lib/is-admin";
 import { isPresident } from "@/lib/president";
 import {
   computeSimulationRpInstant,
@@ -57,9 +58,10 @@ export default async function AdminElectionsPage({
 
   await runElectionPhaseSchedule(supabase);
 
-  const [staffAccess, pres] = await Promise.all([
+  const [staffAccess, pres, canManageCalendarAutomation] = await Promise.all([
     getStaffAccess(),
     isPresident(supabase, user.id),
+    getIsAdmin(),
   ]);
   const canCloseFiscalYear = Boolean(staffAccess?.hasFullStaff || pres);
   const canStartAppropriationsClock = Boolean(staffAccess?.hasFullStaff);
@@ -196,6 +198,8 @@ export default async function AdminElectionsPage({
         canStartAppropriationsClock={canStartAppropriationsClock}
         fiscalYearLabel={fiscalYearLabel}
         simDateLabel={rpNow ? formatRpCalendarShort(rpNow) : null}
+        canManageCalendarAutomation={canManageCalendarAutomation}
+        calendarAutoCongressElections={Boolean(simSettings?.calendar_auto_congress_elections)}
       />
       <AdminElectionSimulationButtons />
       <AdminCongressAppointmentsClient

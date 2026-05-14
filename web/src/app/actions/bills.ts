@@ -32,7 +32,7 @@ import type { BillChamber } from "@/lib/bill-types";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import { CABINET_APPOINTMENT_ROLE_KEY_SET } from "@/config/cabinet-appointment-roles";
 import { getIsAdmin } from "@/lib/is-admin";
-import { applyApprovalDelta } from "@/lib/approval-ratings";
+import { applyApprovalDelta, processYearEndParticipationApproval } from "@/lib/approval-ratings";
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
@@ -42,6 +42,12 @@ import {
   ON_DOCKET_AUTO_FLOOR_HOURS,
   hoursFromNowIso,
 } from "@/lib/legislation-automation-constants";
+import {
+  canBypassChangePolicyBillLimit,
+  countChangePolicyBillsInCongress,
+  policyCongressOrdinalLabel,
+  resolvePolicyCongressCycleStartYear,
+} from "@/lib/policy-congress-cycle";
 
 function revalidateCongressPages() {
   revalidatePath("/congress");
@@ -321,6 +327,29 @@ export async function submitBill(formData: FormData): Promise<void> {
   if (template_id) templateExtras.template_id = template_id;
   if (policy_tags) templateExtras.policy_tags = policy_tags;
 
+  const isChangePolicyBill = Boolean(template_id) && !isFederalAppropriationsBill;
+
+  let policy_congress_cycle_start_year: number | null = null;
+  if (isChangePolicyBill) {
+    const cycleStart = await resolvePolicyCongressCycleStartYear(supabase, {
+      isAdminForHeal: adminEarly,
+    });
+    if (!canBypassChangePolicyBillLimit(roleKeys)) {
+      const used = await countChangePolicyBillsInCongress(supabase, user.id, cycleStart);
+      if (used >= 1) {
+        throw new Error(
+          `You may only file one Change Policy (preset issue) bill per two-year congressional term. You already used your filing for the ${policyCongressOrdinalLabel(cycleStart)}.`,
+        );
+      }
+    }
+    policy_congress_cycle_start_year = cycleStart;
+  }
+
+  const policyCongressExtras: Record<string, unknown> = {};
+  if (policy_congress_cycle_start_year != null) {
+    policyCongressExtras.policy_congress_cycle_start_year = policy_congress_cycle_start_year;
+  }
+
   const baseInsert = {
     title,
     content_md,
@@ -336,6 +365,7 @@ export async function submitBill(formData: FormData): Promise<void> {
     chamber_vote_deadline_at: null as string | null,
     ...appropriationExtras,
     ...templateExtras,
+    ...policyCongressExtras,
   };
 
   let { error } = await supabase.from("bills").insert(baseInsert);
@@ -415,6 +445,13 @@ export async function submitBill(formData: FormData): Promise<void> {
     delete withoutTpl.template_id;
     delete withoutTpl.policy_tags;
     const retry = await supabase.from("bills").insert(withoutTpl);
+    error = retry.error;
+  }
+
+  if (error && dbErrorHintsMissingColumn(error.message, ["policy_congress_cycle_start_year"])) {
+    const withoutPolicy = { ...baseInsert } as Record<string, unknown>;
+    delete withoutPolicy.policy_congress_cycle_start_year;
+    const retry = await supabase.from("bills").insert(withoutPolicy);
     error = retry.error;
   }
 
@@ -1191,12 +1228,19 @@ export async function presidentialAction(formData: FormData): Promise<void> {
       await applyApprovalDelta(supabase, s.author_id, 5, "Authored a bill signed into law");
     }
     if (s?.is_federal_appropriations) {
-      const { error: enrollErr } = await supabase.rpc("fiscal_on_appropriations_enrolled", {
-        p_bill_id: bill_id,
-      });
-      if (enrollErr) throw new Error(enrollErr.message);
-      // TODO: Discord webhook — shutdown ended, economy restored after appropriations signed #announcements
-      // Payload should include: { eventType, rpDate, details: { billId } }
+      // Enrollment + optional FY rollover run in DB via trigger `trg_fiscal_sync_enacted_appropriations_floor`
+      // (`fiscal_on_appropriations_enrolled`) when the bill row becomes `law`.
+      const yearEnd = await processYearEndParticipationApproval(supabase);
+      if (yearEnd.adjustedMembers > 0) {
+        console.info(
+          `[presidentialAction] Year-end participation approval adjusted ${yearEnd.adjustedMembers} member(s) after appropriations signed.`,
+        );
+      }
+      revalidatePath("/economy");
+      revalidatePath("/economy/federal");
+      revalidatePath("/admin/economy/overview");
+      revalidatePath("/cabinet/treasury");
+      // TODO: Discord webhook — appropriations signed / FY rolled #announcements
     }
   }
 

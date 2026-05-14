@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { FileBillForm } from "../file-bill-form";
 import { canFileLegislationInChamber } from "@/lib/legislative-eligibility";
+import { getChangePolicyFilingUiGate } from "@/lib/policy-congress-cycle";
 import { CongressDocketSection } from "../congress-docket-section";
 import { filterBillsForHouseDocket, loadCongressDocket } from "../load-congress-docket";
 
@@ -50,6 +51,9 @@ export default async function CongressHousePage() {
 
   const houseBills = filterBillsForHouseDocket(billList);
   const showHouseFiling = canFileLegislationInChamber(roleKeys, "house");
+  const changePolicyGate = showHouseFiling
+    ? await getChangePolicyFilingUiGate(supabase, { userId: user.id, roleKeys })
+    : { blocked: false as const, message: null as string | null, congressOrdinalLabel: null as string | null };
 
   const userChambers: ("house" | "senate")[] = [];
   const rk = new Set(roleKeys);
@@ -103,7 +107,12 @@ export default async function CongressHousePage() {
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <h3 className="text-lg font-semibold text-[var(--psc-ink)]">File House legislation</h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the House.</p>
-          <FileBillForm originatingChamber="house" />
+          <FileBillForm
+            originatingChamber="house"
+            changePolicyBlocked={changePolicyGate.blocked}
+            changePolicyBlockedMessage={changePolicyGate.message}
+            changePolicyCongressLabel={changePolicyGate.congressOrdinalLabel}
+          />
         </section>
       ) : null}
 

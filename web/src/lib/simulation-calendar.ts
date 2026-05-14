@@ -21,6 +21,8 @@ export type SimulationSettingsRow = {
   /** During calendar midterm/presidential seat races, RP is held at this year until seating. */
   calendar_seat_cycle_freeze_rp_year?: number | null;
   calendar_seat_cycle_freeze_rp_month?: number | null;
+  /** When true, calendar tick may run congress / leadership / election automation (see calendar-event-engine). */
+  calendar_auto_congress_elections?: boolean | null;
 };
 
 function parseISODateOnly(s: string): { y: number; m: number; d: number } {
@@ -186,5 +188,6 @@ export function defaultSimulationSettingsForDisplay(): SimulationSettingsRow {
     simulation_start_unlocked: false,
     calendar_seat_cycle_freeze_rp_year: null,
     calendar_seat_cycle_freeze_rp_month: null,
+    calendar_auto_congress_elections: false,
   };
 }

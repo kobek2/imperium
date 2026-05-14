@@ -52,6 +52,8 @@ export async function vacateHouseDistrictExceptWinner(
 ): Promise<void> {
   const d = districtCode.trim().toUpperCase();
   if (!d) return;
+  // Without a winner, do not strip every incumbent in the district (calendar seating used to call this with null).
+  if (!winnerUserId) return;
 
   const { data: rows } = await supabase
     .from("profiles")
@@ -130,7 +132,9 @@ export async function processSeatElectionCalendarSeating(
 
   if (row.office === "house" && row.district_code) {
     await vacatePriorHouseWinnerIfReplaced(supabase, row.district_code, row.id, row.winner_user_id);
-    await vacateHouseDistrictExceptWinner(supabase, row.district_code, row.winner_user_id);
+    if (row.winner_user_id) {
+      await vacateHouseDistrictExceptWinner(supabase, row.district_code, row.winner_user_id);
+    }
   } else if (row.office === "senate" && row.state && row.senate_class != null) {
     await vacatePriorSenateWinnerIfReplaced(
       supabase,

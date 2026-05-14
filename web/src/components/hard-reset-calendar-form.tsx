@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { FormSubmitButton } from "@/components/form-submit-button";
-import { resetCalendarV2ToJanuary2029AndActivate } from "@/app/actions/simulation";
+import { RP_START_YEAR } from "@/lib/simulation-calendar-constants";
+import { resetCalendarV2ToRpEpochStartAndActivate } from "@/app/actions/simulation";
 
 export function HardResetCalendarForm() {
   const [confirmed, setConfirmed] = useState(false);
 
   return (
-    <form action={resetCalendarV2ToJanuary2029AndActivate} className="mt-3 flex max-w-xl flex-col gap-2 text-xs">
+    <form action={resetCalendarV2ToRpEpochStartAndActivate} className="mt-3 flex max-w-xl flex-col gap-2 text-xs">
       <label className="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"
@@ -23,7 +24,7 @@ export function HardResetCalendarForm() {
       </label>
       <FormSubmitButton
         disabled={!confirmed}
-        idleLabel="Reset simulation to Jan 2029"
+        idleLabel={`Reset simulation to Jan ${RP_START_YEAR}`}
         pendingLabel="Resetting…"
         className="justify-self-start rounded border border-rose-900 bg-rose-950 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
       />

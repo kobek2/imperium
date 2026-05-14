@@ -72,7 +72,8 @@ export function TreasuryAppropriationsPipeline({
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--psc-muted)]">
             The annual appropriations act is a normal bill linked to the active fiscal year. When it is signed into law, the sim
             stores the bill id on the fiscal year (clearing the shutdown clock) and raises each line&apos;s budget floor to at least
-            the amount appropriated in that act. The table below is the current budget row: floor vs enacted allocation, with
+            the amount appropriated in that act. Treasury cash is not automatically moved to match those amounts; use
+            Deploy treasury cash (line bucket or split) to record cash against buckets. The table below is the current budget row: floor vs enacted allocation, with
             totals compared to the federal treasury balance.
           </p>
         </div>
@@ -100,12 +101,14 @@ export function TreasuryAppropriationsPipeline({
           </p>
         </div>
         <div className="rounded border border-[var(--psc-border)]/80 bg-[var(--psc-panel)] p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Estimated income tax (YTD)</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Est. income tax (RP-year)</p>
           <p className="mt-1 font-mono text-lg text-[var(--psc-ink)]">
             {estimatedIncomeTaxYtd != null ? fmtUsd(estimatedIncomeTaxYtd) : "—"}
           </p>
           <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
-            Salary-based accrual for the active year (not a cash balance); context for revenue vs spending.
+            Marginal tax on <strong>one sim-hour</strong> of scheduled role + PAC gross (active-year brackets), then{" "}
+            <strong>×72</strong> — same scaling as the federal bracket impact table. Not wallet cash, not cumulative ledger
+            collects, and not <code>marginal_tax(hourly×72)</code>.
           </p>
         </div>
       </div>

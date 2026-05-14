@@ -23,8 +23,22 @@ export default async function AdminEconomyOverviewPage() {
     .eq("status", "active")
     .maybeSingle();
 
+  const { data: pendingTransition } = activeFy?.id
+    ? await supabase
+        .from("rp_fiscal_years")
+        .select("id, label, status")
+        .eq("pending_parent_fiscal_year_id", activeFy.id)
+        .eq("status", "pending_activation")
+        .maybeSingle()
+    : { data: null };
+
+  const pendingId = (pendingTransition as { id?: string } | null)?.id ?? null;
   const { data: fyBudget } = activeFy?.id
-    ? await supabase.from("federal_budgets").select("status").eq("fiscal_year_id", activeFy.id).maybeSingle()
+    ? await supabase
+        .from("federal_budgets")
+        .select("status")
+        .eq("fiscal_year_id", pendingId ?? activeFy.id)
+        .maybeSingle()
     : { data: null };
   const { data: activeMetrics } = activeFy?.id
     ? await supabase.from("national_metrics").select("*").eq("fiscal_year_id", activeFy.id).maybeSingle()
@@ -66,10 +80,15 @@ export default async function AdminEconomyOverviewPage() {
       </div>
 
       <EconomyOverviewUnlock
-        fiscalYearId={(activeFy as { id?: string } | null)?.id ?? null}
-        fiscalYearLabel={String((activeFy as { label?: string } | null)?.label ?? "Active FY")}
+        fiscalYearId={pendingId ?? ((activeFy as { id?: string } | null)?.id ?? null)}
+        fiscalYearLabel={
+          pendingId
+            ? String((pendingTransition as { label?: string } | null)?.label ?? "Transition FY")
+            : String((activeFy as { label?: string } | null)?.label ?? "Active FY")
+        }
         budgetStatus={fyBudget ? String((fyBudget as { status: string }).status) : null}
         canMarkSubmitted={access.hasFullStaff}
+        isTransitionSubmit={Boolean(pendingId)}
       />
       {activeFy ? (
         <EconomyFiscalConfig
@@ -102,7 +121,9 @@ export default async function AdminEconomyOverviewPage() {
           />
           <EconomyFiscalAdminControls
             fiscalYearLabel={String((activeFy as { label?: string } | null)?.label ?? "Active FY")}
+            fiscalYearIndex={Number((activeFy as { year_index?: number }).year_index ?? 0)}
             canRun={access.hasFullStaff}
+            transitionPending={Boolean(pendingId)}
           />
         </>
       ) : null}

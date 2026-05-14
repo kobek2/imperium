@@ -78,13 +78,28 @@ export default async function EconomyPage() {
   } | null;
   const aff = String(me?.party ?? "").trim();
   const treasuryPartyKey = aff === "democrat" || aff === "republican" ? aff : null;
-  const { data: taxAccount } = await supabase
-    .from("fiscal_tax_accounts")
-    .select("assessed_tax, paid_amount, outstanding_amount, total_penalties, due_at, status")
-    .eq("user_id", user.id)
-    .order("assessed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let taxAccount: {
+    assessed_tax?: number;
+    paid_amount?: number;
+    outstanding_amount?: number;
+    total_penalties?: number;
+    due_at?: string;
+    status?: string;
+  } | null = null;
+  const { data: taxLedger, error: taxLedgerErr } = await supabase.rpc("fiscal_my_tax_ledger_account");
+  if (!taxLedgerErr && taxLedger && typeof taxLedger === "object") {
+    const acc = (taxLedger as { account?: Record<string, unknown> | null }).account;
+    if (acc && typeof acc === "object") {
+      taxAccount = {
+        assessed_tax: Number(acc.assessed_tax ?? 0),
+        paid_amount: Number(acc.paid_amount ?? 0),
+        outstanding_amount: Number(acc.outstanding_amount ?? 0),
+        total_penalties: Number(acc.total_penalties ?? 0),
+        due_at: acc.due_at != null ? String(acc.due_at) : undefined,
+        status: acc.status != null ? String(acc.status) : undefined,
+      };
+    }
+  }
 
   const inventory =
     (invRows ?? []).find((r) => (r as { sku: string }).sku === "campaign_ad") ?? null;

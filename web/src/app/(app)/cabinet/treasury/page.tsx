@@ -5,11 +5,14 @@ import { canActAsTreasurySecretary, canViewTreasuryDepartment } from "@/lib/cabi
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { lineItemDefaultLabel } from "@/lib/line-item-budget-effects";
 import { getServerAuth } from "@/lib/supabase/server";
+import { isPresident } from "@/lib/president";
+import { getStaffAccess } from "@/lib/staff-access";
 import {
   TreasuryAppropriationsPipeline,
   type AppropriationsBillRow,
   type TreasuryLineRow,
 } from "./treasury-appropriations-pipeline";
+import { TreasuryCashDeployment, type TreasuryOutlayRow } from "./treasury-cash-deployment";
 import { TreasuryTools } from "./treasury-tools";
 
 type FySettings = {
@@ -57,6 +60,11 @@ export default async function TreasuryCabinetPage() {
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
   if (!canViewTreasuryDepartment(roleKeys)) redirect("/");
   const canActTreasury = canActAsTreasurySecretary(roleKeys);
+  const pres = await isPresident(supabase, user.id);
+  const officeRow = { office_role: (profile as { office_role?: string | null } | null)?.office_role ?? null };
+  const staff = await getStaffAccess(officeRow);
+  const canDeployTreasuryCash =
+    pres || Boolean(staff?.hasFullStaff) || canActTreasury || roleKeys.includes("admin");
 
   const [{ data: dashboard }, { data: activeFy }, { data: federalTreasuryRow }] = await Promise.all([
     supabase.rpc("fiscal_treasury_dashboard"),
@@ -120,10 +128,12 @@ export default async function TreasuryCabinetPage() {
       }
     : null;
 
-  const terminalBill = new Set(["dead", "vetoed"]);
+  /** Bills that should not appear under “in Congress” alongside the enrolled act (may be a second linked row). */
+  const terminalAppropriationsListStatus = new Set(["dead", "vetoed", "failed", "rejected", "expired"]);
   const linkedAppBills = (linkedAppBillsRaw ?? []) as AppropriationsBillRow[];
   const inCongressBills = linkedAppBills.filter(
-    (r) => !terminalBill.has(String(r.status ?? "")) && String(r.status) !== "law",
+    (r) =>
+      !terminalAppropriationsListStatus.has(String(r.status ?? "")) && String(r.status) !== "law",
   );
 
   const enrolledId = fyActive?.appropriations_act_bill_id ?? null;
@@ -146,6 +156,39 @@ export default async function TreasuryCabinetPage() {
   const lineRows = parseLineItemsForTreasury((budgetForActive as { line_items?: unknown } | null)?.line_items);
   const totalAllocated = lineRows.reduce((s, r) => s + (Number.isFinite(r.allocated) ? r.allocated : 0), 0);
   const federalTreasuryBalance = Number((federalTreasuryRow as { balance?: number } | null)?.balance ?? 0);
+  const fyId = fyActive?.id ?? null;
+  const [{ data: nmRow }, { data: allOutlays }] = await Promise.all([
+    fyId
+      ? supabase.from("national_metrics").select("us_debt").eq("fiscal_year_id", fyId).maybeSingle()
+      : Promise.resolve({ data: null as { us_debt?: number | null } | null }),
+    fyId
+      ? supabase
+          .from("federal_treasury_outlays")
+          .select("category, line_item_key, amount, note, created_at")
+          .eq("fiscal_year_id", fyId)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as const }),
+  ]);
+  const usDebt = fyId ? Number((nmRow as { us_debt?: number | null } | null)?.us_debt ?? 0) : null;
+  const outlaysList = allOutlays ?? [];
+  const recentOutlays: TreasuryOutlayRow[] = outlaysList.slice(0, 30).map((r) => ({
+    category: String((r as { category?: string }).category ?? ""),
+    line_item_key: (r as { line_item_key?: string | null }).line_item_key ?? null,
+    amount: Number((r as { amount?: number }).amount ?? 0),
+    note: (r as { note?: string | null }).note ?? null,
+    created_at: String((r as { created_at?: string }).created_at ?? ""),
+  }));
+  const lineSpendTotalsFull: Record<string, number> = {};
+  let debtSpendTotalFull = 0;
+  for (const r of outlaysList) {
+    const cat = String((r as { category?: string }).category ?? "");
+    const amt = Number((r as { amount?: number }).amount ?? 0);
+    if (cat === "us_debt") debtSpendTotalFull += amt;
+    else if (cat === "budget_line") {
+      const k = String((r as { line_item_key?: string | null }).line_item_key ?? "");
+      if (k) lineSpendTotalsFull[k] = (lineSpendTotalsFull[k] ?? 0) + amt;
+    }
+  }
   const estimatedIncomeTaxYtd =
     !taxRpcErr && taxRpc && typeof taxRpc === "object"
       ? Number((taxRpc as Record<string, unknown>).estimated_tax ?? 0)
@@ -194,20 +237,31 @@ export default async function TreasuryCabinetPage() {
       </header>
 
       {fyActive ? (
-        <TreasuryAppropriationsPipeline
-          fiscalYearLabel={fyActive.label}
-          budgetStatus={(budgetForActive as { status?: string } | null)?.status ?? null}
-          appropriationDeadlineAt={fyActive.appropriation_deadline_at ?? null}
-          governmentShutdown={governmentShutdown}
-          enrolledBillId={enrolledId}
-          enrolledBillTitle={enrolledBillTitle}
-          enrolledSignedAt={enrolledSignedAt}
-          inCongressBills={inCongressBills}
-          federalTreasuryBalance={federalTreasuryBalance}
-          estimatedIncomeTaxYtd={estimatedIncomeTaxYtd}
-          lineRows={lineRows}
-          totalAllocated={totalAllocated}
-        />
+        <>
+          <TreasuryAppropriationsPipeline
+            fiscalYearLabel={fyActive.label}
+            budgetStatus={(budgetForActive as { status?: string } | null)?.status ?? null}
+            appropriationDeadlineAt={fyActive.appropriation_deadline_at ?? null}
+            governmentShutdown={governmentShutdown}
+            enrolledBillId={enrolledId}
+            enrolledBillTitle={enrolledBillTitle}
+            enrolledSignedAt={enrolledSignedAt}
+            inCongressBills={inCongressBills}
+            federalTreasuryBalance={federalTreasuryBalance}
+            estimatedIncomeTaxYtd={estimatedIncomeTaxYtd}
+            lineRows={lineRows}
+            totalAllocated={totalAllocated}
+          />
+          <TreasuryCashDeployment
+            lineOptions={lineRows.map((r) => ({ key: r.key, label: r.label }))}
+            usDebt={usDebt}
+            treasuryBalance={federalTreasuryBalance}
+            recentOutlays={recentOutlays}
+            lineSpendTotals={lineSpendTotalsFull}
+            debtSpendTotal={debtSpendTotalFull}
+            canDeploy={canDeployTreasuryCash}
+          />
+        </>
       ) : null}
 
       {canActTreasury ? (

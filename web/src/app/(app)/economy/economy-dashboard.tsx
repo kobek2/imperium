@@ -179,7 +179,7 @@ export function EconomyDashboard({
       setFlash(null);
       const r = await fn();
       setFlash({ message: r.message, ok: r.ok, section, details: r.details });
-      if (r.ok && label === "collect") router.refresh();
+      if (r.ok && (label === "collect" || label === "tax")) router.refresh();
     });
   }
 
@@ -187,6 +187,63 @@ export function EconomyDashboard({
 
   return (
     <div className="space-y-10">
+      <section className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 text-sm text-[var(--psc-ink)]">
+        {economyFrozen ? (
+          <p className="rounded border border-emerald-200 bg-emerald-50/90 px-3 py-2 text-xs text-emerald-950">
+            Staff shutdown is on for other economy actions, but you can still pay federal income tax into the Treasury
+            anytime this window is open.
+          </p>
+        ) : null}
+        {sectionFlash(flash, "tax")}
+        <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(220px,1.25fr)] md:items-end">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Owe</p>
+            <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxOwed)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Paid</p>
+            <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPaid)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">RP-year tax preview</p>
+            <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPrediction)}</p>
+          </div>
+          {taxAccount ? (
+            <form
+              className="flex flex-wrap gap-2 md:justify-end"
+              onSubmit={(e) => {
+                e.preventDefault();
+                run("tax", "tax", () => payFiscalTax(new FormData(e.currentTarget)));
+              }}
+            >
+              <input
+                name="amount"
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Pay amount"
+                className="min-w-0 flex-1 border border-[var(--psc-border)] px-2 py-2 font-mono md:max-w-44"
+              />
+              <button
+                type="submit"
+                disabled={pending}
+                className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
+              >
+                Pay
+              </button>
+            </form>
+          ) : (
+            <p className="text-xs text-[var(--psc-muted)] md:text-right">No assessed tax account yet.</p>
+          )}
+        </div>
+        {taxAccount?.due_at || taxAccount?.status ? (
+          <p className="mt-3 text-xs text-[var(--psc-muted)]">
+            {taxAccount.status ? `Status: ${taxAccount.status}` : ""}
+            {taxAccount.status && taxAccount.due_at ? " · " : ""}
+            {taxAccount.due_at ? `Due ${new Date(taxAccount.due_at).toLocaleString()}` : ""}
+          </p>
+        ) : null}
+      </section>
       {economyFrozen ? (
         <div className="rounded border border-rose-400/80 bg-rose-50 p-4 text-sm text-rose-950">
           <p className="font-semibold">Government shutdown</p>
@@ -204,59 +261,6 @@ export function EconomyDashboard({
             ) : null}
           </p>
         </div>
-      ) : null}
-      {!economyFrozen ? (
-        <section className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5 text-sm text-[var(--psc-ink)]">
-          {sectionFlash(flash, "tax")}
-          <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(220px,1.25fr)] md:items-end">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Owe</p>
-              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxOwed)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Paid</p>
-              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPaid)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Next Year Prediction</p>
-              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{formatMoney(taxPrediction)}</p>
-            </div>
-            {taxAccount ? (
-              <form
-                className="flex flex-wrap gap-2 md:justify-end"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  run("tax", "tax", () => payFiscalTax(new FormData(e.currentTarget)));
-                }}
-              >
-                <input
-                  name="amount"
-                  type="number"
-                  min={1}
-                  step={1}
-                  placeholder="Pay amount"
-                  className="min-w-0 flex-1 border border-[var(--psc-border)] px-2 py-2 font-mono md:max-w-44"
-                />
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
-                >
-                  Pay
-                </button>
-              </form>
-            ) : (
-              <p className="text-xs text-[var(--psc-muted)] md:text-right">No assessed tax account yet.</p>
-            )}
-          </div>
-          {taxAccount?.due_at || taxAccount?.status ? (
-            <p className="mt-3 text-xs text-[var(--psc-muted)]">
-              {taxAccount.status ? `Status: ${taxAccount.status}` : ""}
-              {taxAccount.status && taxAccount.due_at ? " · " : ""}
-              {taxAccount.due_at ? `Due ${new Date(taxAccount.due_at).toLocaleString()}` : ""}
-            </p>
-          ) : null}
-        </section>
       ) : null}
       <section className="grid gap-4 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 sm:grid-cols-2">
         <div className="sm:col-span-2">{sectionFlash(flash, "balance")}</div>

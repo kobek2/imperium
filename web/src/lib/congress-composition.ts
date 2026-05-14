@@ -176,24 +176,32 @@ export async function fetchCongressOverviewSnapshot(
   };
 }
 
-/** Distinct members counted for chamber composition (same basis as the Congress overview page). */
+/** Distinct members who may cast a chamber floor vote: seated reps/senators (grants + office_role) plus
+ *  leadership roles in the same chamber (grants + office_role). Matches Congress overview composition for
+ *  seats, and includes leaders who vote without a separate `representative` / `senator` office_role row. */
 export async function countChamberVotingMembers(
   supabase: SupabaseClient,
   chamber: BillChamber,
 ): Promise<number> {
   const chamberRoles = chamber === "house" ? HOUSE_VOTING_ROLE_KEYS : SENATE_VOTING_ROLE_KEYS;
-  const { data: profileRows } = await supabase.from("profiles").select("id, office_role");
-  const profileCount = new Set(
-    (profileRows ?? [])
-      .filter((row) => {
-        const role = String((row as { office_role?: string | null }).office_role ?? "");
-        return chamberRoles.has(role);
-      })
-      .map((row) => String((row as { id: string }).id)),
-  ).size;
-  if (profileCount > 0) return profileCount;
+  const [{ data: grants }, { data: profiles }] = await Promise.all([
+    supabase.from("government_role_grants").select("user_id, role_key"),
+    supabase.from("profiles").select("id, office_role"),
+  ]);
+  const gRows = (grants ?? []) as { user_id: string; role_key: string }[];
+  const pRows = (profiles ?? []) as { id: string; office_role: string | null }[];
+  const memberRole = chamber === "house" ? "representative" : "senator";
+  const ids = collectChamberMemberIds(gRows, pRows, memberRole);
 
-  // Fallback to historical snapshot logic when office_role data is unavailable.
+  for (const p of pRows) {
+    if (chamberRoles.has(String(p.office_role ?? ""))) ids.add(p.id);
+  }
+  for (const g of gRows) {
+    if (chamberRoles.has(g.role_key)) ids.add(g.user_id);
+  }
+
+  if (ids.size > 0) return ids.size;
+
   const snap = await fetchCongressOverviewSnapshot(supabase);
   if (!snap) return 0;
   return chamber === "house" ? snap.house.total : snap.senate.total;

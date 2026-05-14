@@ -11,6 +11,13 @@ function formatRemaining(ms: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+/** Same string on server and browser (avoids hydration mismatch from default locale / TZ). */
+function formatDeadlineUtc(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
+}
+
 export function AppropriationsCountdownBar({
   deadlineAt,
   enrolled,
@@ -22,11 +29,13 @@ export function AppropriationsCountdownBar({
   economyFrozen: boolean;
   variant?: "amber" | "slate";
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  /** `null` until after mount so SSR and the first client paint match (no wall-clock in first render). */
+  const [tick, setTick] = useState<number | null>(null);
 
   useEffect(() => {
     if (!deadlineAt || enrolled) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    setTick(Date.now());
+    const id = window.setInterval(() => setTick(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [deadlineAt, enrolled]);
 
@@ -34,29 +43,35 @@ export function AppropriationsCountdownBar({
     if (enrolled) return { label: null as string | null, tone: "muted" as const };
     if (economyFrozen) {
       return {
-        label: "Economy is frozen by staff until appropriations pass or the freeze is cleared.",
+        label: "Economy is frozen by staff. Wallet collects stay blocked until the freeze is cleared; time spent frozen is not paid out on the next collect.",
         tone: "frozen" as const,
       };
     }
     if (!deadlineAt) {
       return {
-        label: "No appropriations countdown is running. Staff start the window from Admin → Economy overview.",
+        label: "No budget transition countdown is running. Staff start the 24-hour window from Admin → Economy overview.",
         tone: "muted" as const,
       };
     }
     const end = new Date(deadlineAt).getTime();
-    const left = end - now;
+    if (tick == null) {
+      return {
+        label: `Budget transition deadline: ${formatDeadlineUtc(deadlineAt)}.`,
+        tone: "active" as const,
+      };
+    }
+    const left = end - tick;
     if (left <= 0) {
       return {
-        label: `Appropriations window ended at ${new Date(deadlineAt).toLocaleString()}. Staff may freeze the economy until a budget is law.`,
+        label: `Budget transition window ended (${formatDeadlineUtc(deadlineAt)}). Staff may freeze the economy until the next-year workbook is submitted.`,
         tone: "ended" as const,
       };
     }
     return {
-      label: `Time remaining to enroll appropriations: ${formatRemaining(left)} (deadline ${new Date(deadlineAt).toLocaleString()})`,
+      label: `Time remaining in budget transition window: ${formatRemaining(left)} (deadline ${formatDeadlineUtc(deadlineAt)})`,
       tone: "active" as const,
     };
-  }, [deadlineAt, enrolled, economyFrozen, now]);
+  }, [deadlineAt, enrolled, economyFrozen, tick]);
 
   if (enrolled || !label) return null;
 
@@ -73,7 +88,7 @@ export function AppropriationsCountdownBar({
 
   return (
     <div className={`rounded border p-3 text-sm ${box}`}>
-      <p className="font-semibold">{tone === "active" ? "Appropriations countdown" : "Federal budget / appropriations"}</p>
+      <p className="font-semibold">{tone === "active" ? "Budget transition countdown" : "Federal budget transition"}</p>
       <p className="mt-1 leading-relaxed">{label}</p>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   applyServerGdpInflationToLineMinima,
   fileFederalBudgetAppropriationsBill,
   saveFiscalBudgetDraft,
+  submitFiscalBudget,
   type FiscalLineItemRow,
   type FiscalTaxBracketRow,
 } from "@/app/actions/fiscal";
@@ -40,6 +41,8 @@ type BudgetRow = {
 
 export function FederalBudgetPanel({
   fiscalYearId,
+  workbookFiscalYearId,
+  workbookYearLabel,
   yearLabel,
   fiscalYearIndex,
   yearStartedAt,
@@ -64,7 +67,13 @@ export function FederalBudgetPanel({
   walkthroughForced = false,
   priorYearTutorial = null,
 }: {
+  /** Active fiscal year (tax collections, GDP window, freeze flag). */
   fiscalYearId: string;
+  /** Row whose `federal_budgets` draft is edited — equals `fiscalYearId` unless a transition draft is open. */
+  workbookFiscalYearId: string;
+  /** Label for the workbook being edited (next FY during transition). */
+  workbookYearLabel: string;
+  /** Active FY label (collections year). */
   yearLabel: string;
   /** Active `rp_fiscal_years.year_index` (Treasury collects for this FY; budget walkthrough copy targets FY index + 1). */
   fiscalYearIndex: number;
@@ -157,16 +166,18 @@ export function FederalBudgetPanel({
     [bracketPreviewIncomes, brackets],
   );
 
+  const editingTransitionWorkbook = workbookFiscalYearId !== fiscalYearId;
+
   const appropriationsPreviewHtml = useMemo(() => {
     const normalized = lines.map((row) => ({ ...row, label: lineItemDefaultLabel(row.key) }));
     return sanitizeBillHtml(
       buildFederalAppropriationsBillHtml({
-        yearLabel,
+        yearLabel: workbookYearLabel,
         taxBrackets: brackets,
         lineItems: normalized,
       }),
     );
-  }, [yearLabel, brackets, lines]);
+  }, [workbookYearLabel, brackets, lines]);
 
   const sampleIncome = 100_000;
   const sampleTax = useMemo(
@@ -200,7 +211,8 @@ export function FederalBudgetPanel({
   const canFileAppropriationsBill =
     !appropriationsEnrolled &&
     budget?.status === "draft" &&
-    (isAdmin || Boolean(appropriationClockStartedAt));
+    (isAdmin || Boolean(appropriationClockStartedAt)) &&
+    !editingTransitionWorkbook;
 
   const metricsFromBudgetPreview = useMemo(
     () => computeBudgetInfluencedNationalMetrics(nationalMetrics, lines, fiscalYearId),
@@ -231,6 +243,17 @@ export function FederalBudgetPanel({
         </p>
       ) : null}
 
+      {editingTransitionWorkbook ? (
+        <div className="rounded border border-sky-600/50 bg-sky-50 p-4 text-sm text-sky-950">
+          <p className="font-semibold">Next fiscal year (transition draft)</p>
+          <p className="mt-2 leading-relaxed">
+            You are editing <strong>{workbookYearLabel}</strong>. Treasury and tax totals in the header still describe the
+            active collections year <strong>{yearLabel}</strong> until this workbook is submitted and the simulation rolls
+            forward.
+          </p>
+        </div>
+      ) : null}
+
       {isAdmin && !isPresident ? (
         <div className="rounded border border-slate-400/80 bg-slate-50 p-4 text-sm text-slate-900">
           <p className="font-semibold text-[var(--psc-ink)]">Admin view</p>
@@ -259,22 +282,22 @@ export function FederalBudgetPanel({
               : "border-amber-600 bg-amber-50 text-amber-950"
           }`}
         >
-          <p className="font-semibold">{governmentShutdown ? "Economy frozen (staff)" : "Appropriations countdown"}</p>
+          <p className="font-semibold">{governmentShutdown ? "Economy frozen (staff)" : "Budget transition window"}</p>
           <p className="mt-2 leading-relaxed">
             {governmentShutdown ? (
               <>
                 Staff set <strong>economy freeze</strong> on the active fiscal year. Congress and the executive still pass
-                bills normally; wallet collects and related economy actions stay blocked until administrators clear the freeze
-                after appropriations are in place (or as your sim policy directs).
+                bills normally; wallet collects and related economy actions stay blocked until administrators clear the freeze.
+                Hours that pass while frozen are not paid out when the freeze lifts.
               </>
             ) : (
               <>
-                Staff started a real-time appropriations window ending{" "}
+                Staff started a real-time <strong>budget transition</strong> ending{" "}
                 <span className="font-mono font-semibold">{new Date(appropriationDeadlineAt).toLocaleString()}</span> (IRL).
-                Members may still propose and vote on ordinary bills; the President typically files the House appropriations
-                measure first, then the Treasury Secretary may file if needed. Passing deadline does <strong>not</strong>{" "}
-                auto-freeze the economy — staff use Admin → Economy overview to freeze if the act is not yet law. Signing the
-                enrolled bill marks the budget workbook submitted automatically.
+                During this window the Treasury still collects income tax for the <strong>active</strong> year while the
+                President finalizes the <strong>next-year</strong> workbook. Missing the deadline does not auto-freeze the
+                economy; staff freeze manually if needed. Submitting the transition workbook rolls the fiscal year (tax
+                settlement, debt metrics, new active year).
               </>
             )}
           </p>
@@ -285,6 +308,11 @@ export function FederalBudgetPanel({
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Active fiscal year</p>
           <p className="mt-1 text-lg font-semibold text-[var(--psc-ink)]">{yearLabel}</p>
+          {editingTransitionWorkbook ? (
+            <p className="mt-1 text-xs font-semibold text-sky-900">
+              Workbook open: <span className="font-mono">{workbookYearLabel}</span>
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-[var(--psc-muted)]">Started {new Date(yearStartedAt).toLocaleString()}</p>
         </div>
         <div>
@@ -751,7 +779,7 @@ export function FederalBudgetPanel({
               onClick={() => {
                 run(() =>
                   saveFiscalBudgetDraft({
-                    fiscalYearId,
+                    fiscalYearId: workbookFiscalYearId,
                     taxBrackets: brackets,
                     lineItems: lines,
                   }),
@@ -760,6 +788,38 @@ export function FederalBudgetPanel({
             >
               {pending ? "Saving…" : "Save draft"}
             </button>
+            {editingTransitionWorkbook && !isAdmin ? (
+              <p className="max-w-md text-xs leading-relaxed text-[var(--psc-muted)]">
+                <strong>Rollover:</strong> when the enrolled federal appropriations act is <strong>signed into law</strong> from
+                the Oval Office, the simulation closes the active tax year and activates{" "}
+                <span className="font-mono">{workbookYearLabel}</span>. Full staff can force a roll from Admin → Economy
+                overview if needed.
+              </p>
+            ) : (
+              <button
+                type="button"
+                disabled={pending || !canEdit || budgetSubmitted}
+                className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      editingTransitionWorkbook && isAdmin
+                        ? "Staff override: roll the fiscal year now without a presidential signing? Use only in an emergency."
+                        : "Submit this federal budget as adopted (submitted)? Line items and brackets lock for the President until full staff override.",
+                    )
+                  ) {
+                    return;
+                  }
+                  run(() => submitFiscalBudget(workbookFiscalYearId));
+                }}
+              >
+                {pending
+                  ? "Submitting…"
+                  : editingTransitionWorkbook && isAdmin
+                    ? "Staff: force roll fiscal year"
+                    : "Submit adopted workbook"}
+              </button>
+            )}
             <button
               type="button"
               disabled={pending || !canEdit || budgetSubmitted}
@@ -771,7 +831,7 @@ export function FederalBudgetPanel({
             {budget?.status === "draft" ? (
               <button
                 type="button"
-                disabled={pending || !canEdit}
+                disabled={pending || !canEdit || budgetSubmitted || editingTransitionWorkbook}
                 title="Syncs line minima to server GDP index (wallet sum / FY opening GDP), preserving base minima to avoid compounding."
                 className="rounded border border-emerald-800/40 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-950 disabled:opacity-50"
                 onClick={() => run(() => applyServerGdpInflationToLineMinima())}

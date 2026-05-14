@@ -28,17 +28,18 @@ export function EconomyAppropriationsWindowControls({
 
   return (
     <section className="space-y-4 rounded border border-sky-700/30 bg-sky-50 p-4 text-sm text-sky-950">
-      <h2 className="text-base font-semibold text-sky-950">Appropriations window (staff)</h2>
+      <h2 className="text-base font-semibold text-sky-950">Budget transition window (staff)</h2>
       <p className="text-xs leading-relaxed">
-        The simulation no longer auto-starts fiscal deadlines. In <strong>RP September</strong>, use this to start a{" "}
-        <strong>real-time</strong> countdown so the President and Congress see time left to pass the annual appropriations
-        act. Treasury and tax tooling respect the same <strong>manual economy freeze</strong> as everyone else when staff
-        freeze the active year.
+        Start a <strong>real-time</strong> countdown on the active fiscal year. While it runs, Treasury still collects for the
+        active tax year, and a <strong>next-year draft workbook</strong> opens on Economy → Federal for the President. When
+        Congress passes the federal appropriations measure and the President <strong>signs it into law</strong> from the Oval
+        Office, the server rolls the fiscal year (tax settlement, debt metrics, new active year). Staff use the{" "}
+        <strong>economy freeze</strong> toggle if the window expires without a signing; unfreezing does not pay out hours that
+        passed while frozen.
       </p>
       <p className="text-xs leading-relaxed">
-        Operating year on the server: <strong>{fiscalYearLabel}</strong> (index {fiscalYearIndex}). The workbook and
-        appropriations bill on this site still attach to that active row until you <strong>close the year</strong>; after
-        closeout, the next index becomes <strong>FY {nextIndex}</strong> for collections and the following September cycle.
+        Operating year on the server: <strong>{fiscalYearLabel}</strong> (index {fiscalYearIndex}). After the enrolled act is
+        signed, that year closes and index <strong>FY {nextIndex}</strong> becomes active for collections.
       </p>
       <AppropriationsCountdownBar
         deadlineAt={appropriationDeadlineAt}
@@ -76,7 +77,7 @@ export function EconomyAppropriationsWindowControls({
               });
             }}
           >
-            {pending ? "Starting…" : "Start appropriations countdown"}
+            {pending ? "Starting…" : "Start budget transition"}
           </button>
         </div>
       )}

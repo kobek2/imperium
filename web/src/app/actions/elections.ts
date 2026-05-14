@@ -805,7 +805,7 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
   });
 
   throwIfPostgrestError(error);
-  await runElectionPhaseSchedule(supabase);
+  await runElectionPhaseSchedule(supabase, { force: true });
   revalidatePath("/elections");
   revalidatePath(`/elections/${election_id}`);
 }
@@ -894,7 +894,7 @@ export async function setPresidentialRunningMate(formData: FormData): Promise<vo
     throwIfPostgrestError(error);
   }
 
-  await runElectionPhaseSchedule(supabase);
+  await runElectionPhaseSchedule(supabase, { force: true });
   revalidatePath(`/elections/${election_id}`);
   revalidatePath("/elections");
 }
@@ -928,7 +928,7 @@ export async function withdrawCandidacy(formData: FormData): Promise<void> {
 
   throwIfPostgrestError(error);
 
-  await runElectionPhaseSchedule(supabase);
+  await runElectionPhaseSchedule(supabase, { force: true });
   revalidatePath("/elections");
   revalidatePath(`/elections/${election_id}`);
 }
@@ -964,7 +964,7 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
       .eq("election_id", election_id)
       .eq("voter_id", user.id);
     if (delErr) throw new Error(`Could not clear your vote: ${delErr.message}`);
-    await runElectionPhaseSchedule(supabase);
+    await runElectionPhaseSchedule(supabase, { force: true });
     revalidatePath(`/elections/${election_id}`);
     return;
   }
@@ -1062,7 +1062,7 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
     if (insErr) throw new Error(`Could not record your vote: ${insErr.message}`);
   }
 
-  await runElectionPhaseSchedule(supabase);
+  await runElectionPhaseSchedule(supabase, { force: true });
   revalidatePath(`/elections/${election_id}`);
 }
 
@@ -1607,7 +1607,7 @@ export async function castGeneralVote(formData: FormData): Promise<void> {
       }
       throw new Error(`Could not clear your vote: ${msg}`);
     }
-    await runElectionPhaseSchedule(supabase);
+    await runElectionPhaseSchedule(supabase, { force: true });
     revalidatePath(`/elections/${election_id}`);
     return;
   }

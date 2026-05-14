@@ -159,11 +159,12 @@ export async function setCalendarIsActive(formData: FormData): Promise<void> {
 
 /**
  * Narrative / season reset: clears calendar milestone dedupe, sets `simulation_start_at` to now so RP reads as
- * January 2029 at the fixed v2 pace, turns the automated calendar on, and runs one tick (inauguration and other due
+ * January of the configured RP start year (`RP_START_YEAR` in `simulation-calendar-constants`) at the fixed v2 pace,
+ * turns the automated calendar on, clears any seat-cycle RP freeze, and runs one tick (inauguration and other due
  * handlers). Requires `SUPABASE_SERVICE_ROLE_KEY` so calendar rows can be cleared and the start time can be rewritten
  * even when the normal admin form lock is on.
  */
-export async function resetCalendarV2ToJanuary2029AndActivate(formData: FormData): Promise<void> {
+export async function resetCalendarV2ToRpEpochStartAndActivate(formData: FormData): Promise<void> {
   await requireAdmin();
   const confirm = String(formData.get("confirm_rp_calendar_reset") ?? "").trim() === "1";
   if (!confirm) {
@@ -190,6 +191,9 @@ export async function resetCalendarV2ToJanuary2029AndActivate(formData: FormData
     .update({
       simulation_start_at: nowIso,
       calendar_is_active: true,
+      calendar_auto_congress_elections: true,
+      calendar_seat_cycle_freeze_rp_year: null,
+      calendar_seat_cycle_freeze_rp_month: null,
       last_auto_open_rp_key: null,
       updated_at: nowIso,
     })
@@ -204,6 +208,27 @@ export async function resetCalendarV2ToJanuary2029AndActivate(formData: FormData
   revalidatePath("/elections");
   revalidatePath("/congress");
   revalidatePath("/");
+}
+
+export async function setCalendarAutoCongressElections(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const on = String(formData.get("calendar_auto_congress_elections") ?? "").trim() === "on";
+
+  const { error } = await supabase
+    .from("simulation_settings")
+    .update({
+      calendar_auto_congress_elections: on,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+
+  throwIfPostgrestError(error);
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
+
+  const svc = createServiceRoleSupabase();
+  if (svc) await tickCalendarEvents(svc);
 }
 
 export async function manualFireCalendarEvent(formData: FormData): Promise<void> {
