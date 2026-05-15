@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isProfileOnboardingComplete, US_STATE_CODES } from "@/lib/character-onboarding";
+import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 const STATE_SET = new Set<string>(US_STATE_CODES);
 const PARTIES = new Set(["democrat", "republican", "independent"]);
@@ -39,7 +40,9 @@ export async function saveCharacter(formData: FormData): Promise<void> {
 
   const { data: beforeProfile, error: beforeErr } = await supabase
     .from("profiles")
-    .select("character_name, date_of_birth, residence_state, home_district_code, party, face_claim_url")
+    .select(
+      "character_name, date_of_birth, residence_state, home_district_code, party, face_claim_url, office_role",
+    )
     .eq("id", user.id)
     .maybeSingle();
 
@@ -148,11 +151,19 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     throw new Error("Character record is incomplete.");
   }
 
+  if (!isFirstOnboardingCompletion) {
+    const { error: moveErr } = await supabase.rpc("apply_profile_geographic_move", {
+      p_new_residence_state: residence_state,
+      p_new_home_district: home_district_code,
+    });
+    throwIfPostgrestError(moveErr);
+  }
+
   const profileUpdate: Record<string, unknown> = {
     character_name,
     date_of_birth: date_of_birth || null,
     residence_state: residence_state || null,
-    home_district_code: home_district_code || null,
+    home_district_code: home_district_code.trim().toUpperCase() || null,
     party,
     bio,
     face_claim_url,
@@ -184,6 +195,7 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   revalidatePath("/character");
   revalidatePath("/onboarding");
   revalidatePath("/elections");
+  revalidatePath("/congress");
   revalidatePath("/");
   revalidatePath("/directory");
   revalidatePath(`/profile/${user.id}`);

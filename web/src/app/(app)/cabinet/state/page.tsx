@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { StateDiplomacyWorkbench } from "@/components/state-diplomacy-workbench";
 import { canActAsSecretaryOfState, canViewStateDepartment } from "@/lib/cabinet-hub";
 import { cabinetDayStartIso } from "@/lib/cabinet-week";
+import { selectDefenseWatchlistNations } from "@/lib/defense-ops-watchlist";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -21,6 +22,10 @@ export default async function StateCabinetPage() {
   if (tickErr && !tickErr.message.toLowerCase().includes("schema cache")) {
     console.warn("[cabinet/state] rp_diplomacy_daily_tick:", tickErr.message);
   }
+  const { error: milErr } = await supabase.rpc("rp_military_power_daily_tick", { p_today: dayUtc });
+  if (milErr && !milErr.message.toLowerCase().includes("schema cache")) {
+    console.warn("[cabinet/state] rp_military_power_daily_tick:", milErr.message);
+  }
 
   const [{ data: nations, error: nErr }, { data: hoursRow, error: hErr }] = await Promise.all([
     supabase.from("rp_foreign_nations").select("code, name, us_relation").order("name", { ascending: true }),
@@ -36,7 +41,9 @@ export default async function StateCabinetPage() {
   const hoursBudget = hoursRow ? Number((hoursRow as { hours_budget: number }).hours_budget) : 20;
   const hoursUsed = hoursRow ? Number((hoursRow as { hours_used: number }).hours_used) : 0;
 
-  const nationList = (nations ?? []) as Array<{ code: string; name: string; us_relation: number }>;
+  const nationListFull = (nations ?? []) as Array<{ code: string; name: string; us_relation: number }>;
+  /** Same seven-theater belt as Defense / NSC so standing scores line up desk-to-desk. */
+  const nationList = selectDefenseWatchlistNations(nationListFull);
   const dataReady = !nErr && !hErr;
   const mockCrisisWarning = process.env.NEXT_PUBLIC_DIPLOMACY_CRISIS_WARNING_MOCK === "1";
 
@@ -46,7 +53,8 @@ export default async function StateCabinetPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Cabinet</p>
         <h1 className="text-2xl font-semibold tracking-tight text-[var(--psc-ink)]">Secretary of State</h1>
         <p className="max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-          Bilateral standing is tracked on a 0–100 scale and drifts downward each UTC day unless the Secretary invests daily
+          Bilateral standing is tracked on a 0–100 scale for the same seven pacing theaters as the Secretary of Defense belt
+          (so NSC and both desks see one list). Scores drift downward each UTC day unless the Secretary invests daily
           engagement hours. Passive desk time is steady; intensive dialogues cost more hours but can recover ground faster
           and are logged for staff-led RP events.
         </p>

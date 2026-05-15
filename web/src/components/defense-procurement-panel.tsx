@@ -1,10 +1,10 @@
-import { defenseObligateProcurement } from "@/app/actions/cabinet-portfolios";
-import { SubmitButton } from "@/components/submit-button";
+import { DefenseProcurementLaneRow } from "@/components/defense-procurement-lane-row";
 import type { DefenseProcurementOverview } from "@/lib/defense-procurement-budget";
 import {
   DEFENSE_PROCUREMENT_CATEGORIES,
   DEFENSE_PROCUREMENT_CATEGORY_LABELS,
   isDefenseProcurementCategory,
+  modernizationKeyForCategory,
 } from "@/lib/defense-procurement-budget";
 
 const fmtUsd = (n: number) =>
@@ -12,91 +12,16 @@ const fmtUsd = (n: number) =>
     Math.max(0, n),
   );
 
-const QUICK_SPENDS = [50_000, 200_000, 1_000_000] as const;
-
-const CARD_BLURB: Record<string, string> = {
-  weapon_system_modernization: "Better rifles, drones, and night kit.",
-  heavy_armor: "Tank battalions and heavy tracks.",
-  cavalry_and_mobility: "Scout units and fast columns.",
-  aviation_rotary: "Helos that haul and punch.",
-  missiles_and_long_range_strike: "Rockets and long shots.",
-  munitions_industrial_base: "Factories, shells, and stockpiles.",
-};
-
-function CategorySpendCard({
-  category,
-  disabled,
-}: {
-  category: (typeof DEFENSE_PROCUREMENT_CATEGORIES)[number];
-  disabled: boolean;
-}) {
-  const title = DEFENSE_PROCUREMENT_CATEGORY_LABELS[category];
-  const blurb = CARD_BLURB[category] ?? "";
-
-  return (
-    <article className="flex flex-col rounded-xl border border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 shadow-sm">
-      <div className="min-h-[3.25rem]">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Line item</p>
-        <h3 className="mt-1 text-base font-semibold leading-snug text-[var(--psc-ink)]">{title}</h3>
-        <p className="mt-1 text-xs text-[var(--psc-muted)]">{blurb}</p>
-      </div>
-      <form action={defenseObligateProcurement} className="mt-4 flex flex-1 flex-col gap-3">
-        <input type="hidden" name="category" value={category} />
-        <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--psc-muted)]">
-          Custom amount ($)
-          <input
-            name="amount_obligated"
-            type="number"
-            min={1}
-            step={1}
-            placeholder="250000"
-            disabled={disabled}
-            className="rounded-lg border border-[var(--psc-border)] bg-white px-2 py-2 font-mono text-sm text-[var(--psc-ink)] disabled:opacity-50"
-          />
-        </label>
-        <SubmitButton
-          disabled={disabled}
-          className="w-full rounded-lg border border-emerald-800/30 bg-emerald-700/90 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-        >
-          Authorize spend
-        </SubmitButton>
-        <div className="flex flex-wrap gap-2">
-          {QUICK_SPENDS.map((amt) => (
-            <button
-              key={amt}
-              type="submit"
-              name="quick_amount"
-              value={String(amt)}
-              disabled={disabled}
-              className="flex-1 rounded-lg border border-[var(--psc-border)] bg-white px-2 py-1.5 text-center font-mono text-xs font-semibold text-[var(--psc-ink)] hover:bg-emerald-50 disabled:opacity-50"
-            >
-              {fmtUsd(amt)}
-            </button>
-          ))}
-        </div>
-        <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--psc-muted)]">
-          Tag (optional)
-          <input
-            name="memo"
-            maxLength={2000}
-            disabled={disabled}
-            placeholder="e.g. 1st Armored refresh"
-            className="rounded-lg border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm text-[var(--psc-ink)] disabled:opacity-50"
-          />
-        </label>
-      </form>
-    </article>
-  );
-}
-
 export function DefenseProcurementPanel({
   overview,
   procurementLedgerReady,
   canAct,
+  defenseBody,
 }: {
   overview: DefenseProcurementOverview | null;
   procurementLedgerReady: boolean;
   canAct: boolean;
+  defenseBody: Record<string, unknown>;
 }) {
   if (!procurementLedgerReady) {
     return (
@@ -128,16 +53,16 @@ export function DefenseProcurementPanel({
     <section className="rounded-2xl border border-[var(--psc-border)] bg-white/35 p-5 shadow-sm backdrop-blur-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">War chest store</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">War chest</h2>
           <p className="mt-1 max-w-2xl text-sm text-[var(--psc-muted)]">
-            Like the PAC storefront: pick a lane, punch an amount (or a quick chip), and hit authorize. Caps come from
-            the President&apos;s defense line in {fiscalYearLabel}. This is a fun RP ledger — it does not move the real
-            treasury wallet.
+            Top row: package only. Amber row: same package plus <span className="font-mono">$100M</span> modernize
+            (doubles military power from that buy and ticks the lane bar). Caps: {fiscalYearLabel} defense line. RP
+            ledger only — not the federal treasury wallet.
           </p>
         </div>
         <div className="rounded-xl border border-emerald-800/20 bg-emerald-50/80 px-3 py-2 text-right text-xs text-emerald-950">
           <p>
-            <span className="text-[var(--psc-muted)]">Left to spend</span>{" "}
+            <span className="text-[var(--psc-muted)]">Left to obligate</span>{" "}
             <span className="font-mono text-base font-bold">{fmtUsd(remaining)}</span>
           </p>
           <p className="mt-0.5 font-mono text-[11px] text-emerald-900/80">
@@ -155,10 +80,19 @@ export function DefenseProcurementPanel({
         <p className="mt-4 text-sm text-[var(--psc-muted)]">Defense line is set to zero in the budget workbook.</p>
       ) : null}
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {DEFENSE_PROCUREMENT_CATEGORIES.map((c) => (
-          <CategorySpendCard key={c} category={c} disabled={!canObligate} />
-        ))}
+      <div className="mt-4 divide-y divide-[var(--psc-border)] rounded-xl border border-[var(--psc-border)] bg-white/50 px-3">
+        {DEFENSE_PROCUREMENT_CATEGORIES.map((c) => {
+          const modKey = modernizationKeyForCategory(c);
+          const modScore = Number(defenseBody[modKey] ?? 0);
+          return (
+            <DefenseProcurementLaneRow
+              key={c}
+              category={c}
+              disabled={!canObligate}
+              modScore={Number.isFinite(modScore) ? modScore : 0}
+            />
+          );
+        })}
       </div>
 
       {recent.length > 0 ? (

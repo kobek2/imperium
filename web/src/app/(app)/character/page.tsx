@@ -9,6 +9,7 @@ import {
   type AuthorBillVote,
   type RecentAuthoredBill,
 } from "@/lib/profile-recent-bills";
+import { isGeographicMoveExempt } from "@/lib/geographic-move";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
 import { PersonnelEditShell } from "./personnel-edit-shell";
@@ -50,6 +51,7 @@ export default async function CharacterPage() {
   }
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  const geographicMoveExempt = isGeographicMoveExempt(roleKeys);
   const senateClassHeld = roleKeys.includes("senator")
     ? await fetchUserSenateClassHeld(supabase, user.id)
     : null;
@@ -101,6 +103,7 @@ export default async function CharacterPage() {
         profile={personnelProfile}
         districtPvi={districtPvi}
         setupMode={setupMode}
+        geographicMoveExempt={geographicMoveExempt}
       />
       {!setupMode ? (
         <RecentAuthoredBillsPanel

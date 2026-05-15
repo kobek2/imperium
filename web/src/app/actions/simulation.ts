@@ -684,9 +684,40 @@ export async function beginSenateClass3SeatFilings(): Promise<void> {
   await beginSenateClassSeatFilingsInner(3);
 }
 
-/** Admin: open dormant presidential filing windows (nationwide race rows in filing with no clock started). */
+/**
+ * When no presidential seat race is in progress, inserts one dormant nationwide row (filing phase,
+ * filing clock not started) so {@link beginPresidentDormantSeatFilings} can open it — matching the
+ * House flow that calls ensure-templates before bulk-open.
+ */
+async function ensureDormantPresidentSeatTemplate(supabase: SupabaseClient): Promise<number> {
+  const { data: active, error } = await supabase
+    .from("elections")
+    .select("id")
+    .eq("office", "president")
+    .is("leadership_role", null)
+    .neq("phase", "closed");
+  throwIfPostgrestError(error);
+  if ((active ?? []).length > 0) return 0;
+
+  const sched = scheduleFromNow();
+  const { error: insErr } = await supabase.from("elections").insert({
+    office: "president",
+    state: null,
+    district_code: null,
+    senate_class: null,
+    phase: "filing",
+    ...sched,
+    primary_party_wide: true,
+    filing_window_started_at: null,
+  });
+  throwIfPostgrestError(insErr);
+  return 1;
+}
+
+/** Admin: ensure a dormant president row exists, then open its filing window (nationwide). */
 export async function beginPresidentDormantSeatFilings(): Promise<void> {
   const { supabase } = await requireAdmin();
+  await ensureDormantPresidentSeatTemplate(supabase);
   const { data: rows, error } = await supabase
     .from("elections")
     .select("id")

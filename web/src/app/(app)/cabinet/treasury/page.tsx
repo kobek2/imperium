@@ -12,7 +12,7 @@ import {
   type AppropriationsBillRow,
   type TreasuryLineRow,
 } from "./treasury-appropriations-pipeline";
-import { TreasuryCashDeployment, type TreasuryOutlayRow } from "./treasury-cash-deployment";
+import { TreasuryCashDeployment, type TreasuryLineDeployRow, type TreasuryOutlayRow } from "./treasury-cash-deployment";
 import { TreasuryTools } from "./treasury-tools";
 
 type FySettings = {
@@ -81,7 +81,7 @@ export default async function TreasuryCabinetPage() {
   const taxOpsFiscalYearId = String((dashboard as { fiscal_year_id?: string | null } | null)?.fiscal_year_id ?? "").trim();
   const fyActive = activeFy as ActiveFyRow | null;
 
-  const [{ data: taxOpsFy }, { data: accounts }, { data: budgetForActive }, { data: linkedAppBillsRaw }, taxRpcResult] =
+  const [{ data: taxOpsFy }, { data: accounts }, { data: budgetForActive }, { data: linkedAppBillsRaw }, sumTaxResult] =
     await Promise.all([
       taxOpsFiscalYearId
         ? supabase
@@ -109,10 +109,14 @@ export default async function TreasuryCabinetPage() {
             .eq("is_federal_appropriations", true)
             .order("created_at", { ascending: false })
         : Promise.resolve({ data: [] as const }),
-      supabase.rpc("fiscal_estimate_ytd_income_tax"),
+      (taxOpsFiscalYearId || fyActive?.id
+        ? supabase.rpc("fiscal_sum_assessed_income_tax_for_fiscal_year", {
+            p_fiscal_year_id: (taxOpsFiscalYearId || fyActive?.id) as string,
+          })
+        : Promise.resolve({ data: null, error: null })),
     ]);
-  const taxRpcErr = taxRpcResult.error;
-  const taxRpc = taxRpcResult.data;
+  const sumTaxErr = sumTaxResult.error;
+  const sumTaxRpc = sumTaxResult.data;
 
   const settingsFy = (taxOpsFy as FySettings | null) ?? (activeFy as FySettings | null) ?? null;
   /** RPCs use active FY for tax policy while the ledger row may be a prior closed FY. */
@@ -189,10 +193,17 @@ export default async function TreasuryCabinetPage() {
       if (k) lineSpendTotalsFull[k] = (lineSpendTotalsFull[k] ?? 0) + amt;
     }
   }
-  const estimatedIncomeTaxYtd =
-    !taxRpcErr && taxRpc && typeof taxRpc === "object"
-      ? Number((taxRpc as Record<string, unknown>).estimated_tax ?? 0)
+  const totalAssessedIncomeTaxLedger =
+    !sumTaxErr && sumTaxRpc && typeof sumTaxRpc === "object"
+      ? Number((sumTaxRpc as Record<string, unknown>).assessed_sum ?? 0)
       : null;
+
+  const lineDeployRows: TreasuryLineDeployRow[] = lineRows.map((r) => ({
+    key: r.key,
+    label: r.label,
+    allocated: Number.isFinite(r.allocated) ? r.allocated : 0,
+    deployed: lineSpendTotalsFull[r.key] ?? 0,
+  }));
 
   const userIds = [...new Set((accounts ?? []).map((a) => String((a as { user_id?: string }).user_id ?? "")))].filter(Boolean);
   const { data: profiles } =
@@ -248,16 +259,15 @@ export default async function TreasuryCabinetPage() {
             enrolledSignedAt={enrolledSignedAt}
             inCongressBills={inCongressBills}
             federalTreasuryBalance={federalTreasuryBalance}
-            estimatedIncomeTaxYtd={estimatedIncomeTaxYtd}
+            totalAssessedIncomeTaxLedger={totalAssessedIncomeTaxLedger}
             lineRows={lineRows}
             totalAllocated={totalAllocated}
           />
           <TreasuryCashDeployment
-            lineOptions={lineRows.map((r) => ({ key: r.key, label: r.label }))}
+            lineRows={lineDeployRows}
             usDebt={usDebt}
             treasuryBalance={federalTreasuryBalance}
             recentOutlays={recentOutlays}
-            lineSpendTotals={lineSpendTotalsFull}
             debtSpendTotal={debtSpendTotalFull}
             canDeploy={canDeployTreasuryCash}
           />

@@ -35,9 +35,15 @@ async function assertSecretaryOfState(): Promise<{ userId: string; supabase: Sup
 
 async function diplomacyTick(supabase: SupabaseClient): Promise<void> {
   const today = cabinetDayStartIso();
-  const { error } = await supabase.rpc("rp_diplomacy_daily_tick", { p_today: today });
-  if (error && !error.message.toLowerCase().includes("schema cache")) {
-    console.warn("[diplomacyTick]", error.message);
+  const [{ error: dipErr }, { error: milErr }] = await Promise.all([
+    supabase.rpc("rp_diplomacy_daily_tick", { p_today: today }),
+    supabase.rpc("rp_military_power_daily_tick", { p_today: today }),
+  ]);
+  if (dipErr && !dipErr.message.toLowerCase().includes("schema cache")) {
+    console.warn("[diplomacyTick]", dipErr.message);
+  }
+  if (milErr && !milErr.message.toLowerCase().includes("schema cache")) {
+    console.warn("[diplomacyTick] rp_military_power_daily_tick:", milErr.message);
   }
 }
 

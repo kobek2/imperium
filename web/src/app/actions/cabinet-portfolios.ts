@@ -5,9 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { cabinetDayStartIso } from "@/lib/cabinet-week";
 import {
+  applyDefenseModernizationBump,
   applyDefenseProcurementMetricDeltas,
+  DEFENSE_PROCUREMENT_PACKAGES,
   isDefenseProcurementCategory,
 } from "@/lib/defense-procurement-budget";
+import { applyMilitaryPowerAfterProcurement, DEFENSE_MODERNIZE_SURCHARGE_USD } from "@/lib/military-power";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 
 /** Only the portfolio secretary (or site operators) may mutate a department dashboard. */
@@ -98,13 +101,20 @@ export async function defenseObligateProcurement(formData: FormData): Promise<vo
   const category = String(formData.get("category") ?? "").trim();
   if (!isDefenseProcurementCategory(category)) throw new Error("Pick a procurement category.");
 
+  const pkgId = String(formData.get("package_id") ?? "").trim();
+  const fromPkg = DEFENSE_PROCUREMENT_PACKAGES.find((p) => p.id === pkgId);
   const quickRaw = String(formData.get("quick_amount") ?? "").trim().replace(/,/g, "");
   const typedRaw = String(formData.get("amount_obligated") ?? "").replace(/,/g, "");
-  const amountRaw = Number(quickRaw || typedRaw);
-  if (!Number.isFinite(amountRaw) || amountRaw <= 0) throw new Error("Enter an amount or pick a quick spend.");
-  const amount = Math.round(amountRaw * 100) / 100;
+  const packageAmountRaw = fromPkg ? fromPkg.amount : Number(quickRaw || typedRaw);
+  if (!Number.isFinite(packageAmountRaw) || packageAmountRaw <= 0) {
+    throw new Error("Pick a procurement package (or enter an amount).");
+  }
+  const packageAmount = Math.round(packageAmountRaw * 100) / 100;
 
   const memo = String(formData.get("memo") ?? "").trim();
+  const modernize = String(formData.get("modernize") ?? "") === "on";
+  const totalCharge = packageAmount + (modernize ? DEFENSE_MODERNIZE_SURCHARGE_USD : 0);
+  const amount = Math.round(totalCharge * 100) / 100;
 
   const { data: rpcJson, error: rpcErr } = await supabase.rpc("rp_defense_obligate_procurement", {
     p_fiscal_year_id: fiscalYearId,
@@ -123,9 +133,15 @@ export async function defenseObligateProcurement(formData: FormData): Promise<vo
 
   const cap = Number((rpcJson as { defense_line_cap?: unknown } | null)?.defense_line_cap ?? 0);
   if (cap > 0) {
-    await applyDepartmentPatch(supabase, "defense", (b) =>
-      applyDefenseProcurementMetricDeltas(category, amount, cap, b),
-    );
+    await applyDepartmentPatch(supabase, "defense", (b) => {
+      let next = applyDefenseProcurementMetricDeltas(category, packageAmount, cap, b);
+      next = applyMilitaryPowerAfterProcurement(next, category, packageAmount, modernize);
+      if (modernize) {
+        const modSteps = fromPkg?.id === "theater" ? 6 : fromPkg?.id === "column" ? 5 : 4;
+        next = applyDefenseModernizationBump(next, category, modSteps);
+      }
+      return next;
+    });
   }
 
   revalidatePath("/cabinet");

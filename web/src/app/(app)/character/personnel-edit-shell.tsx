@@ -10,11 +10,13 @@ export function PersonnelEditShell({
   primaryTitle,
   districtPvi,
   setupMode = false,
+  geographicMoveExempt = false,
 }: {
   profile: PersonnelProfile;
   primaryTitle: string;
   districtPvi: number | null;
   setupMode?: boolean;
+  geographicMoveExempt?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(setupMode);
@@ -62,6 +64,7 @@ export function PersonnelEditShell({
         {editing ? (
           <CharacterForm
             profile={profile}
+            geographicMoveExempt={geographicMoveExempt}
             onSaved={() => {
               setEditing(false);
               router.refresh();

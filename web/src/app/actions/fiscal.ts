@@ -646,6 +646,99 @@ export async function treasuryDeployFederalCashSplitLines(input: {
   };
 }
 
+/** Deploy treasury cash to fund the remaining gap to the enacted allocation for one budget line (min of cash on hand and gap). */
+export async function treasuryPayBudgetLineGap(input: {
+  lineItemKey: string;
+  note?: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  if (!(await canDeployTreasuryCashRpc(supabase, user.id, profile))) {
+    return {
+      ok: false,
+      message: "Only the President, Secretary of the Treasury, or full staff may deploy federal treasury cash.",
+    };
+  }
+  const key = String(input.lineItemKey ?? "").trim();
+  if (!key) return { ok: false, message: "Missing line item." };
+
+  const { data, error } = await supabase.rpc("fiscal_treasury_deploy_budget_line_allocated_gap", {
+    p_line_item_key: key,
+    p_note: String(input.note ?? "").trim(),
+  });
+  if (error) return { ok: false, message: error.message };
+  const d = (data ?? {}) as {
+    deployed?: number;
+    treasury_balance_after?: number;
+    allocated?: number;
+    deployed_before?: number;
+  };
+  const deployed = Number(d.deployed ?? 0);
+  const after = Number(d.treasury_balance_after ?? 0);
+  const alloc = Number(d.allocated ?? 0);
+  const prev = Number(d.deployed_before ?? 0);
+  revalidateFiscal();
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/cabinet/treasury");
+  return {
+    ok: true,
+    message: `Deployed $${deployed.toLocaleString(undefined, { maximumFractionDigits: 2 })} toward this line (enacted $${alloc.toLocaleString(undefined, { maximumFractionDigits: 0 })}; previously deployed $${prev.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Treasury cash is now $${after.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`,
+  };
+}
+
+/** Apply all current federal treasury cash to U.S. debt paydown, or — if sim debt is zero — record a surplus (negative us_debt). */
+export async function treasuryPayDownUsDebtWithAllCash(note?: string): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data: profile } = await supabase.from("profiles").select("office_role").eq("id", user.id).maybeSingle();
+  if (!(await canDeployTreasuryCashRpc(supabase, user.id, profile))) {
+    return {
+      ok: false,
+      message: "Only the President, Secretary of the Treasury, or full staff may deploy federal treasury cash.",
+    };
+  }
+
+  const { data: trow, error: terr } = await supabase.from("federal_treasury").select("balance").eq("id", 1).maybeSingle();
+  if (terr) return { ok: false, message: terr.message };
+  const bal = Number((trow as { balance?: number } | null)?.balance ?? 0);
+  if (!Number.isFinite(bal) || bal <= 0) {
+    return { ok: false, message: "Federal treasury has no cash on hand." };
+  }
+
+  return treasuryDeployFederalCash({
+    category: "us_debt",
+    amount: bal,
+    note: String(note ?? "").trim() || "Pay down U.S. debt (full treasury balance)",
+  });
+}
+
+/** Re-run national metrics stress from current budget-line deployment ratios (treasury / admin). */
+export async function recomputeNationalMetricsLineFunding(): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "Not signed in." };
+  const { data, error } = await supabase.rpc("fiscal_recompute_national_metrics_line_funding");
+  if (error) return { ok: false, message: error.message };
+  const fy = String((data as { fiscal_year_id?: string } | null)?.fiscal_year_id ?? "");
+  revalidateFiscal();
+  revalidatePath("/national-metrics");
+  revalidatePath("/cabinet/treasury");
+  return {
+    ok: true,
+    message: fy ? `National metrics refreshed for fiscal year ${fy}.` : "National metrics refreshed.",
+  };
+}
+
 export async function treasuryIssueTaxWarnings(scope: "due_soon" | "delinquent" | "all"): Promise<{ ok: boolean; message: string }> {
   const supabase = await createClient();
   const {

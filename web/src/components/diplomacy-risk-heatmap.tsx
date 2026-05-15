@@ -16,10 +16,13 @@ export function DiplomacyRiskHeatmap({
   nations,
   variant = "full",
   showStateLink = true,
+  compactTitle = "Escalation watch (State tracker)",
 }: {
   nations: DiplomacyNationRow[];
   variant?: "full" | "compact";
   showStateLink?: boolean;
+  /** Compact strip heading (e.g. SecDef 7-theater belt). */
+  compactTitle?: string;
 }) {
   const rows = sortedByHeat(nations);
 
@@ -27,7 +30,7 @@ export function DiplomacyRiskHeatmap({
     return (
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-          Escalation watch (State tracker)
+          {compactTitle}
         </p>
         <div className="flex flex-wrap gap-2">
           {rows.map((n) => {

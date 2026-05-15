@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, Fragment } from "react";
 import { saveCharacter } from "@/app/actions/profile";
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { US_STATE_CODES } from "@/lib/character-onboarding";
 import { formatDistrictLean } from "@/lib/district-lean";
+import { hasGeographicHomeChange } from "@/lib/geographic-move";
 
 type Profile = {
   character_name: string | null;
@@ -39,12 +40,17 @@ export function CharacterForm({
   profile,
   variant = "default",
   onSaved,
+  geographicMoveExempt = false,
 }: {
   profile: Profile | null;
   variant?: "default" | "onboarding";
   onSaved?: () => void;
+  geographicMoveExempt?: boolean;
 }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const geoConfirmBypassRef = useRef(false);
+  const [geoConfirmOpen, setGeoConfirmOpen] = useState(false);
   const [state, setState] = useState(profile?.residence_state ?? "CA");
   const [districts, setDistricts] = useState<DistrictRow[]>([]);
   const [districtsLoading, setDistrictsLoading] = useState(true);
@@ -56,6 +62,8 @@ export function CharacterForm({
     objectUrl: string;
   } | null>(null);
   const [portraitError, setPortraitError] = useState<string | null>(null);
+
+  const isOnboarding = variant === "onboarding";
 
   useEffect(() => {
     let cancelled = false;
@@ -153,8 +161,26 @@ export function CharacterForm({
       }
     }
 
+    const newResidence = state.trim().toUpperCase();
+    const newDistrict = String(formData.get("home_district_code") ?? "").trim().toUpperCase();
+    const geographyChanges =
+      !isOnboarding &&
+      hasGeographicHomeChange({
+        prevResidenceState: profile?.residence_state,
+        prevHomeDistrict: profile?.home_district_code,
+        nextResidenceState: newResidence,
+        nextHomeDistrict: newDistrict,
+      });
+
+    if (geographyChanges && !geographicMoveExempt && !geoConfirmBypassRef.current) {
+      setPending(false);
+      setGeoConfirmOpen(true);
+      return;
+    }
+
     try {
       await saveCharacter(formData);
+      geoConfirmBypassRef.current = false;
       const uploaded =
         portrait instanceof File && portrait.size > 0
           ? "Saved. Portrait uploaded."
@@ -172,6 +198,7 @@ export function CharacterForm({
       }
       router.refresh();
     } catch (err) {
+      geoConfirmBypassRef.current = false;
       const raw = err instanceof Error ? err.message : "";
       const lower = raw.toLowerCase();
       const looksLikeNetwork =
@@ -188,16 +215,16 @@ export function CharacterForm({
     }
   }
 
-  const isOnboarding = variant === "onboarding";
-
   return (
-    <form
-      className="grid gap-6 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-8"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void handleSubmit(new FormData(e.currentTarget));
-      }}
-    >
+    <Fragment>
+      <form
+        ref={formRef}
+        className="grid gap-6 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-8"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSubmit(new FormData(e.currentTarget));
+        }}
+      >
       <div>
         <h2 className="text-lg font-semibold">
           {isOnboarding ? "Required information" : "Edit personnel record"}
@@ -380,5 +407,64 @@ export function CharacterForm({
         {pending ? "Saving…" : isOnboarding ? "Save and continue" : "Save record"}
       </button>
     </form>
+
+      {geoConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="geo-move-title"
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-lg">
+            <h3 id="geo-move-title" className="text-base font-semibold text-[var(--psc-ink)]">
+              Change home state or district?
+            </h3>
+            <div className="mt-3 space-y-2 text-sm text-[var(--psc-ink)]">
+              <p>
+                Relocating updates where you can file for House and Senate races. This action has
+                consequences for most characters:
+              </p>
+              <ul className="list-disc space-y-1.5 pl-5 text-[var(--psc-muted)]">
+                <li>Your public approval rating drops by 10.</li>
+                <li>
+                  If you serve in Congress, you leave your seat and any chamber leadership office
+                  (Speaker, floor leaders, whips, President pro tempore, chamber deputies, etc.).
+                </li>
+              </ul>
+              <p className="text-[var(--psc-muted)]">
+                Sitting Presidents, Vice Presidents, cabinet secretaries, and Supreme Court justices
+                are not affected by these rules.
+              </p>
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-4 py-2 text-sm font-semibold text-[var(--psc-ink)]"
+                onClick={() => {
+                  setGeoConfirmOpen(false);
+                  geoConfirmBypassRef.current = false;
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="border border-amber-900/40 bg-amber-950 px-4 py-2 text-sm font-semibold text-amber-50"
+                onClick={() => {
+                  geoConfirmBypassRef.current = true;
+                  setGeoConfirmOpen(false);
+                  setPending(true);
+                  if (formRef.current) {
+                    void handleSubmit(new FormData(formRef.current));
+                  }
+                }}
+              >
+                I understand — save new home
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </Fragment>
   );
 }

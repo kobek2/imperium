@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+type DeptBody = Record<string, number>;
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
+
 /** Categories for obligating the federal budget defense line (matches DB check constraint). */
 export const DEFENSE_PROCUREMENT_CATEGORIES = [
   "weapon_system_modernization",
@@ -25,6 +31,69 @@ export function isDefenseProcurementCategory(v: string): v is DefenseProcurement
   return (DEFENSE_PROCUREMENT_CATEGORIES as readonly string[]).includes(v);
 }
 
+/** Fixed “store shelf” packages so players see dollars + impact, not free-typed amounts. */
+export const DEFENSE_PROCUREMENT_PACKAGES = [
+  { id: "pulse", amount: 150_000, label: "Pulse buy", tagline: "Rapid contract actions & spares." },
+  { id: "column", amount: 1_500_000, label: "Column slice", tagline: "Battalion-scale kit & sustainment." },
+  { id: "theater", amount: 12_000_000, label: "Theater line", tagline: "Brigade-level recapitalization push." },
+] as const;
+
+export type DefenseProcurementPackageId = (typeof DEFENSE_PROCUREMENT_PACKAGES)[number]["id"];
+
+export function modernizationKeyForCategory(category: DefenseProcurementCategory): string {
+  return `modernization_${category}`;
+}
+
+/** Preview metric deltas from a hypothetical obligation (same math as applyDefenseProcurementMetricDeltas). */
+export function previewDefenseProcurementDeltas(
+  category: DefenseProcurementCategory,
+  amount: number,
+  defenseCap: number,
+  body: DeptBody,
+): { readiness: number; logistics: number; exercises: number; readinessDelta: number; logisticsDelta: number } {
+  const before = applyDefenseProcurementMetricDeltas(category, amount, defenseCap, body);
+  return {
+    readiness: before.readiness,
+    logistics: before.logistics_stress,
+    exercises: Number(before.alliance_exercises_completed ?? 0),
+    readinessDelta: Number(before.readiness) - Number(body.readiness ?? 50),
+    logisticsDelta: Number(before.logistics_stress) - Number(body.logistics_stress ?? 40),
+  };
+}
+
+/** +modernization track per lane (0–100) when SecDef ticks “modernize program” on a package buy. */
+export function applyDefenseModernizationBump(
+  body: DeptBody,
+  category: DefenseProcurementCategory,
+  steps = 3,
+): DeptBody {
+  const k = modernizationKeyForCategory(category);
+  const cur = Number(body[k] ?? 0);
+  return { ...body, [k]: clamp(cur + steps, 0, 100) };
+}
+
+export function averageModernizationScore(body: DeptBody): number {
+  let sum = 0;
+  let n = 0;
+  for (const c of DEFENSE_PROCUREMENT_CATEGORIES) {
+    const v = Number(body[modernizationKeyForCategory(c)] ?? 0);
+    if (Number.isFinite(v)) {
+      sum += v;
+      n += 1;
+    }
+  }
+  return n > 0 ? sum / n : 0;
+}
+
+export function computeForcePostureIndex(body: DeptBody): number {
+  const readiness = Number(body.readiness ?? 50);
+  const logistics = Number(body.logistics_stress ?? 40);
+  const logisticsInverted = 100 - clamp(logistics, 0, 100);
+  const mod = averageModernizationScore(body);
+  const composite = (readiness + logisticsInverted) / 2;
+  return Math.round(clamp(0.72 * composite + 0.28 * mod, 0, 100));
+}
+
 export function parseDefenseLineAllocated(lineItems: unknown): number {
   if (!Array.isArray(lineItems)) return 0;
   for (const row of lineItems) {
@@ -35,12 +104,6 @@ export function parseDefenseLineAllocated(lineItems: unknown): number {
     }
   }
   return 0;
-}
-
-type DeptBody = Record<string, number>;
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, n));
 }
 
 /** Nudge readiness / logistics after an obligation (scaled vs share of annual defense cap). */

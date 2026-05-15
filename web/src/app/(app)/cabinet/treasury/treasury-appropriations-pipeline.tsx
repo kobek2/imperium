@@ -33,7 +33,7 @@ export function TreasuryAppropriationsPipeline({
   enrolledSignedAt,
   inCongressBills,
   federalTreasuryBalance,
-  estimatedIncomeTaxYtd,
+  totalAssessedIncomeTaxLedger,
   lineRows,
   totalAllocated,
 }: {
@@ -46,7 +46,8 @@ export function TreasuryAppropriationsPipeline({
   enrolledSignedAt: string | null;
   inCongressBills: AppropriationsBillRow[];
   federalTreasuryBalance: number;
-  estimatedIncomeTaxYtd: number | null;
+  /** Sum of assessed federal income tax on `fiscal_tax_accounts` for the active FY (ledger total across players). */
+  totalAssessedIncomeTaxLedger: number | null;
   lineRows: TreasuryLineRow[];
   totalAllocated: number;
 }) {
@@ -73,7 +74,7 @@ export function TreasuryAppropriationsPipeline({
             The annual appropriations act is a normal bill linked to the active fiscal year. When it is signed into law, the sim
             stores the bill id on the fiscal year (clearing the shutdown clock) and raises each line&apos;s budget floor to at least
             the amount appropriated in that act. Treasury cash is not automatically moved to match those amounts; use
-            Deploy treasury cash (line bucket or split) to record cash against buckets. The table below is the current budget row: floor vs enacted allocation, with
+            Deploy treasury cash below to record cash against each line bucket or U.S. debt. The table below is the current budget row: floor vs enacted allocation, with
             totals compared to the federal treasury balance.
           </p>
         </div>
@@ -101,14 +102,16 @@ export function TreasuryAppropriationsPipeline({
           </p>
         </div>
         <div className="rounded border border-[var(--psc-border)]/80 bg-[var(--psc-panel)] p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Est. income tax (RP-year)</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+            Assessed income tax (ledger total)
+          </p>
           <p className="mt-1 font-mono text-lg text-[var(--psc-ink)]">
-            {estimatedIncomeTaxYtd != null ? fmtUsd(estimatedIncomeTaxYtd) : "—"}
+            {totalAssessedIncomeTaxLedger != null ? fmtUsd(totalAssessedIncomeTaxLedger) : "—"}
           </p>
           <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
-            Marginal tax on <strong>one sim-hour</strong> of scheduled role + PAC gross (active-year brackets), then{" "}
-            <strong>×72</strong> — same scaling as the federal bracket impact table. Not wallet cash, not cumulative ledger
-            collects, and not <code>marginal_tax(hourly×72)</code>.
+            Sum of <code>fiscal_tax_accounts.assessed_tax</code> for this fiscal year (everyone on the tax ledger). Each row
+            uses the same RP-year bracket model as the federal workbook (marginal tax on one scheduled sim-hour of role +
+            PAC gross, then <strong>×72</strong>), not wallet balances or voluntary overpayments.
           </p>
         </div>
       </div>
