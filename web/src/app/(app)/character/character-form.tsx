@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useRef, Fragment } from "react";
+import { useCallback, useEffect, useState, useRef, Fragment } from "react";
 import { saveCharacter } from "@/app/actions/profile";
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
-import { US_STATE_CODES } from "@/lib/character-onboarding";
-import { formatDistrictLean } from "@/lib/district-lean";
+import { RegionsDistrictsMap } from "@/components/regions-districts-map";
+import { SIM_REGIONS, normalizeSimRegionCode } from "@/lib/regions";
 import { hasGeographicHomeChange } from "@/lib/geographic-move";
 
 type Profile = {
@@ -22,6 +22,7 @@ type Profile = {
 
 type DistrictRow = {
   code: string;
+  district_number: number;
   pvi: number;
   incumbent_party: string;
   incumbent_npc_name: string;
@@ -51,7 +52,12 @@ export function CharacterForm({
   const formRef = useRef<HTMLFormElement>(null);
   const geoConfirmBypassRef = useRef(false);
   const [geoConfirmOpen, setGeoConfirmOpen] = useState(false);
-  const [state, setState] = useState(profile?.residence_state ?? "CA");
+  const initialRegion = normalizeSimRegionCode(profile?.residence_state);
+  const [state, setState] = useState(initialRegion);
+  const [homeDistrict, setHomeDistrict] = useState(() => {
+    const d = (profile?.home_district_code ?? "").trim().toUpperCase();
+    return /^(NE|SO|WE)-\d{2}$/.test(d) ? d : "";
+  });
   const [districts, setDistricts] = useState<DistrictRow[]>([]);
   const [districtsLoading, setDistrictsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -70,9 +76,16 @@ export function CharacterForm({
     async function load() {
       setDistrictsLoading(true);
       try {
-        const res = await fetch(`/api/districts?state=${state}`);
+        const res = await fetch("/api/districts");
         const body = (await res.json()) as { districts?: DistrictRow[] };
-        if (!cancelled) setDistricts(body.districts ?? []);
+        const rows = body.districts ?? [];
+        if (!cancelled) {
+          setDistricts(rows);
+          setHomeDistrict((prev) => {
+            if (prev && rows.some((r) => r.code.toUpperCase() === prev)) return prev;
+            return rows[0]?.code?.toUpperCase() ?? "";
+          });
+        }
       } finally {
         if (!cancelled) setDistrictsLoading(false);
       }
@@ -81,10 +94,6 @@ export function CharacterForm({
     return () => {
       cancelled = true;
     };
-  }, [state]);
-
-  const leanHint = useMemo(() => {
-    return "Lean shows the partisan tilt of the district (e.g. +5 Republican).";
   }, []);
 
   useEffect(() => {
@@ -273,26 +282,35 @@ export function CharacterForm({
       </label>
 
       <div className="grid gap-2 text-sm font-semibold">
-        <span>Home state &amp; congressional district</span>
+        <span>Home region &amp; congressional district</span>
+        <RegionsDistrictsMap
+          title={isOnboarding ? "Pick your region and district" : "Current region and district map"}
+          compact
+        />
         <div className="grid gap-3 md:grid-cols-2">
           <select
+            name="residence_state"
             value={state}
-            onChange={(e) => setState(e.target.value)}
+            onChange={(e) => {
+              setState(normalizeSimRegionCode(e.target.value));
+              setHomeDistrict("");
+            }}
             required
-            aria-label="Home state"
+            aria-label="Home region"
             className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
           >
-            {US_STATE_CODES.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            {SIM_REGIONS.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.code} — {r.name}
               </option>
             ))}
           </select>
           <select
             name="home_district_code"
-            defaultValue={profile?.home_district_code ?? ""}
+            value={homeDistrict}
+            onChange={(e) => setHomeDistrict(e.target.value)}
             required
-            disabled={districtsLoading}
+            disabled={districtsLoading || districts.length === 0}
             aria-label="Home congressional district"
             className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal disabled:opacity-60"
           >
@@ -301,12 +319,14 @@ export function CharacterForm({
             </option>
             {districts.map((d) => (
               <option key={d.code} value={d.code}>
-                {d.code} ({formatDistrictLean(d.pvi)}) — {d.incumbent_npc_name}
+                District {d.district_number} ({d.code})
               </option>
             ))}
           </select>
         </div>
-        <p className="text-xs font-normal text-[var(--psc-muted)]">{leanHint}</p>
+        <p className="text-xs font-normal text-[var(--psc-muted)]">
+          Ten House seats nationwide. District picks are gameplay seats and are not constrained by your region.
+        </p>
       </div>
 
       <div className="grid gap-2 text-sm font-semibold">

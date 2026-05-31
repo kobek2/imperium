@@ -104,7 +104,7 @@ export function RallyForm({
         ? "Next rally unlocks shortly…"
         : null;
 
-  const needsStatePicker = office === "president";
+  const needsStatePicker = false;
 
   const barTone =
     pct >= 100

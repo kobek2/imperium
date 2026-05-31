@@ -4,7 +4,6 @@ import {
   loadActiveCandidacySlots,
 } from "@/lib/election-filing";
 import { endorsementPointsForRoles } from "@/lib/fec";
-import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
   isLeadershipRole,
@@ -18,18 +17,18 @@ import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
-import { PresidentialMap } from "./presidential-map";
-import { ElectoralTote } from "./electoral-tote";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
 import {
-  campaignAdListPriceSpendUsd,
+  campaignAdCountFromPoints,
+  campaignAdSpendUsd,
   sumCampaignAdPointsForElection,
 } from "@/lib/campaign-ad-stats";
-import {
-  loadPresidentialBundle,
-  scorePresidentialBundle,
-} from "@/lib/presidential-data";
 import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
+import {
+  fetchAllCampaignSpeechesForElection,
+  toCampaignSpeechArchiveItems,
+} from "@/lib/campaign-speeches";
+import type { CampaignSpeechArchiveItem } from "@/components/campaign-speech-archive";
 
 /** Always refetch election + map from Supabase; avoids stale RSC after env or DB changes. */
 export const dynamic = "force-dynamic";
@@ -72,8 +71,6 @@ export default async function ElectionDetailPage({
   }
 
   if (!user) redirect("/login");
-
-  await runElectionPhaseSchedule(supabase);
 
   const { data: election } = await supabase.from("elections").select("*").eq("id", id).maybeSingle();
   if (!election) notFound();
@@ -232,6 +229,19 @@ export default async function ElectionDetailPage({
           | null,
       }
     : null;
+  const canCastLeadershipGeneralVote = (() => {
+    if (!leadershipMeta) return false;
+    const needed = requiredChamberRoleKey(leadershipMeta.role);
+    if (!effectiveRoleKeys.includes(needed)) return false;
+    if (
+      isPartisanLeadershipRole(leadershipMeta.role) &&
+      leadershipMeta.restricted_party &&
+      (myProfile?.party ?? "").toLowerCase() !== leadershipMeta.restricted_party
+    ) {
+      return false;
+    }
+    return true;
+  })();
 
   type ProfileCardRow = {
     id: string;
@@ -245,8 +255,8 @@ export default async function ElectionDetailPage({
   if (candList.length || (speechRows?.length ?? 0) > 0) {
     const profileIds = new Set<string>();
     for (const c of candList) {
-      profileIds.add(c.user_id as string);
-      if (c.running_mate_user_id) profileIds.add(c.running_mate_user_id as string);
+      if (c.user_id) profileIds.add(c.user_id);
+      if (c.running_mate_user_id) profileIds.add(c.running_mate_user_id);
     }
     for (const s of (speechRows ?? []) as Array<{ author_id: string }>) {
       profileIds.add(s.author_id);
@@ -281,6 +291,11 @@ export default async function ElectionDetailPage({
   }
 
   const generalTally: Record<string, number> = {};
+  for (const c of candList) {
+    if (c.is_npc) {
+      generalTally[c.id] = Math.max(0, Number(c.npc_synthetic_votes ?? 0));
+    }
+  }
   for (const row of generalVoteRows ?? []) {
     const cid = row.candidate_id as string;
     generalTally[cid] = (generalTally[cid] ?? 0) + 1;
@@ -304,6 +319,51 @@ export default async function ElectionDetailPage({
     targetState: s.target_state ? String(s.target_state).toUpperCase() : null,
     createdAt: s.created_at,
   }));
+
+  const candidateUserIdByCandId = new Map(
+    candList.map((c) => [c.id as string, c.user_id as string]),
+  );
+  let speechArchive: CampaignSpeechArchiveItem[] | null = null;
+  if (election.phase === "closed") {
+    try {
+      const allSpeeches = await fetchAllCampaignSpeechesForElection(supabase, id);
+      for (const s of allSpeeches) {
+        speechCountBy[s.candidate_id] = (speechCountBy[s.candidate_id] ?? 0) + 1;
+      }
+      const authorIds = [...new Set(allSpeeches.map((s) => s.author_id))].filter(
+        (aid) => !nameBy[aid],
+      );
+      if (authorIds.length) {
+        const { data: authorProfiles } = await supabase
+          .from("profiles")
+          .select("id, character_name, face_claim_url, residence_state, home_district_code, bio")
+          .in("id", authorIds);
+        for (const p of authorProfiles ?? []) {
+          nameBy[p.id as string] = (p.character_name as string | null) ?? "";
+          candidateCardByUserId[p.id as string] = {
+            character_name: p.character_name as string | null,
+            face_claim_url: p.face_claim_url as string | null,
+            residence_state: p.residence_state as string | null,
+            home_district_code: p.home_district_code as string | null,
+            bio: p.bio as string | null,
+          };
+        }
+      }
+      const displayName = (userId: string) =>
+        candidateCardByUserId[userId]?.character_name?.trim() ||
+        nameBy[userId]?.trim() ||
+        userId.slice(0, 8);
+      speechArchive = toCampaignSpeechArchiveItems(allSpeeches, {
+        candidateName: (candidateId) => {
+          const userId = candidateUserIdByCandId.get(candidateId);
+          return userId ? displayName(userId) : candidateId.slice(0, 8);
+        },
+        authorName: (authorId) => displayName(authorId),
+      });
+    } catch (err) {
+      console.warn("[elections/[id]] closed speech archive failed:", err);
+    }
+  }
   /** Bulk `economy_use_campaign_ad` inserts share one `created_at` — merge into one line per spend. */
   const adSpendFeed = (() => {
     const raw = (campaignAdRows ?? []) as Array<{
@@ -377,57 +437,14 @@ export default async function ElectionDetailPage({
     }
   }
 
-  // Presidential races run on state-by-state 60/40 scoring + winner-take-all electoral college.
-  // The bundle + result are the same shape the admin `finalizePresident` action uses, so what
-  // you see on the page is what gets certified on close.
-  let presMapData: {
-    states: Array<{ code: string; name: string; pvi: number; electoral_votes: number }>;
-    result: ReturnType<typeof scorePresidentialBundle>;
-    candidatesBrief: Array<{ id: string; user_id: string; party: string; name: string }>;
-  } | null = null;
   const totalCampaignAdPoints = election.leadership_role
     ? 0
     : await sumCampaignAdPointsForElection(supabase, id);
-  const totalCampaignAdSpendUsd = campaignAdListPriceSpendUsd(totalCampaignAdPoints);
-
-  if (election.office === "president") {
-    try {
-      const bundle = await loadPresidentialBundle(supabase, id);
-      const result = scorePresidentialBundle(bundle);
-      presMapData = {
-        states: bundle.states,
-        result,
-        candidatesBrief: bundle.candidates.map((c) => ({
-          id: c.id,
-          user_id: c.user_id,
-          party: c.party,
-          name:
-            nameBy[c.user_id]?.trim() ||
-            candidateCardByUserId[c.user_id]?.character_name?.trim() ||
-            c.user_id.slice(0, 8),
-        })),
-      };
-    } catch (err) {
-      console.warn("[elections/[id]] presidential map data failed:", err);
-    }
-  }
+  const totalCampaignAdSpendUsd = campaignAdSpendUsd(totalCampaignAdPoints);
+  const totalCampaignAdsPlaced = campaignAdCountFromPoints(totalCampaignAdPoints);
 
   return (
     <div className="space-y-6">
-      {presMapData ? (
-        <div className="space-y-3">
-          <ElectoralTote
-            candidates={presMapData.candidatesBrief}
-            evByCandidate={presMapData.result.electoralVotesByCandidate}
-            totalEV={presMapData.result.totalElectoralVotes}
-          />
-          <PresidentialMap
-            states={presMapData.states}
-            result={presMapData.result}
-            candidates={presMapData.candidatesBrief}
-          />
-        </div>
-      ) : null}
       <ElectionDetail
         election={election}
         candidates={candList.map((c) => {
@@ -462,10 +479,13 @@ export default async function ElectionDetailPage({
         myNextRallyAt={myNextRallyAt}
         states={states}
         leadershipMeta={leadershipMeta}
+        canCastLeadershipGeneralVote={canCastLeadershipGeneralVote}
         adsInventory={adsInventory}
-        speechFeed={speechRowsForFeed}
+        speechFeed={speechArchive ? [] : speechRowsForFeed}
+        speechArchive={speechArchive}
         adSpendFeed={adSpendFeed}
         totalCampaignAdSpendUsd={totalCampaignAdSpendUsd}
+        totalCampaignAdsPlaced={totalCampaignAdsPlaced}
         viewerIsIncumbentForThisSenateSeat={viewerIsIncumbentForThisSenateSeat}
       />
       {isAdmin ? (

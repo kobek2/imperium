@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { isProfileOnboardingComplete, US_STATE_CODES } from "@/lib/character-onboarding";
+import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
+import { SIM_REGION_CODES } from "@/lib/regions";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
-const STATE_SET = new Set<string>(US_STATE_CODES);
+const REGION_SET = new Set<string>(SIM_REGION_CODES);
 const PARTIES = new Set(["democrat", "republican", "independent"]);
 
 const PORTRAIT_MAX_BYTES = 5 * 1024 * 1024;
@@ -108,8 +109,11 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   if (!Number.isFinite(dobMs)) {
     throw new Error("Date of birth is not a valid date.");
   }
-  if (!STATE_SET.has(residence_state)) {
-    throw new Error("Choose a valid U.S. state (two-letter code).");
+  if (!REGION_SET.has(residence_state)) {
+    throw new Error("Choose a valid region (NE, SO, or WE).");
+  }
+  if (!/^(NE|SO|WE)-\d{2}$/i.test(home_district_code)) {
+    throw new Error("Home district must be a valid code (e.g. NE-01).");
   }
   if (!home_district_code) {
     throw new Error("Home congressional district is required.");

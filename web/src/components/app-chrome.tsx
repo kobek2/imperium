@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { MaybeBackButton } from "@/components/maybe-back-button";
 import { ProfileQuickDock } from "./profile-quick-dock";
-import { WorldChatDock } from "@/components/world-chat-dock";
 import { SignOut } from "@/components/sign-out";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
-import { showCabinetNavForRoleKeys } from "@/lib/cabinet-hub";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getCongressAttentionSnapshotForRequest } from "@/lib/congress-viewer-attention";
 import { getServerAuth } from "@/lib/supabase/server";
@@ -14,7 +12,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
 
   let partyNavHref = "/parties";
   let showStaffLink = false;
-  let showCabinetLink = false;
   let canUseAppTabs = false;
   let needsCharacterSetup = false;
   let congressAttention: Awaited<ReturnType<typeof getCongressAttentionSnapshotForRequest>> = null;
@@ -40,12 +37,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
       profileRow ? { office_role: profileRow.office_role ?? null } : null,
     );
     showStaffLink = staffAccess?.canAccessPanel ?? false;
-    const { data: grantRows } = await supabase.from("government_role_grants").select("role_key").eq("user_id", user.id);
-    const roleKeysList = [
-      ...(grantRows ?? []).map((r) => String((r as { role_key?: string }).role_key ?? "")),
-      String(profileRow?.office_role ?? ""),
-    ].filter(Boolean);
-    showCabinetLink = showCabinetNavForRoleKeys(roleKeysList);
   }
 
   if (supabase && user && canUseAppTabs) {
@@ -60,9 +51,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
         { href: partyNavHref, label: "Party" },
         { href: "/elections", label: "Elections" },
         { href: "/congress", label: "Congress" },
-        { href: "/oval", label: "Oval Office" },
         { href: "/directory", label: "Directory" },
-        { href: "/policy", label: "Policy" },
       ]
     : [{ href: "/imperium", label: "Imperium" }];
 
@@ -103,47 +92,12 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            {canUseAppTabs && congressAttention?.isLeadership ? (
-              <Link
-                href="/congress/leadership"
-                className="text-[var(--psc-muted)] underline-offset-4 hover:text-[var(--psc-ink)] hover:underline"
-              >
-                {(congressAttention?.hopperLeadershipBadge ?? 0) > 0 ? (
-                  <span className="relative inline-block pr-2.5">
-                    Hopper
-                    <span
-                      title="Filings, docket moves, scheduling, and bills in debate (before the floor roll call)"
-                      aria-label={`Hopper and debate queue: ${
-                        (congressAttention?.hopperLeadershipBadge ?? 0) > 99
-                          ? "99+"
-                          : String(congressAttention?.hopperLeadershipBadge ?? 0)
-                      }`}
-                      className="absolute -right-0.5 -top-2 z-10 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow-sm ring-1 ring-white/90"
-                    >
-                      {(congressAttention?.hopperLeadershipBadge ?? 0) > 99
-                        ? "99+"
-                        : congressAttention?.hopperLeadershipBadge}
-                    </span>
-                  </span>
-                ) : (
-                  "Hopper"
-                )}
-              </Link>
-            ) : null}
             {showStaffLink ? (
               <Link
                 href="/admin"
                 className="font-semibold text-[var(--psc-seal)] underline-offset-4 hover:underline"
               >
                 Admin
-              </Link>
-            ) : null}
-            {showCabinetLink ? (
-              <Link
-                href="/cabinet"
-                className="font-semibold text-[var(--psc-accent)] underline-offset-4 hover:underline"
-              >
-                Cabinet
               </Link>
             ) : null}
             {needsCharacterSetup ? (
@@ -177,12 +131,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
         </div>
         {children}
       </main>
-      {user && canUseAppTabs ? (
-        <>
-          <WorldChatDock />
-          <ProfileQuickDock />
-        </>
-      ) : null}
+      {user && canUseAppTabs ? <ProfileQuickDock /> : null}
     </div>
   );
 }

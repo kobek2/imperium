@@ -17,21 +17,6 @@ import { isoSimulationStartForRpInstantAt } from "@/lib/simulation-calendar-cons
 import type { Chamber } from "@/lib/leadership";
 import { inferMajorityParty } from "@/lib/leadership-majority";
 
-const NON_TERMINAL_BILL_STATUSES = [
-  "submitted",
-  "leadership_review",
-  "on_docket",
-  "debate",
-  "house_committee",
-  "house_floor",
-  "senate_committee",
-  "senate_floor",
-  "other_chamber_review",
-  "other_chamber_debate",
-  "passed_congress",
-  "oval",
-] as const;
-
 /** Congressional leadership keys in government_role_grants (see congress-composition + legislation deputy rotation). */
 const CONGRESSIONAL_LEADERSHIP_GRANT_KEYS = [
   "speaker",
@@ -84,20 +69,6 @@ async function resetCongressionalLeadershipForNewTerm(
 
   const { error: dcErr } = await supabase.rpc("legislation_run_maintenance");
   if (dcErr) console.warn("[calendar] legislation_run_maintenance:", dcErr.message);
-}
-
-async function expireOpenBills(supabase: SupabaseClient, reason: string): Promise<void> {
-  await supabase
-    .from("bills")
-    .update({
-      status: "expired",
-      bill_closure_reason: reason,
-      leadership_deadline_at: null,
-      chamber_vote_deadline_at: null,
-      leadership_primary_deadline: null,
-      leadership_deputy_deadline: null,
-    })
-    .in("status", [...NON_TERMINAL_BILL_STATUSES]);
 }
 
 async function loadSimulationSettings(supabase: SupabaseClient): Promise<SimulationSettingsRow | null> {
@@ -221,7 +192,7 @@ async function rpcOpenPartyLeadershipWindows(supabase: SupabaseClient, hours: nu
 
 /**
  * January inauguration: seat pending seat races (excluding midterm/presidential calendar cycles),
- * expire prior Congress bills, open chamber leadership sessions + party officer windows.
+ * then open chamber leadership sessions + party officer windows.
  */
 export async function handleInauguration(supabase: SupabaseClient, year: number): Promise<void> {
   const key = `inauguration_${year}`;
@@ -240,7 +211,6 @@ export async function handleInauguration(supabase: SupabaseClient, year: number)
 
   await resetCongressionalLeadershipForNewTerm(supabase, simStart);
 
-  await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 
@@ -578,7 +548,6 @@ export async function handleMidtermSeating(supabase: SupabaseClient, electionYea
   const settings = await loadSimulationSettings(supabase);
   await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
-  await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 
@@ -620,7 +589,6 @@ export async function handlePresidentialCycleSeating(supabase: SupabaseClient, e
   const settings = await loadSimulationSettings(supabase);
   await resetCongressionalLeadershipForNewTerm(supabase, settings?.simulation_start_at ?? null);
 
-  await expireOpenBills(supabase, "new_congress");
   await openChamberLeadershipSessionsIfNone(supabase);
   await rpcOpenPartyLeadershipWindows(supabase, CALENDAR_LEADERSHIP_WINDOW_HOURS);
 

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Most recent closed Senate seat the user won (class identifies which of the state's three seats). */
+/** Most recent closed Senate seat the user won (seat 1, 2, or 3 within a region). */
 export async function fetchUserSenateClassHeld(
   supabase: SupabaseClient,
   userId: string,
@@ -23,15 +23,14 @@ export async function fetchUserSenateClassHeld(
 }
 
 /**
- * Next Senate class (1–3) for a state that does not already have a non-closed seat race for that class.
- * Returns null if all three classes already have an open seat election.
+ * Next Senate seat (1–3) for a region that does not already have a non-closed seat race for that seat.
  */
 export async function pickNextSenateClassForState(
   supabase: SupabaseClient,
-  state: string,
+  regionCode: string,
 ): Promise<number | null> {
-  const st = state.trim().toUpperCase();
-  if (st.length !== 2) return null;
+  const st = regionCode.trim().toUpperCase();
+  if (!["NE", "SO", "WE"].includes(st)) return null;
   const { data: rows } = await supabase
     .from("elections")
     .select("senate_class")

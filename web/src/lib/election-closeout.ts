@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { districtLeanBonus } from "@/lib/fec";
 import { scoreGeneralElection, type Party } from "@/lib/election-engine";
 import { leanTiePriority } from "@/lib/election-tiebreak";
+import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 export type ElectionPhase = "filing" | "primary" | "general" | "closed";
@@ -19,11 +20,14 @@ export function canReachPhaseForward(prev: ElectionPhase, target: ElectionPhase)
 
 type FilingCandidate = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   party: string;
   campaign_points_total: number | null;
   primary_winner: boolean | null;
   created_at: string | null;
+  is_npc?: boolean | null;
+  npc_name?: string | null;
+  npc_synthetic_votes?: number | null;
 };
 
 type EndorsementRow = {
@@ -47,7 +51,7 @@ function sortByVotesThenFilingOrder<T extends { id: string; created_at: string |
   });
 }
 
-/** House/Senate general: highest blended score wins; ties use 2024 lean, then earliest filing. */
+/** House/Senate/president point race: highest point share wins; ties use 2024 lean, then earliest filing. */
 function sortByBlendedScoreThenLeanThenFiling<
   T extends { id: string; party: string; created_at: string | null },
 >(arr: T[], scores: Record<string, number>, signedMargin: number) {
@@ -73,10 +77,12 @@ function sortByBlendedScoreThenLeanThenFiling<
 export async function pickPrimaryWinners(supabase: SupabaseClient, election_id: string) {
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, user_id, party, campaign_points_total, primary_winner, created_at")
+    .select(
+      "id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes",
+    )
     .eq("election_id", election_id);
 
-  const candList = (candidates ?? []) as FilingCandidate[];
+  const candList = ((candidates ?? []) as FilingCandidate[]).filter((c) => !c.is_npc);
   if (!candList.length) return;
 
   const { data: votes } = await supabase
@@ -122,14 +128,29 @@ export async function pickPrimaryWinners(supabase: SupabaseClient, election_id: 
       .eq("election_id", election_id);
     throwIfPostgrestError(delErr);
   }
+
+  await seedElectionNpcOpponents(supabase, election_id);
+}
+
+/** National presidential race — points-only scoring (no electoral college). */
+export async function computePresidentialWinnerUserId(
+  supabase: SupabaseClient,
+  election_id: string,
+): Promise<string | null> {
+  return computeGeneralWinner(supabase, election_id, {
+    office: "president",
+    district_code: null,
+    state: null,
+  });
 }
 
 /**
  * Resolve a general-election winner for admin-forced closes.
- * House / Senate:   full 60/40 scoring (campaign pts + lean + community votes). Score ties
+ * House / Senate:   point-only scoring (campaign pts + endorsements + lean). Score ties
  *                   break by 2024 presidential margin alignment, then earliest filing.
- * President / other: plurality of general_votes (president is certified via finalizePresident).
- * If nobody has any votes, the earliest filer wins. If zero candidates, returns null.
+ * President:        national point-only scoring (campaign + endorsements), same tiebreak.
+ * Other offices:    plurality of general_votes; if nobody has votes, earliest filer wins.
+ * Returns null when there are zero candidates.
  */
 export async function computeGeneralWinner(
   supabase: SupabaseClient,
@@ -143,7 +164,9 @@ export async function computeGeneralWinner(
 ): Promise<string | null> {
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, user_id, party, campaign_points_total, primary_winner, created_at")
+    .select(
+      "id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes",
+    )
     .eq("election_id", election_id);
 
   const candList = (candidates ?? []) as FilingCandidate[];
@@ -153,18 +176,13 @@ export async function computeGeneralWinner(
   const active = hasPrimaryFlag ? candList.filter((c) => c.primary_winner) : candList;
   if (!active.length) return null;
 
-  const { data: gv } = await supabase
-    .from("general_votes")
-    .select("candidate_id")
-    .eq("election_id", election_id);
+  await seedElectionNpcOpponents(supabase, election_id);
+
   const { data: endorsements } = await supabase
     .from("campaign_endorsements")
     .select("candidate_id, points")
     .eq("election_id", election_id);
   const tally: Record<string, number> = {};
-  for (const v of gv ?? []) {
-    tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
-  }
   const endorsementTotals: Record<string, number> = {};
   for (const e of (endorsements ?? []) as EndorsementRow[]) {
     endorsementTotals[e.candidate_id] =
@@ -172,11 +190,40 @@ export async function computeGeneralWinner(
   }
 
   if (meta.leadership_role) {
+    const { data: gv } = await supabase
+      .from("general_votes")
+      .select("candidate_id")
+      .eq("election_id", election_id);
+    for (const v of gv ?? []) {
+      tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
+    }
     const sorted = sortByVotesThenFilingOrder(active, tally);
     return sorted[0]!.user_id;
   }
 
+  if (meta.office === "president") {
+    const inputs = active.map((c) => ({
+      id: c.id,
+      party: c.party as Party,
+      campaignPoints:
+        Math.max(0, Number(c.campaign_points_total ?? 0)) +
+        Math.max(0, endorsementTotals[c.id] ?? 0),
+    }));
+    const scores = scoreGeneralElection(inputs, {});
+    const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, 0);
+    const top = ranked[0]!;
+    if (top.is_npc) return null;
+    return top.user_id ?? null;
+  }
+
   if (meta.office !== "house" && meta.office !== "senate") {
+    const { data: gv } = await supabase
+      .from("general_votes")
+      .select("candidate_id")
+      .eq("election_id", election_id);
+    for (const v of gv ?? []) {
+      tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
+    }
     const sorted = sortByVotesThenFilingOrder(active, tally);
     return sorted[0]!.user_id;
   }
@@ -213,9 +260,11 @@ export async function computeGeneralWinner(
       leanFor(c.party),
   }));
 
-  const scores = scoreGeneralElection(inputs, tally);
+  const scores = scoreGeneralElection(inputs, {});
   const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, partisanLean);
-  return ranked[0]!.user_id;
+  const top = ranked[0]!;
+  if (top.is_npc) return null;
+  return top.user_id ?? null;
 }
 
 export type ElectionCloseRow = {

@@ -115,13 +115,13 @@ export function billNeedsViewerAttention(params: {
   canBreakSenateTie: boolean;
 }): boolean {
   const { bill, votes, userId, roleKeys, userChambers, isRunningMate, canBreakSenateTie } = params;
-  if (hasLeadershipActionOnBill(roleKeys, bill)) return true;
+  if (hasLeadershipCloseFloorVoteAction(roleKeys, bill)) return true;
   return memberNeedsToCastFloorVote({
     bill,
     votes,
     userId,
     userChambers,
-    isRunningMate,
+    isRunningMate: false,
     canBreakSenateTie,
   });
 }
@@ -168,7 +168,6 @@ export async function fetchCongressAttentionSnapshot(
     .maybeSingle();
 
   const roleKeys = await fetchEffectiveRoleKeys(supabase, userId, profile);
-  const isLeadership = canReviewAnyChamberLeadership(roleKeys);
   const userChambers = resolveCongressUserChambers(roleKeys);
 
   const [{ data: pipelineBills }, isRunningMate, canBreakSenateTie] = await Promise.all([
@@ -203,24 +202,18 @@ export async function fetchCongressAttentionSnapshot(
 
   const attentionBills: BillForCard[] = [];
   const voteStageIds = new Set<string>();
-  const hopperPipelineIds = new Set<string>();
 
   for (const b of bills) {
     const votes = votesByBill.get(b.id) ?? [];
-    const preVoteLeadership = isLeadership && hasLeadershipPreVoteAction(roleKeys, b);
-    const closeFloorLeadership = isLeadership && hasLeadershipCloseFloorVoteAction(roleKeys, b);
+    const closeFloorLeadership = hasLeadershipCloseFloorVoteAction(roleKeys, b);
     const voteNeed = memberNeedsToCastFloorVote({
       bill: b,
       votes,
       userId,
       userChambers,
-      isRunningMate,
+      isRunningMate: false,
       canBreakSenateTie,
     });
-
-    if (preVoteLeadership) {
-      hopperPipelineIds.add(b.id);
-    }
 
     if (voteNeed || closeFloorLeadership) {
       voteStageIds.add(b.id);
@@ -244,12 +237,11 @@ export async function fetchCongressAttentionSnapshot(
   const senateChamberCount = filterBillsForSenateDocket(attentionBills).length;
 
   const congressPrimaryBadge = voteStageIds.size;
-  const hopperLeadershipBadge = isLeadership ? hopperPipelineIds.size : 0;
 
   return {
-    isLeadership,
+    isLeadership: false,
     congressPrimaryBadge,
-    hopperLeadershipBadge,
+    hopperLeadershipBadge: 0,
     overviewCount,
     houseChamberCount,
     senateChamberCount,

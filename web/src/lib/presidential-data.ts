@@ -108,7 +108,7 @@ export async function loadPresidentialBundle(
   ] = await Promise.all([
     db
       .from("election_candidates")
-      .select("id, user_id, party, primary_winner, created_at")
+      .select("id, user_id, party, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes")
       .eq("election_id", election_id),
     fetchAllRowsForElection(db, "general_votes", "candidate_id, voter_state", election_id),
     fetchAllRowsForElection(db, "campaign_speeches", "candidate_id, target_state, points", election_id),
@@ -168,10 +168,13 @@ export async function loadPresidentialBundle(
 
   const candidatesRaw = (candidatesRes.data ?? []) as Array<{
     id: string;
-    user_id: string;
+    user_id: string | null;
     party: string;
     primary_winner: boolean | null;
     created_at: string | null;
+    is_npc?: boolean | null;
+    npc_name?: string | null;
+    npc_synthetic_votes?: number | null;
   }>;
 
   // Only score the general-election ballot. If any candidate has primary_winner=true, restrict
@@ -181,9 +184,11 @@ export async function loadPresidentialBundle(
     .filter((c) => !hasPrimaryWinners || c.primary_winner)
     .map((c) => ({
       id: c.id,
-      user_id: c.user_id,
+      user_id: c.user_id ?? c.id,
       party: c.party,
       created_at: c.created_at,
+      is_npc: Boolean(c.is_npc),
+      npc_name: c.npc_name,
     }));
 
   const states: PresStateMeta[] = (statesData ?? []).map((s) => {
@@ -207,6 +212,17 @@ export async function loadPresidentialBundle(
     candidate_id: v.candidate_id,
     voter_state: normalizeStateCode(v.voter_state),
   }));
+
+  for (const c of candidatesRaw.filter((row) => row.is_npc && row.primary_winner !== false)) {
+    const synth = Math.max(0, Math.round(Number(c.npc_synthetic_votes ?? 0)));
+    if (!synth || !states.length) continue;
+    const perState = Math.max(1, Math.floor(synth / states.length));
+    for (const st of states) {
+      for (let i = 0; i < perState; i++) {
+        votes.push({ candidate_id: c.id, voter_state: st.code });
+      }
+    }
+  }
 
   const speeches = ((speechesRes.data ?? []) as Array<{
     candidate_id: string;

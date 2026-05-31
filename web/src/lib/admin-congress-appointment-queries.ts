@@ -42,3 +42,41 @@ export async function loadChamberSeatHolders(
 
   return (profiles ?? []) as ChamberMemberOption[];
 }
+
+export type ExecutiveOfficerOption = ChamberMemberOption;
+
+/** Current president / vice president from grants and legacy office_role. */
+export async function loadExecutiveOfficers(
+  supabase: SupabaseClient,
+): Promise<{ president: ExecutiveOfficerOption | null; vicePresident: ExecutiveOfficerOption | null }> {
+  async function holderForRole(roleKey: "president" | "vice_president"): Promise<ExecutiveOfficerOption | null> {
+    const { data: grantRows } = await supabase
+      .from("government_role_grants")
+      .select("user_id")
+      .eq("role_key", roleKey)
+      .limit(1);
+    let uid = grantRows?.[0] ? String((grantRows[0] as { user_id: string }).user_id) : null;
+    if (!uid) {
+      const { data: officeRow } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("office_role", roleKey)
+        .limit(1)
+        .maybeSingle();
+      uid = officeRow?.id ? String(officeRow.id) : null;
+    }
+    if (!uid) return null;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, character_name, discord_username, residence_state, home_district_code")
+      .eq("id", uid)
+      .maybeSingle();
+    return profile ? (profile as ExecutiveOfficerOption) : null;
+  }
+
+  const [president, vicePresident] = await Promise.all([
+    holderForRole("president"),
+    holderForRole("vice_president"),
+  ]);
+  return { president, vicePresident };
+}

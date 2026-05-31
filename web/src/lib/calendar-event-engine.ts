@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { runSimulationEventsDailyTick } from "@/lib/simulation-events";
 import { autoCloseCalendarPresidentElectionsIfDue } from "@/lib/calendar-presidential-autoclose";
 import {
   getSuccessfulCalendarEventFiredAt,
@@ -264,4 +265,6 @@ export async function tickCalendarEvents(supabase: SupabaseClient): Promise<void
     fired = await loadSuccessfulCalendarEventKeys(supabase);
     await maybeFireDeferredLeadershipCloses(supabase, fired, now);
   }
+
+  await runSimulationEventsDailyTick(supabase);
 }

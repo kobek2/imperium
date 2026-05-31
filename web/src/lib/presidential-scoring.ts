@@ -2,16 +2,15 @@
  * Presidential general-election scoring.
  *
  * Each state scores independently:
- *   - 60% weight: share of campaign points in that state. Points come from speeches +
+ *   - 100% weight: share of campaign points in that state. Points come from speeches +
  *     rallies whose `target_state` matches, plus the state's stored 2024 presidential
  *     margin (`pvi`) as a party lean bonus (mirroring House/Senate scoring).
- *   - 40% weight: share of general_votes whose `voter_state` matches.
  *
  * The top-scoring candidate in a state wins all of that state's electoral votes
  * (winner-take-all). With no in-state raw campaign points and no in-state votes yet, the
  * state is awarded to whichever major party matches the real 2024 winner here (same sign
  * as `pvi`), so the tote opens like the last election instead of filing-order sweeps.
- * After local activity exists, the usual 60/40 blend decides, with margin-based score ties.
+ * After local activity exists, points-only scoring decides, with margin-based score ties.
  *
  * The overall winner of the race is the candidate with the most electoral votes.
  * If no one hits 270, we still return the plurality leader — this is a simulator,
@@ -27,6 +26,8 @@ export type PresCandidate = {
   user_id: string;
   party: "democrat" | "republican" | "independent" | string;
   created_at?: string | null;
+  is_npc?: boolean;
+  npc_name?: string | null;
 };
 
 export type PresStateMeta = {
@@ -162,16 +163,13 @@ export function scorePresidentialState(
     totalPoints += adj;
   }
 
-  let totalVotes = 0;
-  for (const c of candidates) totalVotes += votesByCand[c.id]!;
-
   const activeCount = candidates.length || 1;
   const scores: CandidateStateScore[] = candidates.map((c) => {
     const p = pointsWithLean[c.id]!;
     const v = votesByCand[c.id]!;
     const pShare = totalPoints > 0 ? p / totalPoints : 1 / activeCount;
-    const vShare = totalVotes > 0 ? v / totalVotes : 1 / activeCount;
-    const score = 0.6 * pShare + 0.4 * vShare;
+    const vShare = 0;
+    const score = pShare;
     return {
       candidate_id: c.id,
       points: pointsByCand[c.id]!,
@@ -203,7 +201,8 @@ export function scorePresidentialState(
   }
 
   let winnerCandidateId = winner?.id ?? null;
-  if (rawPointsTotal === 0 && totalVotes === 0) {
+  const totalVotes = candidates.reduce((s, c) => s + votesByCand[c.id]!, 0);
+  if (rawPointsTotal === 0) {
     const baseline = resolveBaseline2024Winner(stateMeta.pvi, candidates);
     if (baseline) winnerCandidateId = baseline;
   }

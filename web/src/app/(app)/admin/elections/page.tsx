@@ -1,25 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarSystemAdminPanel } from "@/components/calendar-system-admin-panel";
-import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffAccess, requireStaffPageAny } from "@/lib/staff-access";
-import { getIsAdmin } from "@/lib/is-admin";
-import { isPresident } from "@/lib/president";
-import {
-  computeSimulationRpInstant,
-  formatRpCalendarShort,
-  type SimulationSettingsRow,
-} from "@/lib/simulation-calendar";
-import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { countElectionCandidatesByElectionIds } from "@/lib/election-candidate-queries";
+import { computeSimulationRpInstant, formatRpCalendarShort, type SimulationSettingsRow } from "@/lib/simulation-calendar";
+import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import {
   AdminElectionsList,
   type AdminElectionRow,
 } from "./admin-elections-list";
 import { AdminElectionSimulationButtons } from "./admin-election-simulation-buttons";
+import { AdminCalendarMonthControls } from "./admin-calendar-month-controls";
 import { AdminCongressAppointmentsClient } from "./admin-congress-appointments-client";
-import { loadChamberSeatHolders } from "@/lib/admin-congress-appointment-queries";
+import { loadChamberSeatHolders, loadExecutiveOfficers } from "@/lib/admin-congress-appointment-queries";
 import { recomputeClosedLeadershipSession } from "@/app/actions/leadership-sessions";
 
 type LeadershipArchiveSession = {
@@ -56,17 +49,10 @@ export default async function AdminElectionsPage({
   const { supabase, user } = await getServerAuth();
   if (!supabase || !user) redirect("/");
 
-  await runElectionPhaseSchedule(supabase);
+  const staffAccess = await getStaffAccess();
+  const canRunSimSettingsHeal = Boolean(staffAccess?.hasFullStaff);
 
-  const [staffAccess, pres, canManageCalendarAutomation] = await Promise.all([
-    getStaffAccess(),
-    isPresident(supabase, user.id),
-    getIsAdmin(),
-  ]);
-  const canCloseFiscalYear = Boolean(staffAccess?.hasFullStaff || pres);
-  const canStartAppropriationsClock = Boolean(staffAccess?.hasFullStaff);
-
-  const [{ data: rows }, simSettingsRes, activeFyRes] = await Promise.all([
+  const [{ data: rows }, { data: simSettingsRaw }] = await Promise.all([
       supabase
         .from("elections")
         .select(
@@ -74,7 +60,6 @@ export default async function AdminElectionsPage({
         )
         .order("filing_opens_at", { ascending: false }),
       supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
-      supabase.from("rp_fiscal_years").select("label, year_index").eq("status", "active").maybeSingle(),
     ]);
 
   const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
@@ -92,32 +77,29 @@ export default async function AdminElectionsPage({
   }));
 
   const closedCount = dashboardRows.filter((r) => r.phase === "closed").length;
-
-  const simSettings =
-    simSettingsRes.error || !simSettingsRes.data
-      ? null
-      : (simSettingsRes.data as SimulationSettingsRow);
-  const simSettingsEffective = simSettings
+  const simSettingsForDisplay = simSettingsRaw
     ? await resolveSimulationSettingsForWidget(
         supabase,
-        simSettings,
-        staffAccess?.hasFullStaff ?? false,
+        simSettingsRaw as SimulationSettingsRow,
+        canRunSimSettingsHeal,
       )
     : null;
-  const rpNow = simSettingsEffective ? computeSimulationRpInstant(simSettingsEffective, new Date()) : null;
-
-  const activeFy = activeFyRes.data as { label?: string | null; year_index?: number | null } | null;
-  const fiscalYearLabel =
-    (activeFy?.label && String(activeFy.label).trim()) ||
-    (activeFy?.year_index != null ? `FY ${activeFy.year_index}` : "the active fiscal year");
+  const simDateLabel = simSettingsForDisplay
+    ? formatRpCalendarShort(computeSimulationRpInstant(simSettingsForDisplay, new Date()))
+    : "Unavailable";
 
   const canAppointSeats = Boolean(staffAccess?.hasFullStaff);
   let houseAppointmentMembers: Awaited<ReturnType<typeof loadChamberSeatHolders>> = [];
   let senateAppointmentMembers: Awaited<ReturnType<typeof loadChamberSeatHolders>> = [];
+  let executiveOfficers: Awaited<ReturnType<typeof loadExecutiveOfficers>> = {
+    president: null,
+    vicePresident: null,
+  };
   if (canAppointSeats) {
-    [houseAppointmentMembers, senateAppointmentMembers] = await Promise.all([
+    [houseAppointmentMembers, senateAppointmentMembers, executiveOfficers] = await Promise.all([
       loadChamberSeatHolders(supabase, "house"),
       loadChamberSeatHolders(supabase, "senate"),
+      loadExecutiveOfficers(supabase),
     ]);
   }
 
@@ -193,19 +175,14 @@ export default async function AdminElectionsPage({
 
   return (
     <div className="space-y-6">
-      <CalendarSystemAdminPanel
-        canCloseFiscalYear={canCloseFiscalYear}
-        canStartAppropriationsClock={canStartAppropriationsClock}
-        fiscalYearLabel={fiscalYearLabel}
-        simDateLabel={rpNow ? formatRpCalendarShort(rpNow) : null}
-        canManageCalendarAutomation={canManageCalendarAutomation}
-        calendarAutoCongressElections={Boolean(simSettings?.calendar_auto_congress_elections)}
-      />
+      <AdminCalendarMonthControls simDateLabel={simDateLabel} />
       <AdminElectionSimulationButtons />
       <AdminCongressAppointmentsClient
         canAppoint={canAppointSeats}
         houseMembers={houseAppointmentMembers}
         senateMembers={senateAppointmentMembers}
+        president={executiveOfficers.president}
+        vicePresident={executiveOfficers.vicePresident}
       />
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--psc-border)] pb-3">

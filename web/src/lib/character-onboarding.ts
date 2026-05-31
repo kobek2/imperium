@@ -1,56 +1,4 @@
-/** Two-letter US state codes (excluding territories) for client + server validation. */
-export const US_STATE_CODES = [
-  "AL",
-  "AK",
-  "AZ",
-  "AR",
-  "CA",
-  "CO",
-  "CT",
-  "DE",
-  "FL",
-  "GA",
-  "HI",
-  "ID",
-  "IL",
-  "IN",
-  "IA",
-  "KS",
-  "KY",
-  "LA",
-  "ME",
-  "MD",
-  "MA",
-  "MI",
-  "MN",
-  "MS",
-  "MO",
-  "MT",
-  "NE",
-  "NV",
-  "NH",
-  "NJ",
-  "NM",
-  "NY",
-  "NC",
-  "ND",
-  "OH",
-  "OK",
-  "OR",
-  "PA",
-  "RI",
-  "SC",
-  "SD",
-  "TN",
-  "TX",
-  "UT",
-  "VT",
-  "VA",
-  "WA",
-  "WV",
-  "WI",
-  "WY",
-] as const;
+import { SIM_REGION_CODES } from "@/lib/regions";
 
 export type ProfileOnboardingFields = {
   character_name: string | null;
@@ -60,13 +8,13 @@ export type ProfileOnboardingFields = {
   party: string | null;
 };
 
-const STATE_SET = new Set<string>(US_STATE_CODES);
+const REGION_SET = new Set<string>(SIM_REGION_CODES);
 
 const PARTIES = new Set(["democrat", "republican", "independent"]);
 
 /**
  * True when the player has supplied the minimum character record needed to use the sim
- * (name, DOB, party, state, House home district). Bios are optional.
+ * (name, DOB, party, region, House home district). Bios are optional.
  */
 export function isProfileOnboardingComplete(row: ProfileOnboardingFields | null | undefined): boolean {
   if (!row) return false;
@@ -75,9 +23,9 @@ export function isProfileOnboardingComplete(row: ProfileOnboardingFields | null 
   if (!(row.date_of_birth ?? "").trim()) return false;
   const party = row.party;
   if (!party || !PARTIES.has(party)) return false;
-  const st = (row.residence_state ?? "").trim().toUpperCase();
-  if (!STATE_SET.has(st)) return false;
-  const dist = (row.home_district_code ?? "").trim();
-  if (!dist) return false;
+  const region = (row.residence_state ?? "").trim().toUpperCase();
+  if (!REGION_SET.has(region)) return false;
+  const dist = (row.home_district_code ?? "").trim().toUpperCase();
+  if (!/^(NE|SO|WE)-\d{2}$/.test(dist)) return false;
   return true;
 }

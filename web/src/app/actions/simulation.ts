@@ -6,8 +6,6 @@ import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
-import { tickCalendarEvents } from "@/lib/calendar-event-engine";
-import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const FILING_HOURS = 24;
@@ -101,60 +99,13 @@ export async function updateSimulationSettings(formData: FormData): Promise<void
 }
 
 export async function updateSimulationStartAt(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const raw = String(formData.get("simulation_start_at") ?? "").trim();
-  const confirm = String(formData.get("confirm_simulation_start") ?? "").trim() === "1";
-
-  if (!raw) throw new Error("simulation_start_at is required.");
-  if (!confirm) throw new Error("Confirm before setting the simulation start time.");
-
-  const start = new Date(raw);
-  if (Number.isNaN(start.getTime())) throw new Error("Invalid simulation_start_at.");
-
-  const { data: row } = await supabase.from("simulation_settings").select("simulation_start_at, simulation_start_unlocked").eq("id", 1).maybeSingle();
-  const existing = row as { simulation_start_at?: string | null; simulation_start_unlocked?: boolean | null } | null;
-  if (existing?.simulation_start_at && !existing?.simulation_start_unlocked) {
-    throw new Error("simulation_start_at is locked after first save. Ask a super-admin to unlock.");
-  }
-
-  const { error } = await supabase
-    .from("simulation_settings")
-    .update({
-      simulation_start_at: start.toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", 1);
-
-  throwIfPostgrestError(error);
-  revalidatePath("/admin/elections");
+  void formData;
+  throw new Error("Manual simulation start edits are disabled in baseline mode.");
 }
 
 export async function setCalendarIsActive(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const on = String(formData.get("calendar_is_active") ?? "").trim() === "on";
-  const confirm = String(formData.get("confirm_calendar_activate") ?? "").trim() === "1";
-  if (on && !confirm) {
-    throw new Error("Confirm before activating the automated calendar.");
-  }
-
-  const { data: row } = await supabase.from("simulation_settings").select("simulation_start_at").eq("id", 1).maybeSingle();
-  if (on && !(row as { simulation_start_at?: string | null } | null)?.simulation_start_at) {
-    throw new Error("Set simulation_start_at before activating the calendar.");
-  }
-
-  const { error } = await supabase
-    .from("simulation_settings")
-    .update({
-      calendar_is_active: on,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", 1);
-
-  throwIfPostgrestError(error);
-  revalidatePath("/admin/elections");
-
-  const svc = createServiceRoleSupabase();
-  if (svc) await tickCalendarEvents(svc);
+  void formData;
+  throw new Error("Calendar automation toggles are disabled in baseline mode.");
 }
 
 /**
@@ -165,70 +116,55 @@ export async function setCalendarIsActive(formData: FormData): Promise<void> {
  * even when the normal admin form lock is on.
  */
 export async function resetCalendarV2ToRpEpochStartAndActivate(formData: FormData): Promise<void> {
-  await requireAdmin();
-  const confirm = String(formData.get("confirm_rp_calendar_reset") ?? "").trim() === "1";
-  if (!confirm) {
-    throw new Error("Confirm the hard reset before continuing.");
-  }
-
-  const svc = createServiceRoleSupabase();
-  if (!svc) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is not configured on the server; this reset requires the service role client.",
-    );
-  }
-
-  const nowIso = new Date().toISOString();
-
-  const { error: delErr } = await svc
-    .from("simulation_calendar_events")
-    .delete()
-    .in("status", ["success", "error"]);
-  throwIfPostgrestError(delErr);
-
-  const { error: updErr } = await svc
-    .from("simulation_settings")
-    .update({
-      simulation_start_at: nowIso,
-      calendar_is_active: true,
-      calendar_auto_congress_elections: true,
-      calendar_seat_cycle_freeze_rp_year: null,
-      calendar_seat_cycle_freeze_rp_month: null,
-      last_auto_open_rp_key: null,
-      updated_at: nowIso,
-    })
-    .eq("id", 1);
-  throwIfPostgrestError(updErr);
-
-  await tickCalendarEvents(svc);
-
-  revalidatePath("/admin/elections");
-  revalidatePath("/admin/operations");
-  revalidatePath("/economy");
-  revalidatePath("/elections");
-  revalidatePath("/congress");
-  revalidatePath("/");
+  void formData;
+  throw new Error("Simulation reset is disabled in baseline mode.");
 }
 
 export async function setCalendarAutoCongressElections(formData: FormData): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const on = String(formData.get("calendar_auto_congress_elections") ?? "").trim() === "on";
+  void formData;
+  throw new Error("Calendar automation settings are disabled in baseline mode.");
+}
 
+export async function advanceSimulationToNextMonth(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  // Manual month advance also performs leadership session closeouts when windows elapsed.
+  const { error: lsErr } = await supabase.rpc("advance_leadership_sessions_by_schedule");
+  if (lsErr) {
+    console.warn("[advanceSimulationToNextMonth] advance_leadership_sessions_by_schedule:", lsErr.message);
+  }
+  const now = new Date();
+  const { data: row, error: readErr } = await supabase
+    .from("simulation_settings")
+    .select("*")
+    .eq("id", 1)
+    .maybeSingle();
+  throwIfPostgrestError(readErr);
+  if (!row) throw new Error("simulation_settings row not found.");
+
+  const settings = row as SimulationSettingsRow;
+  const current = computeSimulationRpInstant(settings, now);
+  const nextYear = current.month === 12 ? current.year + 1 : current.year;
+  const nextMonth = current.month === 12 ? 1 : current.month + 1;
+
+  const simulationStartAt = settings.simulation_start_at ?? now.toISOString();
   const { error } = await supabase
     .from("simulation_settings")
     .update({
-      calendar_auto_congress_elections: on,
+      simulation_start_at: simulationStartAt,
+      calendar_is_active: true,
+      calendar_auto_congress_elections: false,
+      auto_open_filings_in_rp_january: false,
+      calendar_seat_cycle_freeze_rp_year: nextYear,
+      calendar_seat_cycle_freeze_rp_month: nextMonth,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
 
   throwIfPostgrestError(error);
   revalidatePath("/admin/elections");
+  revalidatePath("/admin/operations");
   revalidatePath("/elections");
   revalidatePath("/congress");
-
-  const svc = createServiceRoleSupabase();
-  if (svc) await tickCalendarEvents(svc);
 }
 
 export async function manualFireCalendarEvent(formData: FormData): Promise<void> {
@@ -273,22 +209,29 @@ export async function unlockSimulationStartForSuperAdmin(formData: FormData): Pr
  * real day between the old anchor and today).
  */
 export async function syncSimulationRealAnchorToNow(): Promise<void> {
-  const { supabase } = await requireAdmin();
-  const { error } = await supabase
-    .from("simulation_settings")
-    .update({
-      real_anchor_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", 1);
-  throwIfPostgrestError(error);
-  revalidatePath("/admin/elections");
-  revalidatePath("/elections");
+  throw new Error("Real-anchor sync is disabled in baseline mode.");
 }
 
 export type OpenSeatFilingsResult = { opened: number; skipped: number; created: number };
 
 export type CongressionalSeatScope = "all" | "house_only" | { senateClass: 1 | 2 | 3 };
+type SimRegionCode = "NE" | "SO" | "WE";
+type SenateSeatTarget = { state: SimRegionCode; senateClass: 1 | 2 | 3 };
+
+const SENATE_CLASS_TARGETS: Record<1 | 2 | 3, readonly SenateSeatTarget[]> = {
+  1: [
+    { state: "NE", senateClass: 1 },
+    { state: "SO", senateClass: 1 },
+  ],
+  2: [
+    { state: "SO", senateClass: 2 },
+    { state: "WE", senateClass: 2 },
+  ],
+  3: [
+    { state: "NE", senateClass: 3 },
+    { state: "WE", senateClass: 3 },
+  ],
+};
 
 /**
  * Inserts dormant filing templates for House districts and Senate seats that have at least one
@@ -658,7 +601,30 @@ async function beginSenateClassSeatFilingsInner(senateClass: 1 | 2 | 3): Promise
   const { supabase } = await requireAdmin();
   const scope = { senateClass } as const;
   await ensureDormantCongressionalSeatTemplatesForResidents(supabase, scope);
-  await bulkOpenDormantCongressionalSeatFilings(supabase, scope);
+  const targetKeys = new Set(SENATE_CLASS_TARGETS[senateClass].map((t) => `${t.state}:${t.senateClass}`));
+  const { data: dormant, error } = await supabase
+    .from("elections")
+    .select("id, state, senate_class")
+    .eq("office", "senate")
+    .eq("phase", "filing")
+    .is("leadership_role", null)
+    .is("filing_window_started_at", null)
+    .eq("senate_class", senateClass);
+  throwIfPostgrestError(error);
+
+  const rows = (dormant ?? []) as Array<{ id: string; state: string | null; senate_class: number | null }>;
+  for (const row of rows) {
+    const st = String(row.state ?? "").trim().toUpperCase() as SimRegionCode;
+    const sc = Number(row.senate_class);
+    if (!targetKeys.has(`${st}:${sc}`)) continue;
+    const { count, error: cErr } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("residence_state", st);
+    throwIfPostgrestError(cErr);
+    if ((count ?? 0) < 1) continue;
+    await openOneDormantSeatElection(supabase, row.id);
+  }
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
   revalidatePath("/congress");
@@ -732,4 +698,31 @@ export async function beginPresidentDormantSeatFilings(): Promise<void> {
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
   revalidatePath("/congress");
+}
+
+/** Staff-only: wipe all elections, bills, offices, ledger, fiscal years, chat, and cabinet/diplomacy history. */
+export async function adminWipeGameHistory(): Promise<{ ok: boolean; message: string }> {
+  const { supabase } = await requireAdmin();
+  const { data, error } = await supabase.rpc("admin_wipe_game_history");
+  if (error) throw new Error(error.message);
+  const row = data as { ok?: boolean; message?: string } | null;
+  const paths = [
+    "/",
+    "/admin/elections",
+    "/elections",
+    "/congress",
+    "/oval",
+    "/economy",
+    "/directory",
+    "/character",
+    "/events",
+    "/inbox",
+    "/cabinet",
+    "/policy",
+  ];
+  for (const p of paths) revalidatePath(p);
+  return {
+    ok: Boolean(row?.ok),
+    message: String(row?.message ?? "Game history wiped."),
+  };
 }

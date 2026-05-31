@@ -82,15 +82,15 @@ export function getFilingEligibilityMessage(
     const need = String(election.state ?? "")
       .trim()
       .toUpperCase();
-    if (!need) return "This Senate race has no state configured; ask an admin to fix it.";
+    if (!need) return "This Senate race has no region configured; ask an admin to fix it.";
     const st = String(profile?.residence_state ?? "")
       .trim()
       .toUpperCase();
-    if (!st || st.length !== 2) {
-      return "Set your residence state on the Character page to the state you are running for.";
+    if (!st || !["NE", "SO", "WE"].includes(st)) {
+      return "Set your home region on the Character page (NE, SO, or WE).";
     }
     if (st !== need) {
-      return "You may only file for a Senate seat in your character's residence state.";
+      return "You may only file for a Senate seat in your character's home region.";
     }
   } else if (office !== "president") {
     return "Unknown office type.";

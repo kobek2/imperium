@@ -59,7 +59,7 @@ function revalidateSession(sessionId: string) {
   revalidatePath("/congress/leadership");
   revalidatePath(`/congress/leadership/session/${sessionId}`);
   revalidatePath("/admin/elections");
-  revalidatePath("/admin/leadership");
+  revalidatePath("/admin/leadership-elections");
   revalidatePath("/directory");
 }
 
@@ -67,6 +67,11 @@ function revalidateSession(sessionId: string) {
 export async function startLeadershipSession(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
   const chamber = assertChamber(String(formData.get("chamber") ?? ""));
+  // Close any elapsed sessions first so stale rows don't block fresh windows.
+  const { error: advanceErr } = await supabase.rpc("advance_leadership_sessions_by_schedule");
+  if (advanceErr && isMissingLeadershipSchema(advanceErr.message)) {
+    throw new Error(LEADERSHIP_MIGRATION_HINT);
+  }
 
   const existingRes = await supabase
     .from("leadership_sessions")
@@ -118,6 +123,11 @@ export async function closeLeadershipSessionNow(formData: FormData): Promise<voi
     }
     throwIfPostgrestError(error);
   }
+  // Recompute once to guarantee role grants/strips reflect current tiebreak rules.
+  const { error: recErr } = await supabase.rpc("recompute_closed_leadership_session", { s_id: sessionId });
+  if (recErr && isMissingLeadershipSchema(recErr.message)) {
+    throw new Error(LEADERSHIP_MIGRATION_HINT);
+  }
 
   revalidateSession(sessionId);
 }
@@ -139,7 +149,7 @@ export async function recomputeClosedLeadershipSession(formData: FormData): Prom
 
   revalidateSession(sessionId);
   revalidatePath("/admin/elections?tab=archive");
-  revalidatePath("/admin/leadership");
+  revalidatePath("/admin/leadership-elections");
 }
 
 async function loadSessionOrThrow(

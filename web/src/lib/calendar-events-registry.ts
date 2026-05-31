@@ -2,7 +2,7 @@
 export const CALENDAR_EVENT_DEFINITIONS = [
   {
     key: "inauguration_2032",
-    label: "Inauguration 2032 — seat Congress, expire bills, open leadership races",
+    label: "Inauguration 2032 — seat Congress, open leadership races",
   },
   { key: "leadership_close_2032", label: "Leadership close (12h after inauguration seating)" },
   {

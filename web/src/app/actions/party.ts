@@ -119,7 +119,6 @@ export async function adminAppointPartyOfficer(input: {
   });
   if (error) throw new Error(error.message);
   revalidatePartyPaths(pk);
-  revalidatePath("/admin/party-leadership");
   revalidatePath("/admin/elections");
 }
 
@@ -133,8 +132,8 @@ export async function adminStartPartyLeadershipFiling(formData: FormData): Promi
   throwIfPostgrestError(error);
   revalidatePartyPaths(party);
   revalidatePath("/admin");
-  revalidatePath("/admin/party-leadership");
   revalidatePath("/admin/elections");
+  revalidatePath("/admin/leadership-elections");
 }
 
 export async function declarePartyCandidacy(formData: FormData): Promise<void> {
@@ -200,7 +199,6 @@ export async function finalizePartyOfficerElection(formData: FormData): Promise<
   }
   revalidatePartyPaths(party);
   revalidatePath(`/parties/${party}`, "page");
-  revalidatePath("/admin/party-leadership");
   return { ok: true, message: "Officer term installed." };
 }
 

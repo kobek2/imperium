@@ -75,31 +75,11 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
         <p className="text-[var(--psc-muted)]">
           Spend one campaign ad from inventory for <strong className="text-[var(--psc-ink)]">+1 point</strong>.
           {office === "president"
-            ? " Presidential ads must target a state."
+            ? " Presidential ads apply to your national ticket."
             : " House and Senate ads auto-apply to this race."}
         </p>
         <span className="font-mono text-[var(--psc-ink)]">Ads in inventory: {adsInventory}</span>
       </div>
-      {office === "president" ? (
-        <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
-          Target state
-          <select
-            name="target_state"
-            required
-            className="w-full max-w-xs rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-sm font-normal"
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Pick a state...
-            </option>
-            {states.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code} — {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       <label className="grid gap-1 text-xs font-semibold text-[var(--psc-ink)]">
         How many ads
         <input
@@ -129,9 +109,6 @@ export function CampaignAdForm({ electionId, office, adsInventory, states }: Pro
               <span className="font-semibold">Ads remaining (inventory): {result.adsRemaining}.</span>
             </>
           ) : null}
-          {office === "president" && result.targetState
-            ? " Map totals update for that state only — open the matching tile to confirm."
-            : null}
         </p>
       ) : null}
     </form>

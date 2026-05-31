@@ -20,14 +20,20 @@ const beginBtn =
 const closeBtn =
   "w-full rounded border border-rose-900/50 bg-rose-950 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-rose-50 hover:bg-rose-900/90";
 
+const SENATE_CLASS_LABELS: Record<1 | 2 | 3, string> = {
+  1: "Northeast & Midwest Seat 1 and South Seat 1",
+  2: "South Seat 2 and West Seat 1",
+  3: "Northeast & Midwest Seat 2 and West Seat 2",
+};
+
 export function AdminElectionSimulationButtons() {
   return (
     <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Seat elections</h3>
       <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
         Chamber leadership (caucus) races:{" "}
-        <Link href="/admin/leadership" className="font-semibold text-[var(--psc-accent)] underline underline-offset-2">
-          Admin → Chamber leadership
+        <Link href="/admin/leadership-elections" className="font-semibold text-[var(--psc-accent)] underline underline-offset-2">
+          Admin → Leadership elections
         </Link>
         .
       </p>
@@ -44,21 +50,21 @@ export function AdminElectionSimulationButtons() {
             </form>
             <form action={beginSenateClass1SeatFilings}>
               <FormSubmitButton
-                idleLabel="Begin class 1 senate"
+                idleLabel={`Begin ${SENATE_CLASS_LABELS[1]}`}
                 pendingLabel="Opening…"
                 className={beginBtn}
               />
             </form>
             <form action={beginSenateClass2SeatFilings}>
               <FormSubmitButton
-                idleLabel="Begin class 2 senate"
+                idleLabel={`Begin ${SENATE_CLASS_LABELS[2]}`}
                 pendingLabel="Opening…"
                 className={beginBtn}
               />
             </form>
             <form action={beginSenateClass3SeatFilings}>
               <FormSubmitButton
-                idleLabel="Begin class 3 senate"
+                idleLabel={`Begin ${SENATE_CLASS_LABELS[3]}`}
                 pendingLabel="Opening…"
                 className={beginBtn}
               />
@@ -79,13 +85,25 @@ export function AdminElectionSimulationButtons() {
               <FormSubmitButton idleLabel="Close house elections" pendingLabel="Closing…" className={closeBtn} />
             </form>
             <form action={closeSenateClass1SeatElections}>
-              <FormSubmitButton idleLabel="Close class 1 senate" pendingLabel="Closing…" className={closeBtn} />
+              <FormSubmitButton
+                idleLabel={`Close ${SENATE_CLASS_LABELS[1]}`}
+                pendingLabel="Closing…"
+                className={closeBtn}
+              />
             </form>
             <form action={closeSenateClass2SeatElections}>
-              <FormSubmitButton idleLabel="Close class 2 senate" pendingLabel="Closing…" className={closeBtn} />
+              <FormSubmitButton
+                idleLabel={`Close ${SENATE_CLASS_LABELS[2]}`}
+                pendingLabel="Closing…"
+                className={closeBtn}
+              />
             </form>
             <form action={closeSenateClass3SeatElections}>
-              <FormSubmitButton idleLabel="Close class 3 senate" pendingLabel="Closing…" className={closeBtn} />
+              <FormSubmitButton
+                idleLabel={`Close ${SENATE_CLASS_LABELS[3]}`}
+                pendingLabel="Closing…"
+                className={closeBtn}
+              />
             </form>
             <form action={closePresidentSeatElections}>
               <FormSubmitButton idleLabel="Close presidential elections" pendingLabel="Closing…" className={closeBtn} />

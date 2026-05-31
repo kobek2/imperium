@@ -51,7 +51,7 @@ export function SpeechForm({
     ok: false,
   });
 
-  const needsStatePicker = office === "president";
+  const needsStatePicker = false;
 
   return (
     <form
@@ -70,7 +70,7 @@ export function SpeechForm({
           ? ` It attributes to ${districtCode ?? "this district"}.`
           : office === "senate"
             ? ` It attributes to ${state ?? "this state"}.`
-            : " Pick a state below to target a region."}
+            : " National race — points count toward your ticket total."}
       </p>
 
       <input type="hidden" name="election_id" value={electionId} />

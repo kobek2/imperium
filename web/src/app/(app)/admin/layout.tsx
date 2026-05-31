@@ -59,10 +59,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Elections
             </Link>
             <Link
-              href="/admin/leadership"
+              href="/admin/leadership-elections"
               className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
             >
-              Leadership
+              Leadership elections
             </Link>
             <Link
               href="/admin/members"
@@ -75,12 +75,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
             >
               Economy
-            </Link>
-            <Link
-              href="/admin/party-leadership"
-              className="rounded-md px-2.5 py-1.5 text-[var(--psc-accent)] underline-offset-2 transition-colors hover:bg-[color-mix(in_srgb,var(--psc-border)_45%,transparent)] hover:underline active:bg-[color-mix(in_srgb,var(--psc-border)_70%,transparent)] active:brightness-95"
-            >
-              Party leadership
             </Link>
             <Link
               href="/"

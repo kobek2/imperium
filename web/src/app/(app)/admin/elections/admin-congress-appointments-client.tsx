@@ -4,12 +4,14 @@ import { useEffect, useState, useTransition } from "react";
 import {
   appointChamberLeadershipForProfile,
   appointHouseSeatForProfile,
+  appointPresidentForProfile,
   appointSenateSeatForProfile,
+  appointVicePresidentForProfile,
   searchProfilesForAppointment,
   type AppointmentProfileHit,
 } from "@/app/actions/congress-appointments";
-import { US_STATE_CODES } from "@/lib/character-onboarding";
-import type { ChamberMemberOption } from "@/lib/admin-congress-appointment-queries";
+import { SIM_REGIONS } from "@/lib/regions";
+import type { ChamberMemberOption, ExecutiveOfficerOption } from "@/lib/admin-congress-appointment-queries";
 import { leadershipRoleLabel, leadershipRolesForChamber, type LeadershipRole } from "@/lib/leadership";
 
 const btn =
@@ -20,14 +22,24 @@ function profileSummary(p: AppointmentProfileHit) {
   return bits.length ? ` · ${bits.join(" · ")}` : "";
 }
 
+function officerLabel(o: ExecutiveOfficerOption | null) {
+  if (!o) return "— vacant —";
+  const bits = [o.home_district_code, o.residence_state].filter(Boolean);
+  return bits.length ? `${o.character_name} (${bits.join(" · ")})` : o.character_name;
+}
+
 export function AdminCongressAppointmentsClient({
   canAppoint,
   houseMembers,
   senateMembers,
+  president,
+  vicePresident,
 }: {
   canAppoint: boolean;
   houseMembers: ChamberMemberOption[];
   senateMembers: ChamberMemberOption[];
+  president: ExecutiveOfficerOption | null;
+  vicePresident: ExecutiveOfficerOption | null;
 }) {
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -87,8 +99,8 @@ export function AdminCongressAppointmentsClient({
       <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
         <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Appointments</h3>
         <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          Seat and chamber-leadership appointments require full staff (<span className="font-mono">admin</span> or{" "}
-          <span className="font-mono">staff_super</span>) so database role grants can be updated.
+          Seat, executive, and chamber-leadership appointments require full staff (<span className="font-mono">admin</span>{" "}
+          or <span className="font-mono">staff_super</span>) so database role grants can be updated.
         </p>
       </section>
     );
@@ -102,7 +114,7 @@ export function AdminCongressAppointmentsClient({
       <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Appointments</h3>
       <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
         Search a character, then seat them in the House (their home district) or Senate (must match residence state and
-        class). Leadership assigns a caucus or chamber role to someone who already holds the matching seat.
+        class), appoint President or Vice President, or assign chamber leadership to an incumbent member.
       </p>
 
       {msg ? (
@@ -155,6 +167,46 @@ export function AdminCongressAppointmentsClient({
         ) : null}
       </div>
 
+      <div className="mt-6 space-y-3 border-t border-[var(--psc-border)] pt-6">
+        <h4 className="text-xs font-semibold text-[var(--psc-ink)]">Executive branch</h4>
+        <dl className="grid gap-1 text-[11px] text-[var(--psc-muted)] sm:grid-cols-2">
+          <div>
+            <dt className="font-semibold uppercase tracking-wide text-[10px]">President</dt>
+            <dd className="text-[var(--psc-ink)]">{officerLabel(president)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold uppercase tracking-wide text-[10px]">Vice President</dt>
+            <dd className="text-[var(--psc-ink)]">{officerLabel(vicePresident)}</dd>
+          </div>
+        </dl>
+        {!seatPick ? (
+          <p className="text-[11px] text-[var(--psc-muted)]">Pick someone from search to appoint.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              className={btn}
+              onClick={() => run(() => appointPresidentForProfile(seatPick.id))}
+            >
+              Appoint President
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              className={btn}
+              onClick={() => run(() => appointVicePresidentForProfile(seatPick.id))}
+            >
+              Appoint Vice President
+            </button>
+          </div>
+        )}
+        <p className="text-[10px] text-[var(--psc-muted)]">
+          Replaces the current officeholder and updates Oval Office / directory access. Does not change a closed
+          presidential race winner field.
+        </p>
+      </div>
+
       <div className="mt-6 grid gap-6 border-t border-[var(--psc-border)] pt-6 md:grid-cols-2">
         <div>
           <h4 className="text-xs font-semibold text-[var(--psc-ink)]">Congressional seats</h4>
@@ -182,22 +234,22 @@ export function AdminCongressAppointmentsClient({
 
               <div className="flex flex-wrap items-end gap-2 border-t border-[var(--psc-border)] pt-3">
                 <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase text-[var(--psc-muted)]">
-                  State
+                  Region
                   <select
                     value={senateState}
                     onChange={(e) => setSenateState(e.target.value)}
                     className="rounded border border-[var(--psc-border)] bg-white px-2 py-1.5 text-xs font-normal normal-case text-[var(--psc-ink)]"
                   >
                     <option value="">—</option>
-                    {US_STATE_CODES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                    {SIM_REGIONS.map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.code} — {r.name}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase text-[var(--psc-muted)]">
-                  Class
+                  Seat
                   <select
                     value={senateClass}
                     onChange={(e) => setSenateClass(Number(e.target.value) as 1 | 2 | 3)}
@@ -210,7 +262,7 @@ export function AdminCongressAppointmentsClient({
                 </label>
                 <button
                   type="button"
-                  disabled={pending || senateState.length !== 2}
+                  disabled={pending || !["NE", "SO", "WE"].includes(senateState)}
                   className={btn}
                   onClick={() => run(() => appointSenateSeatForProfile(seatPick.id, senateState, senateClass))}
                 >

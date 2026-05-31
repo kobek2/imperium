@@ -35,17 +35,17 @@ const AREAS: {
   },
   {
     title: "Elections & races",
-    blurb: "FEC console: create races, phases, bulk end, dormant filing, RP calendar card.",
+    blurb: "Create elections and run manual race phase lifecycle.",
     href: "/admin/elections",
     anyOf: ["elections", "simulation"],
     grantHint: "staff_elections or staff_simulation",
   },
   {
-    title: "Party leadership",
-    blurb: "Manual starts for party officer elections and related workflows.",
-    href: "/admin/party-leadership",
-    anyOf: ["parties"],
-    grantHint: "staff_parties",
+    title: "Leadership elections",
+    blurb: "Open House/Senate and party officer leadership elections from one module.",
+    href: "/admin/leadership-elections",
+    anyOf: ["elections", "simulation", "parties"],
+    grantHint: "staff_elections, staff_simulation, or staff_parties",
   },
 ];
 

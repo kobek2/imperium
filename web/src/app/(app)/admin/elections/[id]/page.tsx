@@ -1,20 +1,27 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPageAny } from "@/lib/staff-access";
 import { OpenSeatFilingForm } from "@/components/open-seat-filing-form";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import { SubmitButton } from "@/components/submit-button";
 import {
+  CampaignSpeechArchive,
+  type CampaignSpeechArchiveItem,
+} from "@/components/campaign-speech-archive";
+import {
   deleteElection,
   endPrimarySelectWinners,
   finalizePresident,
+  recertifyPresidentElectoralWinner,
   reapplyPresidentRoleTransitions,
   setCandidateCampaignPoints,
   setElectionPhase,
-  updateElectionPrimaryBallot,
 } from "@/app/actions/elections";
+import {
+  fetchAllCampaignSpeechesForElection,
+  toCampaignSpeechArchiveItems,
+} from "@/lib/campaign-speeches";
 import {
   isLeadershipRole,
   leadershipRoleLabel,
@@ -100,8 +107,6 @@ export default async function AdminElectionDetailPage({
   const { supabase } = await getServerAuth();
   if (!supabase) redirect("/");
 
-  await runElectionPhaseSchedule(supabase);
-
   const { data: election } = await supabase
     .from("elections")
     .select("*")
@@ -153,6 +158,7 @@ export default async function AdminElectionDetailPage({
     profiles = (p ?? []) as ProfileRow[];
   }
   const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const candidateUserIdByCandId = new Map(candList.map((c) => [c.id, c.user_id]));
 
   const candIds = candList.map((c) => c.id);
 
@@ -227,6 +233,34 @@ export default async function AdminElectionDetailPage({
     (s, n) => s + n,
     0,
   );
+
+  let speechArchive: CampaignSpeechArchiveItem[] = [];
+  try {
+    const allSpeeches = await fetchAllCampaignSpeechesForElection(supabase, id);
+    const authorIds = [...new Set(allSpeeches.map((s) => s.author_id))].filter(
+      (aid) => !profileById.has(aid),
+    );
+    if (authorIds.length) {
+      const { data: authorProfiles } = await supabase
+        .from("profiles")
+        .select("id, character_name, face_claim_url, residence_state, home_district_code, party")
+        .in("id", authorIds);
+      for (const p of (authorProfiles ?? []) as ProfileRow[]) {
+        profileById.set(p.id, p);
+      }
+    }
+    const displayName = (userId: string) =>
+      profileById.get(userId)?.character_name?.trim() || userId.slice(0, 8);
+    speechArchive = toCampaignSpeechArchiveItems(allSpeeches, {
+      candidateName: (candidateId) => {
+        const userId = candidateUserIdByCandId.get(candidateId);
+        return userId ? displayName(userId) : candidateId.slice(0, 8);
+      },
+      authorName: (authorId) => displayName(authorId),
+    });
+  } catch (err) {
+    console.warn("[admin/elections/[id]] speech archive load failed:", err);
+  }
 
   const winnerProfile = election.winner_user_id
     ? profileById.get(election.winner_user_id as string)
@@ -336,51 +370,6 @@ export default async function AdminElectionDetailPage({
         </section>
       ) : null}
 
-      <section
-        className={`space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 ${
-          isLeadershipRole(election.leadership_role) ? "hidden" : ""
-        }`}
-      >
-        <h3 className="font-semibold">Primary ballot reach</h3>
-        <p className="max-w-2xl text-xs text-[var(--psc-muted)]">
-          Party-wide lets any same-party player vote. Jurisdiction-only limits voting to players whose
-          Character matches this seat (except candidates voting for themselves). President is always
-          party-wide.
-        </p>
-        {election.office === "president" ? (
-          <p className="text-xs text-[var(--psc-muted)]">
-            This race is presidential; primary ballots are always party-wide.
-          </p>
-        ) : (
-          <form
-            action={updateElectionPrimaryBallot}
-            className="grid w-full min-w-0 gap-3 sm:max-w-lg"
-          >
-            <input type="hidden" name="election_id" value={id} />
-            <label className="grid min-w-0 gap-1 text-xs font-semibold">
-              Who may vote in the primary
-              <select
-                name="primary_ballot_scope"
-                defaultValue={
-                  election.primary_party_wide !== false ? "party_wide" : "jurisdiction_only"
-                }
-                className="w-full min-w-0 border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-              >
-                <option value="party_wide">Party-wide (any same-party voter)</option>
-                <option value="jurisdiction_only">
-                  Jurisdiction only (seat residents + self)
-                </option>
-              </select>
-            </label>
-            <FormSubmitButton
-              idleLabel="Save"
-              pendingLabel="Saving…"
-              className="justify-self-start border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-2 text-xs font-semibold uppercase text-white"
-            />
-          </form>
-        )}
-      </section>
-
       <section className="space-y-4 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <div>
           <h3 className="font-semibold">Phase controls</h3>
@@ -435,19 +424,31 @@ export default async function AdminElectionDetailPage({
             primary_votes plurality; solo filers or 0-vote ties default to the earliest filer.
           </p>
           <p>
-            <strong className="text-[var(--psc-ink)]">closed:</strong> House/Senate use the 60/40 FEC
-            score; president uses general-vote plurality. Role transitions fire automatically.
+            <strong className="text-[var(--psc-ink)]">closed:</strong> House, Senate, and President use
+            points-only scoring (campaign totals, endorsements, lean where applicable). Role transitions
+            fire when you certify the winner.
           </p>
         </div>
 
         {election.phase === "general" && election.office === "president" ? (
           <div className="border-t border-[var(--psc-border)] pt-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-              Override presidential finalize
+              Presidential finalize
             </p>
             <p className="mt-1 max-w-xl text-xs text-[var(--psc-muted)]">
-              Closing a presidential race normally picks the general-vote leader. If you want a specific
-              candidate certified instead, choose them here.
+              Certifies whoever leads the national point score.
+            </p>
+            <form action={finalizePresident} className="mt-2">
+              <input type="hidden" name="election_id" value={id} />
+              <SubmitButton
+                pendingLabel="Certifying…"
+                className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+              >
+                Certify national winner
+              </SubmitButton>
+            </form>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Manual override
             </p>
             <form action={finalizePresident} className="mt-2 flex flex-wrap items-center gap-2">
               <input type="hidden" name="election_id" value={id} />
@@ -456,7 +457,7 @@ export default async function AdminElectionDetailPage({
                 required
                 className="w-full min-w-0 max-w-xs border border-[var(--psc-border)] bg-white px-2 py-2 text-xs sm:w-auto"
               >
-                <option value="">Winner (candidate row)</option>
+                <option value="">Select candidate…</option>
                 {candList.map((c) => {
                   const prof = profileById.get(c.user_id);
                   return (
@@ -468,16 +469,34 @@ export default async function AdminElectionDetailPage({
               </select>
               <SubmitButton
                 pendingLabel="Certifying…"
-                className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+                className="border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-xs font-semibold uppercase transition hover:bg-[var(--psc-canvas)]"
               >
-                Certify this candidate
+                Certify override
               </SubmitButton>
             </form>
           </div>
         ) : null}
 
         {election.phase === "closed" && election.office === "president" ? (
-          <div className="border-t border-[var(--psc-border)] pt-4">
+          <div className="space-y-4 border-t border-[var(--psc-border)] pt-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                Recertify national winner
+              </p>
+              <p className="mt-1 max-w-xl text-xs text-[var(--psc-muted)]">
+                Recomputes the national point-score winner and updates the certified row.
+              </p>
+              <form action={recertifyPresidentElectoralWinner} className="mt-2">
+                <input type="hidden" name="election_id" value={id} />
+                <SubmitButton
+                  pendingLabel="Recertifying…"
+                  className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+                >
+                  Recertify from scores
+                </SubmitButton>
+              </form>
+            </div>
+            <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
               Role transitions (President + VP)
             </p>
@@ -497,6 +516,7 @@ export default async function AdminElectionDetailPage({
                 Re-apply president + VP roles
               </SubmitButton>
             </form>
+            </div>
           </div>
         ) : null}
 
@@ -662,6 +682,24 @@ export default async function AdminElectionDetailPage({
           </ul>
         )}
       </section>
+
+      {speechArchive.length ? (
+        <p className="max-w-2xl text-xs text-[var(--psc-muted)]">
+          Deleting a speech removes its campaign points automatically. Presidential electoral math and
+          House/Senate FEC totals update on refresh; for a closed president race, use{" "}
+          <strong className="text-[var(--psc-ink)]">Recertify from electoral map</strong> if the winner
+          should change.
+        </p>
+      ) : null}
+      <CampaignSpeechArchive
+        speeches={speechArchive}
+        adminDeleteElectionId={id}
+        title={
+          election.phase === "closed"
+            ? "Campaign speech archive (full)"
+            : "Campaign speech archive"
+        }
+      />
 
       <section>
         <form action={deleteElection}>

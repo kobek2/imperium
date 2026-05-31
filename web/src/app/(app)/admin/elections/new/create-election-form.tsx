@@ -157,7 +157,7 @@ export function CreateElectionForm({
 
           {needsState ? (
             <label className={labelClass}>
-              State
+              Region
               <select
                 name="state"
                 required
@@ -168,7 +168,7 @@ export function CreateElectionForm({
                 }}
                 className={`${inputClass} font-mono`}
               >
-                <option value="">Choose a state…</option>
+                <option value="">Choose a region…</option>
                 {states.map((s) => (
                   <option key={s.code} value={s.code}>
                     {s.code} · {s.name} — {s.player_count}{" "}
@@ -178,8 +178,8 @@ export function CreateElectionForm({
                 ))}
               </select>
               <span className="text-xs font-normal text-[var(--psc-muted)]">
-                Counts come from <code className="font-mono">profiles.residence_state</code>.
-                Empty states are still selectable — you will get a warning below.
+                Counts come from <code className="font-mono">profiles.residence_state</code> (NE, SO, WE).
+                Empty regions are still selectable — you will get a warning below.
               </span>
             </label>
           ) : null}
@@ -196,14 +196,13 @@ export function CreateElectionForm({
                 className={`${inputClass} font-mono`}
               >
                 <option value="">
-                  {stateCode ? "Choose a district…" : "Pick a state first"}
+                  {stateCode ? "Choose a district…" : "Pick a region first"}
                 </option>
                 {districtsForState.map((d) => (
                   <option key={d.code} value={d.code}>
                     {d.code} — {d.player_count}{" "}
                     {d.player_count === 1 ? "player" : "players"}
                     {d.player_count === 0 ? " (empty)" : ""}
-                    {d.incumbent_npc_name ? ` · held by ${d.incumbent_npc_name}` : ""}
                   </option>
                 ))}
               </select>
@@ -215,16 +214,15 @@ export function CreateElectionForm({
 
           {needsSenateClass ? (
             <label className={labelClass}>
-              Senate class
+              Senate seat
               <select name="senate_class" className={inputClass}>
-                <option value="">Auto — first open class (1, 2, or 3) for this state</option>
-                <option value="1">Class I</option>
-                <option value="2">Class II</option>
-                <option value="3">Class III</option>
+                <option value="">Auto — first open seat (1, 2, or 3) for this region</option>
+                <option value="1">Seat 1</option>
+                <option value="2">Seat 2</option>
+                <option value="3">Seat 3</option>
               </select>
               <span className="text-xs font-normal text-[var(--psc-muted)]">
-                Leave on Auto unless you need a specific class; the server skips classes that already have a live seat
-                race.
+                Leave on Auto unless you need a specific seat; the server skips seats that already have a live race.
               </span>
             </label>
           ) : null}
@@ -327,29 +325,7 @@ export function CreateElectionForm({
         </dl>
       </div>
 
-      <div className="space-y-3">
-        <p className={sectionTitle}>Primary ballot</p>
-        {office === "president" ? (
-          <>
-            <input type="hidden" name="primary_ballot_scope" value="party_wide" />
-            <p className="text-xs text-[var(--psc-muted)] leading-relaxed">
-              Presidential primaries are always party-wide.
-            </p>
-          </>
-        ) : (
-          <label className={labelClass}>
-            Who may vote in the primary
-            <select name="primary_ballot_scope" defaultValue="party_wide" className={inputClass}>
-              <option value="party_wide">Party-wide (any same-party voter)</option>
-              <option value="jurisdiction_only">Jurisdiction only (seat residents + self)</option>
-            </select>
-            <span className="text-xs font-normal text-[var(--psc-muted)]">
-              Party-wide lets any same-party member vote. Jurisdiction-only limits voting to players whose
-              Character matches this seat, plus candidates voting for themselves.
-            </span>
-          </label>
-        )}
-      </div>
+      <input type="hidden" name="primary_ballot_scope" value="party_wide" />
 
       <label className="flex cursor-pointer items-start gap-2 rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-3 text-xs text-[var(--psc-ink)]">
         <input type="checkbox" name="dormant_filing_window" className="mt-0.5 h-4 w-4 shrink-0" />
@@ -401,7 +377,7 @@ function SeatPopulationBanner({
         <p className="mt-1">
           No players have {seatLabel} set on their Character page yet
           {office === "house" || office === "senate"
-            ? ". If you spin up this race, only the incumbent NPC will be on the ballot unless " +
+            ? ". If you spin up this race, an NPC challenger is added automatically when only one player files, unless " +
               "someone updates their residence. Consider holding off, or create a party-wide " +
               "primary so anyone can still file."
             : "."}

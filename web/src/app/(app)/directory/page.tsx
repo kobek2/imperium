@@ -5,15 +5,13 @@ import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-role
 import { getServerAuth } from "@/lib/supabase/server";
 import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
 import type { DirectoryHolder } from "@/lib/directory-types";
-import { getIsAdmin } from "@/lib/is-admin";
-import { isPresident } from "@/lib/president";
+import { RegionsDistrictsMap } from "@/components/regions-districts-map";
 import {
   HierarchyTabs,
   type DirectoryTab,
   type LawEntry,
 } from "./hierarchy-tabs";
 import { DirectoryHashScroll } from "./directory-hash-scroll";
-import { DirectoryMetricsEntry } from "./directory-metrics-entry";
 
 /** PostgREST returns at most 1000 rows per request unless paged. */
 const POSTGREST_PAGE = 1000;
@@ -185,15 +183,13 @@ export default async function DirectoryPage() {
 
   if (!user) redirect("/login");
 
-  const [{ grants, profiles }, { data: lawBills }, pres, isAdmin] = await Promise.all([
+  const [{ grants, profiles }, { data: lawBills }] = await Promise.all([
     loadDirectoryGrantsAndProfiles(supabase),
     supabase
       .from("bills")
       .select("id, title, originating_chamber, created_at, signed_at, author_id")
       .eq("status", "law")
       .order("signed_at", { ascending: false, nullsFirst: false }),
-    isPresident(supabase, user.id),
-    getIsAdmin(),
   ]);
 
   const lawBillRows = (lawBills ?? []) as Array<{
@@ -351,7 +347,7 @@ export default async function DirectoryPage() {
   return (
     <div className="space-y-10">
       <DirectoryHashScroll />
-      <DirectoryMetricsEntry showFederalBudget={pres || isAdmin} />
+      <RegionsDistrictsMap title="National regions and House districts" />
       <HierarchyTabs tabs={tabs} />
     </div>
   );

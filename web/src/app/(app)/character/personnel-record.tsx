@@ -1,5 +1,5 @@
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
-import { formatDistrictLean } from "@/lib/district-lean";
+import { simRegionByCode } from "@/lib/regions";
 import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
 
 export type PersonnelProfile = {
@@ -28,16 +28,16 @@ function displayName(name: string | null) {
 export function PersonnelRecord({
   profile,
   primaryTitle,
-  districtPvi,
 }: {
   profile: PersonnelProfile;
   primaryTitle: string;
-  districtPvi: number | null;
+  districtPvi?: number | null;
 }) {
   const name = displayName(profile.character_name);
+  const region = simRegionByCode(profile.residence_state ?? "");
   const districtLine = profile.home_district_code
-    ? districtPvi !== null
-      ? `${profile.home_district_code} (${formatDistrictLean(districtPvi)})`
+    ? region
+      ? `${profile.home_district_code} · ${region.name}`
       : profile.home_district_code
     : null;
   return (

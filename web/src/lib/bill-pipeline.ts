@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { processVoteApproval } from "@/lib/approval-ratings";
 import { countChamberVotingMembers } from "@/lib/congress-composition";
 import type { BillChamber } from "@/lib/bill-types";
-import { hoursFromNowIso, OTHER_CHAMBER_REVIEW_HOURS } from "@/lib/legislation-automation-constants";
+import { hoursFromNowIso } from "@/lib/legislation-automation-constants";
 
 const SENATE_CONFIRMATION_ROLE_KEYS = [
   "senator",
@@ -135,19 +135,27 @@ async function tallySenateYeasNays(
   return { yea, nay };
 }
 
-/** After a successful floor vote: route to other chamber review or Oval. */
+/** After a successful floor vote: route directly to other chamber floor or Oval. */
 export async function transitionAfterChamberPass(
   supabase: SupabaseClient,
   bill: { id: string; originating_chamber: string },
   floorChamber: BillChamber,
 ): Promise<void> {
   const orig = bill.originating_chamber as BillChamber;
-  const nextOther = {
-    status: "other_chamber_review" as const,
-    chamber_vote_deadline_at: null,
-    vp_tie_break_pending: false,
-    leadership_deadline_at: hoursFromNowIso(OTHER_CHAMBER_REVIEW_HOURS),
-  };
+  const nextOther =
+    floorChamber === "house"
+      ? {
+          status: "senate_floor" as const,
+          chamber_vote_deadline_at: hoursFromNowIso(24),
+          vp_tie_break_pending: false,
+          leadership_deadline_at: null as string | null,
+        }
+      : {
+          status: "house_floor" as const,
+          chamber_vote_deadline_at: hoursFromNowIso(24),
+          vp_tie_break_pending: false,
+          leadership_deadline_at: null as string | null,
+        };
   const nextOval = { status: "oval" as const, chamber_vote_deadline_at: null, vp_tie_break_pending: false };
 
   const patch =

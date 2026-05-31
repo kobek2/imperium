@@ -81,6 +81,10 @@ function revalidateCongressAndDirectory() {
   revalidatePath("/congress");
   revalidatePath("/congress/leadership");
   revalidatePath("/character");
+  revalidatePath("/oval");
+  revalidatePath("/economy");
+  revalidatePath("/economy/federal");
+  revalidatePath("/imperium");
 }
 
 export async function appointHouseSeatForProfile(userId: string): Promise<void> {
@@ -115,6 +119,20 @@ export async function appointChamberLeadershipForProfile(userId: string, role: s
     p_role: r,
     p_user_id: userId,
   });
+  if (error) throw new Error(error.message);
+  revalidateCongressAndDirectory();
+}
+
+export async function appointPresidentForProfile(userId: string): Promise<void> {
+  const { supabase } = await requireFullStaffSupabase();
+  const { error } = await supabase.rpc("admin_appoint_president", { p_user_id: userId });
+  if (error) throw new Error(error.message);
+  revalidateCongressAndDirectory();
+}
+
+export async function appointVicePresidentForProfile(userId: string): Promise<void> {
+  const { supabase } = await requireFullStaffSupabase();
+  const { error } = await supabase.rpc("admin_appoint_vice_president", { p_user_id: userId });
   if (error) throw new Error(error.message);
   revalidateCongressAndDirectory();
 }

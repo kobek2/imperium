@@ -13,22 +13,19 @@ export type CandidateInput = {
 export type CommunityTally = Record<string, number>;
 
 /**
- * House / Senate / non-presidential general:
- * 60% from normalized campaign scores; 40% from normalized popular vote counts.
+ * Point-only scoring for seat races:
+ * 100% from normalized campaign scores.
  */
 export function scoreGeneralElection(candidates: CandidateInput[], votes: CommunityTally) {
+  void votes;
   const camp = normalize(candidates.map((c) => ({ id: c.id, w: Math.max(0, c.campaignPoints) })));
-  const pop = normalize(
-    candidates.map((c) => ({ id: c.id, w: Math.max(0, votes[c.id] ?? 0) })),
-  );
-
-  return finalize(candidates, camp, pop);
+  return finalize(candidates, camp);
 }
 
 export type PresidentialStateInput = {
   state: string;
   candidates: CandidateInput[];
-  /** Popular votes for this state only (40% still applied via region — see below). */
+  /** Popular votes for this state only (used only by optional preview paths). */
   votesByCandidate: CommunityTally;
 };
 
@@ -37,12 +34,7 @@ export type RegionalVote = {
   votesByCandidate: CommunityTally;
 };
 
-/**
- * Presidential model (per your spec):
- * - 60%: campaign points are tracked **per state** (caller passes per-state points on each candidate).
- * - 40%: community votes are tallied **by region**, then each state's 40% slice uses the same
- *   regional percentage split across all states in that region.
- */
+/** Legacy helper for optional preview paths; production closeout is points-only in baseline mode. */
 export function scorePresidentialElection(
   perState: PresidentialStateInput[],
   regionalCommunityVotes: RegionalVote[],
@@ -122,17 +114,13 @@ function normalize(weights: { id: string; w: number }[]) {
   return Object.fromEntries(weights.map((x) => [x.id, x.w / total]));
 }
 
-function finalize(
-  candidates: CandidateInput[],
-  campaignShare: Record<string, number>,
-  popularShare: Record<string, number>,
-) {
+function finalize(candidates: CandidateInput[], campaignShare: Record<string, number>, popularShare?: Record<string, number>) {
   const scores: Record<string, number> = {};
+  const pointOnly = popularShare === undefined;
   for (const c of candidates) {
     const cs = campaignShare[c.id] ?? 0;
-    const ps = popularShare[c.id] ?? 0;
-    scores[c.id] =
-      ELECTION_WEIGHTS.campaign * cs + ELECTION_WEIGHTS.community * ps;
+    const ps = popularShare?.[c.id] ?? 0;
+    scores[c.id] = pointOnly ? cs : ELECTION_WEIGHTS.campaign * cs + ELECTION_WEIGHTS.community * ps;
   }
   return scores;
 }

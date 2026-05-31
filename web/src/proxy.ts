@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isBaselineDisabledPath } from "@/lib/baseline";
 import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib/character-onboarding";
 
 function guidedTourRoot(step: number): string {
@@ -32,6 +33,12 @@ export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const path = request.nextUrl.pathname;
+  if (isBaselineDisabledPath(path)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
   // Skip Supabase for anonymous login and for API routes (each handler owns auth / onboarding).
   if (path === "/login" || path.startsWith("/login/") || path.startsWith("/api/")) {
     return supabaseResponse;

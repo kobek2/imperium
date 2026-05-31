@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { ProfileCard, ProfileCardBadge, profilePath } from "@/components/profile-card";
-import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { SubmitButton } from "@/components/submit-button";
 import {
   castGeneralVote,
   castPrimaryVote,
   fileCandidacy,
-  setPresidentialRunningMate,
   submitCampaignEndorsement,
   withdrawCampaignEndorsement,
 } from "@/app/actions/elections";
@@ -15,6 +13,14 @@ import { districtLeanBonus } from "@/lib/fec";
 import type { LeadershipRole } from "@/lib/leadership";
 import { RallyForm } from "./rally-form";
 import { SpeechForm } from "./speech-form";
+import {
+  CampaignSpeechArchive,
+  type CampaignSpeechArchiveItem,
+} from "@/components/campaign-speech-archive";
+import {
+  CAMPAIGN_AD_UNIT_PRICE,
+  formatCampaignAdSpendUsd,
+} from "@/lib/campaign-ad-stats";
 import { CampaignAdForm } from "./campaign-ad-form";
 import { WithdrawFilingForm } from "./withdraw-filing-form";
 
@@ -44,13 +50,16 @@ type LeadershipMeta = {
 
 type CandRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   party: string;
   campaign_points_total: number | null;
   primary_winner: boolean | null;
   created_at?: string | null;
   running_mate_user_id?: string | null;
   running_mate_name?: string | null;
+  is_npc?: boolean | null;
+  npc_name?: string | null;
+  npc_synthetic_votes?: number | null;
 };
 
 type CandidateCardFields = {
@@ -117,7 +126,16 @@ function partyMeta(p: string) {
   }
 }
 
-function displayName(card: CandidateCardFields | undefined, userId: string, nameBy: Record<string, string>) {
+function displayName(
+  cand: Pick<CandRow, "is_npc" | "npc_name" | "user_id">,
+  card: CandidateCardFields | undefined,
+  nameBy: Record<string, string>,
+) {
+  if (cand.is_npc && cand.npc_name?.trim()) {
+    return `${cand.npc_name.trim()} (NPC)`;
+  }
+  const userId = cand.user_id;
+  if (!userId) return "NPC";
   const n = card?.character_name?.trim() || nameBy[userId]?.trim();
   return n || userId.slice(0, 8);
 }
@@ -150,14 +168,16 @@ function AdSpendFeedSection({
         {adSpendFeed.map((ad, idx) => {
           const cand = candidateById.get(ad.candidateId);
           const candName = cand
-            ? displayName(candidateCardByUserId[cand.user_id], cand.user_id, nameBy)
+            ? displayName(cand, candidateCardByUserId[cand.user_id ?? ""], nameBy)
             : ad.candidateId.slice(0, 8);
           const actorName =
             candidateCardByUserId[ad.actorId]?.character_name?.trim() ||
             nameBy[ad.actorId]?.trim() ||
             ad.actorId.slice(0, 8);
           const loc = ad.targetState ? ` · ${ad.targetState}` : "";
-          const ptLabel = ad.points === 1 ? "1 pt" : `${ad.points} pts`;
+          const ads = Math.max(1, Math.round(ad.points));
+          const spendUsd = ads * CAMPAIGN_AD_UNIT_PRICE;
+          const adLabel = ads === 1 ? "1 ad" : `${ads} ads`;
           return (
             <li
               key={`${listKeyPrefix}-${ad.createdAt}:${ad.actorId}:${ad.candidateId}:${idx}`}
@@ -166,7 +186,9 @@ function AdSpendFeedSection({
               <p className="text-[11px] leading-relaxed text-[var(--psc-muted)]">
                 <span className="font-semibold text-[var(--psc-ink)]">{actorName}</span>
                 {" · "}
-                <span className="font-mono">{ptLabel}</span>
+                <span className="font-mono text-[var(--psc-ink)]">
+                  {adLabel} ({formatCampaignAdSpendUsd(spendUsd)})
+                </span>
                 {" for "}
                 <span className="font-semibold text-[var(--psc-ink)]">{candName}</span>
                 {loc}
@@ -205,6 +227,7 @@ function CandidateCard({
   endorsementPoints,
   endorsedByMe,
   electionOffice,
+  allowGeneralBallot,
 }: {
   cand: CandRow;
   card: CandidateCardFields | undefined;
@@ -224,6 +247,7 @@ function CandidateCard({
   endorsementPoints: number;
   endorsedByMe: boolean;
   electionOffice: string;
+  allowGeneralBallot: boolean;
 }) {
   const badges = (
     <>
@@ -248,25 +272,21 @@ function CandidateCard({
           ) : null}
         </div>
       ) : null}
-      {cand.running_mate_name ? (
-        <p className="text-[10px] text-[var(--psc-muted)]">
-          Running mate:{" "}
-          <span className="font-semibold text-[var(--psc-ink)]">{cand.running_mate_name}</span>
-        </p>
-      ) : null}
       {mode !== "none" ? (
         <div className="space-y-2">
-          <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
-            <input type="hidden" name="election_id" value={electionId} />
-            <input type="hidden" name="candidate_id" value={cand.id} />
-            <SubmitButton
-              disabled={disabled}
-              variant={selected ? "selected" : "ghost"}
-              pendingLabel={selected ? "Unvoting…" : "Voting…"}
-            >
-              {selected ? "Unvote" : "Vote"}
-            </SubmitButton>
-          </form>
+          {mode === "primary" || (mode === "general" && allowGeneralBallot) ? (
+            <form action={mode === "primary" ? castPrimaryVote : castGeneralVote}>
+              <input type="hidden" name="election_id" value={electionId} />
+              <input type="hidden" name="candidate_id" value={cand.id} />
+              <SubmitButton
+                disabled={disabled}
+                variant={selected ? "selected" : "ghost"}
+                pendingLabel={selected ? "Unvoting…" : "Voting…"}
+              >
+                {selected ? "Unvote" : "Vote"}
+              </SubmitButton>
+            </form>
+          ) : null}
           {mode === "general" ? (
             endorsementPoints > 0 || electionOffice === "president" ? (
               endorsedByMe ? (
@@ -321,18 +341,18 @@ function CandidateCard({
 
 type CandidateScore = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   party: string;
   campaign_points_with_lean: number;
-  votes: number;
   share: number;
 };
 
 function computeScores(
   cands: CandRow[],
   partisanLean: number,
-  generalTally: Record<string, number>,
+  _generalTally: Record<string, number>,
 ): CandidateScore[] {
+  void _generalTally;
   const inputs = cands.map((c) => {
     const lean =
       c.party === "democrat"
@@ -341,24 +361,20 @@ function computeScores(
           ? districtLeanBonus(partisanLean, "republican")
           : 0;
     const pts = Math.max(0, Number(c.campaign_points_total ?? 0) + lean);
-    const votes = generalTally[c.id] ?? 0;
-    return { cand: c, pts, votes };
+    return { cand: c, pts };
   });
 
   const campTotal = inputs.reduce((s, i) => s + i.pts, 0);
-  const voteTotal = inputs.reduce((s, i) => s + i.votes, 0);
   const n = Math.max(1, inputs.length);
 
-  const scored = inputs.map(({ cand, pts, votes }) => {
+  const scored = inputs.map(({ cand, pts }) => {
     const campShare = campTotal > 0 ? pts / campTotal : 1 / n;
-    const voteShare = voteTotal > 0 ? votes / voteTotal : 1 / n;
-    const share = 0.6 * campShare + 0.4 * voteShare;
+    const share = campShare;
     return {
       id: cand.id,
       user_id: cand.user_id,
       party: cand.party,
       campaign_points_with_lean: pts,
-      votes,
       share,
     };
   });
@@ -386,7 +402,6 @@ function computeLeadershipScores(
       user_id: c.user_id,
       party: c.party,
       campaign_points_with_lean: 0,
-      votes,
       share,
     };
   });
@@ -401,16 +416,17 @@ function SpreadBar({
   nameBy: Record<string, string>;
   candidateCardByUserId: Record<string, CandidateCardFields>;
 }) {
-  if (scores.length < 2) return null;
+  if (!scores.length) return null;
 
   const sorted = [...scores].sort((a, b) => b.share - a.share);
 
   const segments = sorted.map((s) => {
     const meta = partyMeta(s.party);
-    const name =
-      candidateCardByUserId[s.user_id]?.character_name?.trim() ||
-      nameBy[s.user_id]?.trim() ||
-      s.user_id.slice(0, 8);
+    const name = s.user_id
+      ? candidateCardByUserId[s.user_id]?.character_name?.trim() ||
+        nameBy[s.user_id]?.trim() ||
+        s.user_id.slice(0, 8)
+      : `Candidate ${s.id.slice(0, 8)}`;
     let color = "bg-slate-400";
     if (s.party === "democrat") color = "bg-blue-600";
     else if (s.party === "republican") color = "bg-red-600";
@@ -425,7 +441,7 @@ function SpreadBar({
           Projected vote
         </h3>
         <span className="text-[10px] text-[var(--psc-muted)]">
-          60% campaign points + 40% community votes
+          Point share from campaign totals
         </span>
       </div>
       <div className="flex h-7 w-full overflow-hidden rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)]">
@@ -447,7 +463,7 @@ function SpreadBar({
             <span className="truncate">
               <span className="font-semibold text-[var(--psc-ink)]">{s.name}</span>
               <span className="ml-1 text-[var(--psc-muted)]">
-                · {(s.share * 100).toFixed(1)}% · {s.votes} votes · {s.campaign_points_with_lean.toFixed(1)} pts
+                · {(s.share * 100).toFixed(1)}% · {s.campaign_points_with_lean.toFixed(1)} pts
               </span>
             </span>
           </div>
@@ -486,7 +502,7 @@ function CampaignPanel({
   partisanLean: number;
   adsInventory: number;
 }) {
-  const isRunningMate = myCandidate.user_id !== userId;
+  const isRunningMate = false;
   const meta = partyMeta(myCandidate.party);
   const leanForMe =
     myCandidate.party === "democrat"
@@ -576,7 +592,7 @@ function CampaignPanel({
 /**
  * How to display a candidate's "score" on their card:
  * - "primary": percentage of primary votes cast so far (denominator = all primary votes)
- * - "general": blended 60/40 campaign-points + community-votes share (same math as SpreadBar)
+ * - "general": campaign-point share (same math as SpreadBar for seat/pres races)
  * - "none":    no percentage shown (filing phase)
  */
 type ShareMode = "none" | "primary" | "general";
@@ -603,6 +619,7 @@ function PartyGroupedCandidates({
   emphasizeParty,
   myEndorsedCandidateId,
   myEndorsementPoints,
+  allowGeneralBallot,
 }: {
   candidates: CandRow[];
   electionOffice: string;
@@ -625,6 +642,7 @@ function PartyGroupedCandidates({
   emphasizeParty: boolean;
   myEndorsedCandidateId: string | null;
   myEndorsementPoints: number;
+  allowGeneralBallot: boolean;
 }) {
   if (!candidates.length) {
     return (
@@ -738,8 +756,8 @@ function PartyGroupedCandidates({
                   <li key={c.id}>
                     <CandidateCard
                       cand={c}
-                      card={card[c.user_id]}
-                      name={displayName(card[c.user_id], c.user_id, nameBy)}
+                      card={c.user_id ? card[c.user_id] : undefined}
+                      name={displayName(c, c.user_id ? card[c.user_id] : undefined, nameBy)}
                       isYou={c.user_id === userId}
                       isWinner={winnerUserId === c.user_id}
                       isLeader={effectiveLeaderId === c.id}
@@ -753,6 +771,7 @@ function PartyGroupedCandidates({
                       endorsementPoints={myEndorsementPoints}
                       endorsedByMe={myEndorsedCandidateId === c.id}
                       electionOffice={electionOffice}
+                      allowGeneralBallot={allowGeneralBallot}
                     />
                   </li>
                 );
@@ -788,10 +807,13 @@ export function ElectionDetail({
   states,
   filingBlockReason,
   leadershipMeta,
+  canCastLeadershipGeneralVote,
   adsInventory,
   speechFeed,
+  speechArchive = null,
   adSpendFeed,
   totalCampaignAdSpendUsd,
+  totalCampaignAdsPlaced = 0,
   viewerIsIncumbentForThisSenateSeat = false,
 }: {
   election: ElectionRow;
@@ -816,11 +838,15 @@ export function ElectionDetail({
   myNextRallyAt: string | null;
   states: Array<{ code: string; name: string }>;
   leadershipMeta: LeadershipMeta | null;
+  canCastLeadershipGeneralVote: boolean;
   adsInventory: number;
   speechFeed: SpeechFeedItem[];
+  speechArchive?: CampaignSpeechArchiveItem[] | null;
   adSpendFeed: AdSpendFeedItem[];
   /** Sum of list-price spend for ads placed in this race (0 for leadership). */
   totalCampaignAdSpendUsd: number;
+  /** Inventory ads consumed in this race (equals summed campaign_ads.points). */
+  totalCampaignAdsPlaced?: number;
   /** True when this race is the viewer's current Senate class seat in their home state. */
   viewerIsIncumbentForThisSenateSeat?: boolean;
 }) {
@@ -844,7 +870,7 @@ export function ElectionDetail({
 
   const myRow = candidates.find((c) => c.user_id === userId);
   const myTicketRow = candidates.find(
-    (c) => c.user_id === userId || c.running_mate_user_id === userId,
+    (c) => c.user_id === userId,
   );
   const myEndorsedRow =
     election.office === "president" && myEndorsedCandidateId
@@ -866,22 +892,7 @@ export function ElectionDetail({
     election.primary_party_wide === false && election.office !== "president";
   const primaryOpenForPartyOnly = profileParty ?? null;
 
-  // Live leader of the general: plurality of general votes among nominees, undefined if no votes cast.
-  let generalLeaderId: string | null = null;
-  if (election.phase === "general" || election.phase === "closed") {
-    let bestCount = 0;
-    for (const c of generalCandidates) {
-      const n = generalTally[c.id] ?? 0;
-      if (n > bestCount) {
-        bestCount = n;
-        generalLeaderId = c.id;
-      } else if (n === bestCount && bestCount > 0) {
-        generalLeaderId = null;
-      }
-    }
-  }
-
-  // Leadership races: plain plurality share (no PVI, no campaign points). Seat races: 60/40
+  // Leadership races: plain plurality share (no PVI, no campaign points). Seat/pres races: point-share only
   // blended FEC score. Both paths populate generalShareById so the SpreadBar + each card show
   // the same projected percentage.
   const generalScores = isLeadership
@@ -890,12 +901,31 @@ export function ElectionDetail({
   const generalShareById: Record<string, number> = {};
   for (const s of generalScores) generalShareById[s.id] = s.share;
 
+  // Live leader of the general: top projected share among nominees.
+  let generalLeaderId: string | null = null;
+  if (election.phase === "general" || election.phase === "closed") {
+    let bestShare = -1;
+    let tie = false;
+    for (const c of generalCandidates) {
+      const n = generalShareById[c.id] ?? 0;
+      if (n > bestShare) {
+        bestShare = n;
+        generalLeaderId = c.id;
+        tie = false;
+      } else if (n === bestShare) {
+        tie = true;
+      }
+    }
+    if (tie) generalLeaderId = null;
+  }
+
   const seatLabel = isLeadership
     ? leadershipMeta!.label
     : (election.district_code ?? election.state ?? "United States");
 
   const meta = partyMeta(profileParty ?? "");
   const candidateById = new Map(candidates.map((c) => [c.id, c]));
+  const speechModerationElectionId = isAdmin ? election.id : null;
 
   return (
     <div className="space-y-8">
@@ -960,15 +990,17 @@ export function ElectionDetail({
           {!isLeadership ? (
             <div className="shrink-0 sm:pl-6 sm:text-right">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-                Campaign spend
+                Campaign ad spend
               </p>
               <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums text-[var(--psc-ink)]">
-                {new Intl.NumberFormat("en-US", {
-                  style: "currency",
-                  currency: "USD",
-                  maximumFractionDigits: 0,
-                }).format(totalCampaignAdSpendUsd)}
+                {formatCampaignAdSpendUsd(totalCampaignAdSpendUsd)}
               </p>
+              {totalCampaignAdsPlaced > 0 ? (
+                <p className="mt-0.5 text-[10px] text-[var(--psc-muted)]">
+                  {totalCampaignAdsPlaced.toLocaleString()} ad{totalCampaignAdsPlaced === 1 ? "" : "s"} ×{" "}
+                  {formatCampaignAdSpendUsd(CAMPAIGN_AD_UNIT_PRICE)} each
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1022,27 +1054,6 @@ export function ElectionDetail({
                     Withdraw if you want to file for a different House district, Senate seat, or
                     switch between House and Senate.
                   </p>
-                  {election.office === "president" && filingOpen ? (
-                    <form action={setPresidentialRunningMate} className="mt-3 space-y-2 border-t border-dashed border-[var(--psc-border)] pt-3">
-                      <input type="hidden" name="election_id" value={election.id} />
-                      <label className="block text-xs font-medium text-[var(--psc-ink)]">Running mate</label>
-                      <ProfileTypeaheadInput
-                        hiddenName="running_mate_user_id"
-                        placeholder="Type running mate name…"
-                        initialUserId={myRow.running_mate_user_id ?? ""}
-                        initialLabel={myRow.running_mate_name ?? ""}
-                      />
-                      <SubmitButton pendingLabel="Saving…" className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white">
-                        Save running mate
-                      </SubmitButton>
-                      {myRow.running_mate_name ? (
-                        <p className="text-xs text-[var(--psc-muted)]">
-                          Current running mate:{" "}
-                          <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
-                        </p>
-                      ) : null}
-                    </form>
-                  ) : null}
                 </div>
               ) : !filingOpen ? (
                 <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -1095,6 +1106,7 @@ export function ElectionDetail({
               emphasizeParty={false}
               myEndorsedCandidateId={null}
               myEndorsementPoints={0}
+              allowGeneralBallot={false}
             />
           </div>
         </section>
@@ -1115,41 +1127,7 @@ export function ElectionDetail({
                 <> This primary is open party-wide.</>
               )}
             </p>
-            {election.office === "president" ? (
-              <p className="mt-2 text-xs text-[var(--psc-muted)]">
-                Presidential tickets: pick a running mate (same party) by searching their name.
-                Speeches and rallies unlock in the general election; during the primary they may cast
-                a Senate tie-breaker only while this primary is open — they cannot file bills, act as
-                president, or vote on ordinary Senate floor votes during that time.
-              </p>
-            ) : null}
           </div>
-          {election.office === "president" && myRow && primaryOpen ? (
-            <form
-              action={setPresidentialRunningMate}
-              className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-4"
-            >
-              <input type="hidden" name="election_id" value={election.id} />
-              <p className="text-xs font-semibold text-[var(--psc-ink)]">Your running mate</p>
-              <ProfileTypeaheadInput
-                hiddenName="running_mate_user_id"
-                placeholder="Type running mate name…"
-                initialUserId={myRow.running_mate_user_id ?? ""}
-                initialLabel={myRow.running_mate_name ?? ""}
-              />
-              <SubmitButton
-                pendingLabel="Saving…"
-                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white"
-              >
-                Save running mate
-              </SubmitButton>
-              {myRow.running_mate_name ? (
-                <p className="text-xs text-[var(--psc-muted)]">
-                  Current: <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
-                </p>
-              ) : null}
-            </form>
-          ) : null}
           <PartyGroupedCandidates
             candidates={candidates}
             electionOffice={election.office}
@@ -1172,6 +1150,7 @@ export function ElectionDetail({
             emphasizeParty
             myEndorsedCandidateId={null}
             myEndorsementPoints={0}
+            allowGeneralBallot={false}
           />
         </section>
       ) : null}
@@ -1205,34 +1184,6 @@ export function ElectionDetail({
               adsInventory={adsInventory}
             />
           ) : null}
-          {election.office === "president" && myRow && generalOpen ? (
-            <form
-              action={setPresidentialRunningMate}
-              className="space-y-2 border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-4"
-            >
-              <input type="hidden" name="election_id" value={election.id} />
-              <p className="text-xs font-semibold text-[var(--psc-ink)]">
-                Running mate (allowed until general closes)
-              </p>
-              <ProfileTypeaheadInput
-                hiddenName="running_mate_user_id"
-                placeholder="Type running mate name…"
-                initialUserId={myRow.running_mate_user_id ?? ""}
-                initialLabel={myRow.running_mate_name ?? ""}
-              />
-              <SubmitButton
-                pendingLabel="Saving…"
-                className="border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white"
-              >
-                Save running mate
-              </SubmitButton>
-              {myRow.running_mate_name ? (
-                <p className="text-xs text-[var(--psc-muted)]">
-                  Current: <strong className="text-[var(--psc-ink)]">{myRow.running_mate_name}</strong>
-                </p>
-              ) : null}
-            </form>
-          ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <h2 className="text-lg font-semibold">
               {isLeadership ? "Chamber vote" : "General election"}
@@ -1246,7 +1197,7 @@ export function ElectionDetail({
                       ? ` in the ${leadershipMeta.restricted_party} caucus`
                       : ""
                   } can cast a ballot. The winner is the candidate with the most votes; ties go to the earliest filer.`
-                : "Vote once per race — you can vote for yourself. The live vote leader is visible to everyone, but individual ballots stay private. For House and Senate, the final score blends community votes with campaign points (60/40), starting from the partisan lean shown above."}
+                : "General outcomes are points-only in baseline mode. Community ballots do not contribute to House, Senate, or presidential winners."}
             </p>
           </div>
           <PartyGroupedCandidates
@@ -1266,13 +1217,20 @@ export function ElectionDetail({
             myGeneralCandidateId={myGeneralCandidateId}
             electionId={election.id}
             mode="general"
-            voteDisabled={!generalOpen}
+            voteDisabled={!generalOpen || (isLeadership && !canCastLeadershipGeneralVote)}
             emptyMessage="No candidates on the general ballot."
             emphasizeParty
             myEndorsedCandidateId={myEndorsedCandidateId}
             myEndorsementPoints={myEndorsementPoints}
+            allowGeneralBallot={isLeadership}
           />
-          {speechFeed.length ? (
+          {speechArchive?.length ? (
+            <CampaignSpeechArchive
+              speeches={speechArchive}
+              adminDeleteElectionId={speechModerationElectionId}
+              title="Campaign speech archive"
+            />
+          ) : speechFeed.length ? (
             <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
@@ -1286,7 +1244,7 @@ export function ElectionDetail({
                 {speechFeed.map((speech, idx) => {
                   const target = candidateById.get(speech.candidateId);
                   const targetName = target
-                    ? displayName(candidateCardByUserId[target.user_id], target.user_id, nameBy)
+                    ? displayName(target, candidateCardByUserId[target.user_id ?? ""], nameBy)
                     : speech.candidateId.slice(0, 8);
                   const authorName =
                     candidateCardByUserId[speech.authorId]?.character_name?.trim() ||
@@ -1358,7 +1316,15 @@ export function ElectionDetail({
             emphasizeParty
             myEndorsedCandidateId={null}
             myEndorsementPoints={0}
+            allowGeneralBallot={false}
           />
+          {speechArchive?.length ? (
+            <CampaignSpeechArchive
+              speeches={speechArchive}
+              adminDeleteElectionId={speechModerationElectionId}
+              title="Campaign speech archive"
+            />
+          ) : null}
           <AdSpendFeedSection
             adSpendFeed={adSpendFeed}
             candidateById={candidateById}

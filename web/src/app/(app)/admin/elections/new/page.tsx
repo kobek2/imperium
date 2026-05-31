@@ -34,8 +34,8 @@ export default async function NewElectionPage() {
       <div>
         <h2 className="text-xl font-semibold">Create election</h2>
         <p className="mt-1 text-sm text-[var(--psc-muted)]">
-          Phases advance automatically based on the schedule below. Defaults are filing 24h, primary 24h,
-          general 48h — edit the durations if you want a different cadence.
+          Phases are advanced manually from the election detail page. Schedule fields are for display and
+          record-keeping only (defaults: filing 24h, primary 24h, general 48h).
         </p>
       </div>
       <CreateElectionForm

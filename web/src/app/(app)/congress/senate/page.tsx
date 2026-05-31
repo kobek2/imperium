@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { getServerAuth } from "@/lib/supabase/server";
 import { FileBillForm } from "../file-bill-form";
 import { canFileLegislationInChamber } from "@/lib/legislative-eligibility";
-import { getChangePolicyFilingUiGate } from "@/lib/policy-congress-cycle";
 import { CongressDocketSection } from "../congress-docket-section";
 import { filterBillsForSenateDocket, loadCongressDocket } from "../load-congress-docket";
 
@@ -29,7 +28,7 @@ export default async function CongressSenatePage() {
   if (!supabase) {
     return (
       <div className="border border-amber-700 bg-amber-50 p-6 text-sm text-amber-900">
-        Add Supabase environment variables to open the hopper.
+        Add Supabase environment variables to open Congress.
       </div>
     );
   }
@@ -51,9 +50,6 @@ export default async function CongressSenatePage() {
 
   const senateBills = filterBillsForSenateDocket(billList);
   const showSenateFiling = canFileLegislationInChamber(roleKeys, "senate");
-  const changePolicyGate = showSenateFiling
-    ? await getChangePolicyFilingUiGate(supabase, { userId: user.id, roleKeys })
-    : { blocked: false as const, message: null as string | null, congressOrdinalLabel: null as string | null };
 
   const userChambers: ("house" | "senate")[] = [];
   const rk = new Set(roleKeys);
@@ -107,12 +103,7 @@ export default async function CongressSenatePage() {
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <h3 className="text-lg font-semibold text-[var(--psc-ink)]">File Senate legislation</h3>
           <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the Senate.</p>
-          <FileBillForm
-            originatingChamber="senate"
-            changePolicyBlocked={changePolicyGate.blocked}
-            changePolicyBlockedMessage={changePolicyGate.message}
-            changePolicyCongressLabel={changePolicyGate.congressOrdinalLabel}
-          />
+          <FileBillForm originatingChamber="senate" />
         </section>
       ) : null}
 

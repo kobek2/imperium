@@ -9,12 +9,12 @@
  * don't need to ship megabytes of topojson for it.
  *
  * Coloring:
- *   - If a state has no in-state votes and no raw speech/rally points there yet, we color
+ *   - If a state has no raw speech/rally points there yet, we color
  *     by the state's stored 2024 margin (so tiles match the pre-campaign baseline).
  *   - After local activity exists, we color by the projected winner's party and shade by
  *     their lead over second place in the blended score.
  *
- * Hovering a tile pops up a panel with per-candidate points / votes / projected share.
+ * Hovering a tile pops up a panel with per-candidate points / projected share.
  */
 
 import { useMemo, useState } from "react";
@@ -205,7 +205,7 @@ export function PresidentialMap({ states, result, candidates }: Props) {
             const winnerCand = winnerId ? candById.get(winnerId) : null;
             const hasActivity =
               stateRes != null &&
-              (stateRes.raw_points_total > 0 || stateRes.total_votes > 0);
+              stateRes.raw_points_total > 0;
 
             const tone = hasActivity && winnerCand
               ? partyShade(winnerCand.party, topTwoMargin(stateRes))
@@ -255,7 +255,7 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                   <WinnerPill
                     cand={candById.get(hoverResult.winner_candidate_id) ?? null}
                     projected={
-                      hoverResult.raw_points_total > 0 || hoverResult.total_votes > 0
+                      hoverResult.raw_points_total > 0
                     }
                   />
                 ) : null}
@@ -295,12 +295,8 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                           <div className="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--psc-muted)]">
                             <span>raw pts {s.points.toFixed(1)}</span>
                             <span>leaned pts {s.points_with_lean.toFixed(1)}</span>
-                            <span>votes {s.votes}</span>
                             <span>campaign {(s.points_share * 100).toFixed(1)}%</span>
-                            <span>vote share {(s.votes_share * 100).toFixed(1)}%</span>
-                            <span>
-                              score {(s.points_share * 60).toFixed(1)} + {(s.votes_share * 40).toFixed(1)}
-                            </span>
+                            <span>score {(s.points_share * 100).toFixed(1)}</span>
                           </div>
                         </div>
                       );
@@ -308,12 +304,12 @@ export function PresidentialMap({ states, result, candidates }: Props) {
                 </div>
               ) : (
                 <div className="text-[var(--psc-muted)]">
-                  No campaign activity or votes yet. Lean: {pviLabel(activeHover.pvi)}.
+                  No campaign activity yet. Lean: {pviLabel(activeHover.pvi)}.
                 </div>
               )}
               {hoverResult ? (
                 <p className="pt-1 text-[10px] text-[var(--psc-muted)]">
-                  State projection formula: 60% campaign share + 40% in-state vote share. Campaign share uses leaned points (raw points + state PVI lean, floored at 0).
+                  State projection formula: point share only. Campaign share uses leaned points (raw points + state PVI lean, floored at 0).
                 </p>
               ) : null}
             </div>

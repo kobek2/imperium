@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { getServerAuth } from "@/lib/supabase/server";
-import { getIsAdmin } from "@/lib/is-admin";
-import { getStaffAccess } from "@/lib/staff-access";
-import { isPresident } from "@/lib/president";
 import { OrientationTourPanelEconomy } from "@/components/orientation-tour-panel";
 import { EconomyDashboard } from "./economy-dashboard";
 import { fetchEconomyLedgerWithDisplayNames } from "@/lib/economy-ledger-view";
@@ -26,9 +23,6 @@ export default async function EconomyPage() {
     { data: invRows },
     { data: meProf },
     { data: activeFy },
-    pres,
-    isAdmin,
-    staffAccess,
   ] = await Promise.all([
     supabase.from("economy_wallets").select("balance, last_collected_at").eq("user_id", user.id).maybeSingle(),
     supabase.from("economy_pacs").select("level").eq("user_id", user.id).maybeSingle(),
@@ -43,16 +37,9 @@ export default async function EconomyPage() {
       .select("id, appropriations_act_bill_id, economy_activity_frozen")
       .eq("status", "active")
       .maybeSingle(),
-    isPresident(supabase, user.id),
-    getIsAdmin(),
-    getStaffAccess(),
   ]);
 
-  const allowFederalBudget =
-    pres ||
-    isAdmin ||
-    Boolean(staffAccess?.hasFullStaff) ||
-    Boolean(staffAccess?.roleKeys.includes("secretary_of_treasury"));
+  const allowFederalBudget = false;
 
   const fyRow = activeFy as {
     id?: string;
@@ -150,7 +137,7 @@ export default async function EconomyPage() {
             status?: string;
           } | null) ?? null
         }
-        showFederalBudgetLink={pres || isAdmin || Boolean(staffAccess?.hasFullStaff)}
+        showFederalBudgetLink={false}
       />
     </div>
   );
