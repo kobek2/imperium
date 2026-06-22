@@ -19,17 +19,17 @@ type Props = {
 // Server-action wrapper that returns a client-friendly { error, ok } instead of throwing so the
 // Next.js error overlay never fires when the user just hits the rate limit.
 async function rallyAction(
-  _prev: { error: string | null; ok: boolean; spent: number },
+  _prev: { error: string | null; ok: boolean; spent: number; npc_speech: boolean; npc_counter_attack: boolean },
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean; spent: number }> {
+): Promise<{ error: string | null; ok: boolean; spent: number; npc_speech: boolean; npc_counter_attack: boolean }> {
   try {
     const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
     const qty = Math.max(1, Math.min(50, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
-    await submitCampaignRally(formData);
-    return { error: null, ok: true, spent: qty };
+    const pulse = await submitCampaignRally(formData);
+    return { error: null, ok: true, spent: qty, ...pulse };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, spent: 0 };
+    return { error: msg, ok: false, spent: 0, npc_speech: false, npc_counter_attack: false };
   }
 }
 
@@ -79,6 +79,8 @@ export function RallyForm({
     error: null,
     ok: false,
     spent: 0,
+    npc_speech: false,
+    npc_counter_attack: false,
   });
 
   /** Controlled so the presidential target state survives server-action re-renders. */
@@ -228,6 +230,8 @@ export function RallyForm({
           {result.spent === 1
             ? "Rally recorded. +0.5 pts added to your total."
             : `${result.spent} rallies recorded. +${(result.spent * 0.5).toFixed(1)} pts added to your total.`}
+          {result.npc_speech ? " Your opponent just gave a speech." : ""}
+          {result.npc_counter_attack ? " They ran a reactive attack ad against you." : ""}
         </p>
       ) : null}
     </form>

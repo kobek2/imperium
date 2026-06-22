@@ -8,6 +8,16 @@ import { fileURLToPath } from "node:url";
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      { source: "/finances", destination: "/economy", permanent: false },
+      { source: "/business/market", destination: "/economy/stocks", permanent: false },
+      { source: "/business/investigations", destination: "/economy/pac", permanent: false },
+      { source: "/business/disclosures", destination: "/economy/pac", permanent: false },
+      { source: "/business", destination: "/economy/pac", permanent: false },
+      { source: "/economy/pac-disclosures", destination: "/economy/pac", permanent: false },
+    ];
+  },
   turbopack: {
     // Pin Turbopack to this app when the editor workspace root is the monorepo (Imperium/).
     root: webRoot,

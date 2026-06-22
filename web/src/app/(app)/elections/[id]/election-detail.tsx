@@ -36,6 +36,7 @@ type ElectionRow = {
   primary_closes_at: string | null;
   general_closes_at: string;
   winner_user_id: string | null;
+  winner_candidate_id?: string | null;
   primary_party_wide?: boolean | null;
   leadership_role?: string | null;
   restricted_party?: string | null;
@@ -486,7 +487,7 @@ function CampaignPanel({
   rallyCount,
   states,
   partisanLean,
-  adsInventory,
+  opponentCandidates,
 }: {
   election: ElectionRow;
   myCandidate: CandRow;
@@ -500,7 +501,7 @@ function CampaignPanel({
   rallyCount: number;
   states: Array<{ code: string; name: string }>;
   partisanLean: number;
-  adsInventory: number;
+  opponentCandidates: Array<{ id: string; label: string }>;
 }) {
   const isRunningMate = false;
   const meta = partyMeta(myCandidate.party);
@@ -582,8 +583,7 @@ function CampaignPanel({
       <CampaignAdForm
         electionId={election.id}
         office={election.office}
-        adsInventory={adsInventory}
-        states={states}
+        opponentCandidates={opponentCandidates}
       />
     </section>
   );
@@ -799,6 +799,7 @@ export function ElectionDetail({
   userId,
   isAdmin,
   winnerName,
+  winnerNpcName = null,
   partisanLean,
   speechCountBy,
   rallyCountBy,
@@ -815,6 +816,7 @@ export function ElectionDetail({
   totalCampaignAdSpendUsd,
   totalCampaignAdsPlaced = 0,
   viewerIsIncumbentForThisSenateSeat = false,
+  npcActivity = [],
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -831,6 +833,7 @@ export function ElectionDetail({
   userId: string;
   isAdmin: boolean;
   winnerName: string | null;
+  winnerNpcName?: string | null;
   partisanLean: number;
   speechCountBy: Record<string, number>;
   rallyCountBy: Record<string, number>;
@@ -849,6 +852,14 @@ export function ElectionDetail({
   totalCampaignAdsPlaced?: number;
   /** True when this race is the viewer's current Senate class seat in their home state. */
   viewerIsIncumbentForThisSenateSeat?: boolean;
+  npcActivity?: Array<{
+    id: string;
+    action_type: string;
+    succeeded: boolean;
+    points_delta: number;
+    message: string;
+    created_at: string;
+  }>;
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -884,9 +895,17 @@ export function ElectionDetail({
     myEndorsedCandidateId === campaignRow.id;
   const canFileCandidacy = filingBlockReason === null;
   const hasPrimaryWinners = candidates.some((c) => c.primary_winner);
+  const primaryPlayerCandidates = candidates.filter((c) => !c.is_npc);
+  const partyNpcPlaceholders = candidates.filter((c) => c.is_npc);
   const generalCandidates = hasPrimaryWinners
     ? candidates.filter((c) => c.primary_winner)
     : candidates;
+  const opponentAdTargets = generalCandidates
+    .filter((c) => c.user_id !== userId && c.id !== campaignRow?.id)
+    .map((c) => ({
+      id: c.id,
+      label: nameBy[c.user_id ?? ""]?.trim() || c.npc_name || c.id.slice(0, 8),
+    }));
 
   const primaryPartyRestricted =
     election.primary_party_wide === false && election.office !== "president";
@@ -1006,14 +1025,26 @@ export function ElectionDetail({
         </div>
       </header>
 
-      {election.phase === "closed" && election.winner_user_id ? (
-        <section className="border-2 border-emerald-700 bg-emerald-50 p-6 text-emerald-950">
+      {election.phase === "closed" && (election.winner_user_id || winnerNpcName) ? (
+        <section
+          className={
+            winnerNpcName
+              ? "border-2 border-slate-500 bg-slate-50 p-6 text-slate-900"
+              : "border-2 border-emerald-700 bg-emerald-50 p-6 text-emerald-950"
+          }
+        >
           <h2 className="text-sm font-semibold uppercase tracking-wide">
-            Certified winner
+            {winnerNpcName ? "Certified winner (NPC placeholder)" : "Certified winner"}
           </h2>
           <p className="mt-1 text-2xl font-semibold">
-            {winnerName ?? election.winner_user_id}
+            {winnerNpcName ?? winnerName ?? election.winner_user_id}
           </p>
+          {winnerNpcName ? (
+            <p className="mt-2 text-sm text-slate-700">
+              This seat is held symbolically — not a playable member of Congress. Player
+              incumbents were vacated; the district record shows the NPC name for future races.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -1119,8 +1150,9 @@ export function ElectionDetail({
             <h2 className="text-lg font-semibold">Primary ballot</h2>
             <p className="mt-1 text-sm text-[var(--psc-muted)]">
               Your party is{" "}
-              <strong>{partyMeta(profileParty ?? "").label}</strong>. You can only
-              vote on candidates in your party.
+              <strong>{partyMeta(profileParty ?? "").label}</strong>. Party members vote for
+              their nominee. Win the primary to replace your party&apos;s NPC placeholder on
+              the general ballot — the other party&apos;s NPC always runs in November.
               {primaryPartyRestricted ? (
                 <> This primary is limited to players whose Character record matches this seat.</>
               ) : (
@@ -1128,8 +1160,37 @@ export function ElectionDetail({
               )}
             </p>
           </div>
+          {partyNpcPlaceholders.length > 0 ? (
+            <div className="rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                Party NPC placeholders
+              </h3>
+              <p className="mt-1 text-xs text-[var(--psc-muted)]">
+                Each major party starts with a synthetic nominee. A player primary winner
+                replaces their party&apos;s NPC.
+              </p>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {partyNpcPlaceholders.map((npc) => (
+                  <li
+                    key={npc.id}
+                    className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-sm"
+                  >
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${partyMeta(npc.party).pill}`}>
+                      {partyMeta(npc.party).label}
+                    </span>
+                    <span className="ml-2 font-medium text-[var(--psc-ink)]">
+                      {displayName(npc, candidateCardByUserId[npc.user_id ?? ""], nameBy)}
+                    </span>
+                    <span className="ml-2 text-xs text-[var(--psc-muted)]">
+                      {Math.round(Number(npc.campaign_points_total ?? 0))} pts baseline
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <PartyGroupedCandidates
-            candidates={candidates}
+            candidates={primaryPlayerCandidates}
             electionOffice={election.office}
             card={candidateCardByUserId}
             nameBy={nameBy}
@@ -1146,7 +1207,7 @@ export function ElectionDetail({
             electionId={election.id}
             mode="primary"
             voteDisabled={!primaryOpen || !profileParty}
-            emptyMessage="No one filed for this race."
+            emptyMessage="No players filed for this race yet."
             emphasizeParty
             myEndorsedCandidateId={null}
             myEndorsementPoints={0}
@@ -1181,7 +1242,7 @@ export function ElectionDetail({
               rallyCount={rallyCountBy[campaignRow.id] ?? 0}
               states={states}
               partisanLean={partisanLean}
-              adsInventory={adsInventory}
+              opponentCandidates={opponentAdTargets}
             />
           ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
@@ -1197,7 +1258,7 @@ export function ElectionDetail({
                       ? ` in the ${leadershipMeta.restricted_party} caucus`
                       : ""
                   } can cast a ballot. The winner is the candidate with the most votes; ties go to the earliest filer.`
-                : "General outcomes are points-only in baseline mode. Community ballots do not contribute to House, Senate, or presidential winners."}
+                : "General election is points-only: campaign speeches, rallies, ads, and endorsements decide the winner. Community ballots do not count for House, Senate, or president."}
             </p>
           </div>
           <PartyGroupedCandidates
@@ -1224,6 +1285,26 @@ export function ElectionDetail({
             myEndorsementPoints={myEndorsementPoints}
             allowGeneralBallot={isLeadership}
           />
+          {npcActivity.length > 0 && (election.phase === "general" || election.phase === "closed") ? (
+            <section className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+                  Opponent activity
+                </h3>
+                <span className="text-xs text-[var(--psc-muted)]">Speeches every 3h · reactive counter-ads</span>
+              </div>
+              <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+                {npcActivity.map((row) => (
+                  <li key={row.id} className="rounded border border-[var(--psc-border)] bg-[var(--psc-canvas)]/40 px-3 py-2">
+                    <p className="text-[var(--psc-ink)]">{row.message}</p>
+                    <p className="mt-1 text-[10px] text-[var(--psc-muted)]">
+                      {new Date(row.created_at).toLocaleString()}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {speechArchive?.length ? (
             <CampaignSpeechArchive
               speeches={speechArchive}

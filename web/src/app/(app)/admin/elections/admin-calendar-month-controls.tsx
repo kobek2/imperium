@@ -6,7 +6,8 @@ export function AdminCalendarMonthControls({ simDateLabel }: { simDateLabel: str
     <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Simulation calendar</h3>
       <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
-        Automatic pacing is disabled for baseline ops. Advance the timeline one RP month at a time.
+        Automatic pacing is disabled for baseline ops. Advance the timeline one RP month at a time — this also
+        resolves expired wire stories and may spawn new ones.
       </p>
       <p className="mt-3 text-xs text-[var(--psc-ink)]">
         Current month: <strong>{simDateLabel}</strong>

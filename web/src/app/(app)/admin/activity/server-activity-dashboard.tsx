@@ -105,14 +105,17 @@ function StatusHistogram({
   );
 }
 
-function PacLevelBars({ byLevel }: { byLevel: Record<number, number> }) {
-  const levels = [1, 2, 3].map((lvl) => ({ lvl, n: byLevel[lvl] ?? 0 }));
-  const maxN = Math.max(1, ...levels.map((x) => x.n));
+function PacKindBars({ byKind }: { byKind: { standard: number; dark: number } }) {
+  const rows = [
+    { key: "Disclosed PACs", n: byKind.standard },
+    { key: "Dark-money PACs", n: byKind.dark },
+  ];
+  const maxN = Math.max(1, ...rows.map((x) => x.n));
   return (
     <div className="space-y-2">
-      {levels.map(({ lvl, n }) => (
-        <div key={lvl} className="flex items-center gap-2 text-xs">
-          <span className="w-16 shrink-0 text-[var(--psc-muted)]">PAC L{lvl}</span>
+      {rows.map(({ key, n }) => (
+        <div key={key} className="flex items-center gap-2 text-xs">
+          <span className="w-28 shrink-0 text-[var(--psc-muted)]">{key}</span>
           <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--psc-canvas)]">
             <div className="h-full rounded-full bg-violet-700/75" style={{ width: `${(n / maxN) * 100}%` }} />
           </div>
@@ -276,10 +279,10 @@ export function ServerActivityDashboard({ snapshot }: { snapshot: AdminServerAct
             </table>
           </div>
           <div className="mt-6">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">PAC levels</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">Registered PACs</h3>
             <p className="mt-1 text-[11px]">Players with a PAC row: {snapshot.pacTotal ?? "—"}.</p>
             <div className="mt-3 max-w-sm">
-              <PacLevelBars byLevel={snapshot.pacByLevel} />
+              <PacKindBars byKind={snapshot.pacByKind} />
             </div>
           </div>
         </div>

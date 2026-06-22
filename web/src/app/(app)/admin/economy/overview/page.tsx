@@ -51,7 +51,7 @@ export default async function AdminEconomyOverviewPage() {
       .order("character_name", { ascending: true })
       .limit(500),
     supabase.from("economy_wallets").select("user_id, balance, last_collected_at"),
-    supabase.from("economy_pacs").select("user_id, level, updated_at"),
+    supabase.from("economy_pacs").select("user_id, pac_name, treasury_balance, exposure_risk, updated_at, is_dark_money"),
     supabase
       .from("economy_ledger")
       .select("id, wallet_user_id, delta, balance_after, kind, detail, created_at")
@@ -60,7 +60,9 @@ export default async function AdminEconomyOverviewPage() {
   ]);
 
   const walletByUser = new Map((wallets ?? []).map((w) => [w.user_id as string, w]));
-  const pacByUser = new Map((pacs ?? []).map((p) => [p.user_id as string, p]));
+  const pacByUser = new Map(
+    (pacs ?? []).map((p) => [(p as { user_id: string }).user_id, p]),
+  );
   const profileById = new Map((profiles ?? []).map((p) => [p.id as string, p]));
 
   return (
@@ -70,7 +72,7 @@ export default async function AdminEconomyOverviewPage() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Staff · Economy</p>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy overview</h1>
           <p className="mt-2 max-w-2xl">
-            Wallets, PAC levels, primary office role, and recent ledger lines. Use this to spot anomalies; all writes still go
+            Wallets, PAC treasuries, primary office role, and recent ledger lines. Use this to spot anomalies; all writes still go
             through game RPCs.
           </p>
         </div>
@@ -142,14 +144,16 @@ export default async function AdminEconomyOverviewPage() {
                 <th className="px-2 py-2">Office role</th>
                 <th className="px-2 py-2">Wallet</th>
                 <th className="px-2 py-2">Last collect</th>
-                <th className="px-2 py-2">PAC level</th>
+                <th className="px-2 py-2">PAC</th>
               </tr>
             </thead>
             <tbody>
               {(profiles ?? []).map((p) => {
                 const id = p.id as string;
                 const w = walletByUser.get(id) as { balance?: number; last_collected_at?: string } | undefined;
-                const pac = pacByUser.get(id) as { level?: number } | undefined;
+                const pac = pacByUser.get(id) as
+                  | { pac_name?: string; treasury_balance?: number; exposure_risk?: number; is_dark_money?: boolean }
+                  | undefined;
                 const roleKey = String((p as { office_role?: string | null }).office_role ?? "");
                 const roleLabel = roleKey ? (POLITICAL_ROLE_LABELS[roleKey] ?? roleKey) : "—";
                 return (
@@ -165,7 +169,19 @@ export default async function AdminEconomyOverviewPage() {
                     <td className="px-2 py-1.5 text-[var(--psc-muted)]">
                       {w?.last_collected_at ? new Date(w.last_collected_at).toLocaleString() : "—"}
                     </td>
-                    <td className="px-2 py-1.5 font-mono tabular-nums">{pac != null ? Number(pac.level ?? 0) : "—"}</td>
+                    <td className="px-2 py-1.5 text-[var(--psc-ink)]">
+                      {pac ? (
+                        <>
+                          {String(pac.pac_name ?? "PAC")}
+                          {pac.is_dark_money ? " (dark)" : ""}
+                          <span className="ml-1 font-mono tabular-nums text-[var(--psc-muted)]">
+                            · ${Number(pac.treasury_balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   </tr>
                 );
               })}

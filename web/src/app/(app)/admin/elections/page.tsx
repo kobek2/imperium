@@ -11,9 +11,12 @@ import {
 } from "./admin-elections-list";
 import { AdminElectionSimulationButtons } from "./admin-election-simulation-buttons";
 import { AdminCalendarMonthControls } from "./admin-calendar-month-controls";
+import { AdminNewsroomControls } from "./admin-newsroom-controls";
+import { AdminWipeGameHistoryButton } from "./admin-wipe-game-history-button";
 import { AdminCongressAppointmentsClient } from "./admin-congress-appointments-client";
 import { loadChamberSeatHolders, loadExecutiveOfficers } from "@/lib/admin-congress-appointment-queries";
 import { recomputeClosedLeadershipSession } from "@/app/actions/leadership-sessions";
+import { fetchNewsPoolTemplates, fetchStoryContinueTargets } from "@/lib/simulation-events";
 
 type LeadershipArchiveSession = {
   id: string;
@@ -52,7 +55,7 @@ export default async function AdminElectionsPage({
   const staffAccess = await getStaffAccess();
   const canRunSimSettingsHeal = Boolean(staffAccess?.hasFullStaff);
 
-  const [{ data: rows }, { data: simSettingsRaw }] = await Promise.all([
+  const [{ data: rows }, { data: simSettingsRaw }, newsPool, continueTargets] = await Promise.all([
       supabase
         .from("elections")
         .select(
@@ -60,6 +63,8 @@ export default async function AdminElectionsPage({
         )
         .order("filing_opens_at", { ascending: false }),
       supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
+      fetchNewsPoolTemplates(supabase),
+      fetchStoryContinueTargets(supabase),
     ]);
 
   const list = (rows ?? []) as Array<Omit<AdminElectionRow, "candidate_count">>;
@@ -176,6 +181,7 @@ export default async function AdminElectionsPage({
   return (
     <div className="space-y-6">
       <AdminCalendarMonthControls simDateLabel={simDateLabel} />
+      <AdminNewsroomControls pool={newsPool} continueTargets={continueTargets} />
       <AdminElectionSimulationButtons />
       <AdminCongressAppointmentsClient
         canAppoint={canAppointSeats}
@@ -291,6 +297,7 @@ export default async function AdminElectionsPage({
           </section>
         ) : null}
       </div>
+      {canRunSimSettingsHeal ? <AdminWipeGameHistoryButton /> : null}
     </div>
   );
 }

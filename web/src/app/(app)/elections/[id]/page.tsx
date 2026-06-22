@@ -18,6 +18,7 @@ import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
+import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
 import {
   campaignAdCountFromPoints,
   campaignAdSpendUsd,
@@ -75,6 +76,14 @@ export default async function ElectionDetailPage({
   const { data: election } = await supabase.from("elections").select("*").eq("id", id).maybeSingle();
   if (!election) notFound();
 
+  if (election.phase === "primary" && !election.leadership_role) {
+    await seedElectionNpcOpponents(supabase, id);
+  }
+
+  if (election.phase === "general") {
+    await supabase.rpc("tick_npc_campaigns", { p_election_id: id });
+  }
+
   const candList = await fetchElectionCandidatesForListing(supabase, id);
 
   // Remaining per-election queries are independent, so we fan them out in parallel.
@@ -92,8 +101,9 @@ export default async function ElectionDetailPage({
     states,
     isAdmin,
     partisanLean,
-    winnerName,
+    winnerLookup,
     { data: adInventoryRow },
+    { data: npcActivityRows },
   ] = await Promise.all([
     supabase.from("primary_votes").select("candidate_id").eq("election_id", id),
     supabase.from("general_votes").select("candidate_id").eq("election_id", id),
@@ -156,13 +166,27 @@ export default async function ElectionDetailPage({
       return 0;
     })(),
     (async () => {
-      if (!election.winner_user_id) return null;
-      const { data } = await supabase
-        .from("profiles")
-        .select("character_name")
-        .eq("id", election.winner_user_id)
-        .maybeSingle();
-      return data?.character_name ?? null;
+      if (election.winner_user_id) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("character_name")
+          .eq("id", election.winner_user_id)
+          .maybeSingle();
+        return { playerName: data?.character_name ?? null, npcName: null as string | null };
+      }
+      const winnerCandidateId = (election as { winner_candidate_id?: string | null })
+        .winner_candidate_id;
+      if (winnerCandidateId) {
+        const { data } = await supabase
+          .from("election_candidates")
+          .select("is_npc, npc_name")
+          .eq("id", winnerCandidateId)
+          .maybeSingle();
+        if (data?.is_npc && data.npc_name?.trim()) {
+          return { playerName: null as string | null, npcName: data.npc_name.trim() };
+        }
+      }
+      return { playerName: null as string | null, npcName: null as string | null };
     })(),
     supabase
       .from("economy_inventory")
@@ -170,6 +194,12 @@ export default async function ElectionDetailPage({
       .eq("user_id", user.id)
       .eq("sku", "campaign_ad")
       .maybeSingle(),
+    supabase
+      .from("npc_campaign_actions")
+      .select("id, action_type, succeeded, points_delta, message, created_at")
+      .eq("election_id", id)
+      .order("created_at", { ascending: false })
+      .limit(40),
   ]);
 
   const effectiveRoleKeys = await fetchEffectiveRoleKeys(supabase, user.id, myProfile ?? null);
@@ -471,7 +501,8 @@ export default async function ElectionDetailPage({
         filingBlockReason={filingBlockReason}
         userId={user.id}
         isAdmin={isAdmin}
-        winnerName={winnerName}
+        winnerName={winnerLookup.playerName}
+        winnerNpcName={winnerLookup.npcName}
         partisanLean={partisanLean}
         speechCountBy={speechCountBy}
         rallyCountBy={rallyCountBy}
@@ -487,6 +518,14 @@ export default async function ElectionDetailPage({
         totalCampaignAdSpendUsd={totalCampaignAdSpendUsd}
         totalCampaignAdsPlaced={totalCampaignAdsPlaced}
         viewerIsIncumbentForThisSenateSeat={viewerIsIncumbentForThisSenateSeat}
+        npcActivity={(npcActivityRows ?? []) as Array<{
+          id: string;
+          action_type: string;
+          succeeded: boolean;
+          points_delta: number;
+          message: string;
+          created_at: string;
+        }>}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

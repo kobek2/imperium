@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { districtLeanBonus } from "@/lib/fec";
 import { scoreGeneralElection, type Party } from "@/lib/election-engine";
 import { leanTiePriority } from "@/lib/election-tiebreak";
-import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
+import { finalizeElectionPartyNominees, seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
 export type ElectionPhase = "filing" | "primary" | "general" | "closed";
@@ -71,65 +71,11 @@ function sortByBlendedScoreThenLeanThenFiling<
 
 /**
  * Picks one nominee per party from primary_votes plurality.
- * Ties (including everyone-at-zero) resolve to the earliest filer, then lexicographically smallest id.
- * Idempotent — safe to call when some primary_winner flags are already set.
+ * Democrat/Republican player winners replace their party's NPC placeholder.
+ * Parties with no player filers keep the NPC nominee.
  */
 export async function pickPrimaryWinners(supabase: SupabaseClient, election_id: string) {
-  const { data: candidates } = await supabase
-    .from("election_candidates")
-    .select(
-      "id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes",
-    )
-    .eq("election_id", election_id);
-
-  const candList = ((candidates ?? []) as FilingCandidate[]).filter((c) => !c.is_npc);
-  if (!candList.length) return;
-
-  const { data: votes } = await supabase
-    .from("primary_votes")
-    .select("candidate_id")
-    .eq("election_id", election_id);
-  const counts: Record<string, number> = {};
-  for (const v of votes ?? []) {
-    counts[v.candidate_id] = (counts[v.candidate_id] ?? 0) + 1;
-  }
-
-  const byParty = new Map<string, FilingCandidate[]>();
-  for (const c of candList) {
-    const list = byParty.get(c.party) ?? [];
-    list.push(c);
-    byParty.set(c.party, list);
-  }
-
-  const winnerIds = new Set<string>();
-  for (const group of byParty.values()) {
-    const sorted = sortByVotesThenFilingOrder(group, counts);
-    if (sorted.length) winnerIds.add(sorted[0]!.id);
-  }
-
-  for (const c of candList) {
-    const shouldBeWinner = winnerIds.has(c.id);
-    if ((c.primary_winner ?? false) === shouldBeWinner) continue;
-    const { error } = await supabase
-      .from("election_candidates")
-      .update({ primary_winner: shouldBeWinner })
-      .eq("id", c.id);
-    throwIfPostgrestError(error);
-  }
-
-  // Once nominees are selected, remove non-winners from this race so every downstream
-  // view/query (dashboard counts, map/tote, finalization) sees the true general ballot.
-  const loserIds = candList.filter((c) => !winnerIds.has(c.id)).map((c) => c.id);
-  if (loserIds.length) {
-    const { error: delErr } = await supabase
-      .from("election_candidates")
-      .delete()
-      .in("id", loserIds)
-      .eq("election_id", election_id);
-    throwIfPostgrestError(delErr);
-  }
-
-  await seedElectionNpcOpponents(supabase, election_id);
+  await finalizeElectionPartyNominees(supabase, election_id);
 }
 
 /** National presidential race — points-only scoring (no electoral college). */
@@ -137,22 +83,24 @@ export async function computePresidentialWinnerUserId(
   supabase: SupabaseClient,
   election_id: string,
 ): Promise<string | null> {
-  return computeGeneralWinner(supabase, election_id, {
+  const result = await resolveGeneralElectionWinner(supabase, election_id, {
     office: "president",
     district_code: null,
     state: null,
   });
+  return result.winner_user_id;
 }
+
+export type ElectionWinnerResult = {
+  winner_user_id: string | null;
+  winner_candidate_id: string | null;
+};
 
 /**
  * Resolve a general-election winner for admin-forced closes.
- * House / Senate:   point-only scoring (campaign pts + endorsements + lean). Score ties
- *                   break by 2024 presidential margin alignment, then earliest filing.
- * President:        national point-only scoring (campaign + endorsements), same tiebreak.
- * Other offices:    plurality of general_votes; if nobody has votes, earliest filer wins.
- * Returns null when there are zero candidates.
+ * Player winners set winner_user_id; NPC winners set winner_candidate_id only.
  */
-export async function computeGeneralWinner(
+export async function resolveGeneralElectionWinner(
   supabase: SupabaseClient,
   election_id: string,
   meta: {
@@ -161,7 +109,10 @@ export async function computeGeneralWinner(
     state: string | null;
     leadership_role?: string | null;
   },
-): Promise<string | null> {
+): Promise<ElectionWinnerResult> {
+  const none: ElectionWinnerResult = { winner_user_id: null, winner_candidate_id: null };
+  await seedElectionNpcOpponents(supabase, election_id);
+
   const { data: candidates } = await supabase
     .from("election_candidates")
     .select(
@@ -170,13 +121,11 @@ export async function computeGeneralWinner(
     .eq("election_id", election_id);
 
   const candList = (candidates ?? []) as FilingCandidate[];
-  if (!candList.length) return null;
+  if (!candList.length) return none;
 
   const hasPrimaryFlag = candList.some((c) => c.primary_winner);
   const active = hasPrimaryFlag ? candList.filter((c) => c.primary_winner) : candList;
-  if (!active.length) return null;
-
-  await seedElectionNpcOpponents(supabase, election_id);
+  if (!active.length) return none;
 
   const { data: endorsements } = await supabase
     .from("campaign_endorsements")
@@ -198,7 +147,8 @@ export async function computeGeneralWinner(
       tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
     }
     const sorted = sortByVotesThenFilingOrder(active, tally);
-    return sorted[0]!.user_id;
+    const top = sorted[0]!;
+    return { winner_user_id: top.user_id, winner_candidate_id: top.id };
   }
 
   if (meta.office === "president") {
@@ -212,8 +162,10 @@ export async function computeGeneralWinner(
     const scores = scoreGeneralElection(inputs, {});
     const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, 0);
     const top = ranked[0]!;
-    if (top.is_npc) return null;
-    return top.user_id ?? null;
+    return {
+      winner_user_id: top.is_npc ? null : top.user_id,
+      winner_candidate_id: top.id,
+    };
   }
 
   if (meta.office !== "house" && meta.office !== "senate") {
@@ -225,7 +177,8 @@ export async function computeGeneralWinner(
       tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
     }
     const sorted = sortByVotesThenFilingOrder(active, tally);
-    return sorted[0]!.user_id;
+    const top = sorted[0]!;
+    return { winner_user_id: top.user_id, winner_candidate_id: top.id };
   }
 
   let partisanLean = 0;
@@ -263,8 +216,27 @@ export async function computeGeneralWinner(
   const scores = scoreGeneralElection(inputs, {});
   const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, partisanLean);
   const top = ranked[0]!;
-  if (top.is_npc) return null;
-  return top.user_id ?? null;
+  return {
+    winner_user_id: top.is_npc ? null : top.user_id,
+    winner_candidate_id: top.id,
+  };
+}
+
+/**
+ * @deprecated Prefer resolveGeneralElectionWinner for closeout (supports NPC winners).
+ */
+export async function computeGeneralWinner(
+  supabase: SupabaseClient,
+  election_id: string,
+  meta: {
+    office: string;
+    district_code: string | null;
+    state: string | null;
+    leadership_role?: string | null;
+  },
+): Promise<string | null> {
+  const result = await resolveGeneralElectionWinner(supabase, election_id, meta);
+  return result.winner_user_id;
 }
 
 export type ElectionCloseRow = {
@@ -283,7 +255,7 @@ export type ElectionCloseRow = {
 export async function finalizeElectionToClosed(
   supabase: SupabaseClient,
   current: ElectionCloseRow,
-): Promise<{ winner_user_id: string | null }> {
+): Promise<ElectionWinnerResult> {
   const id = current.id;
   const prevPhase = current.phase;
 
@@ -295,15 +267,14 @@ export async function finalizeElectionToClosed(
     }
   }
 
-  let winnerUserId: string | null = null;
-  if (isForward) {
-    winnerUserId = await computeGeneralWinner(supabase, id, {
-      office: current.office,
-      district_code: current.district_code,
-      state: current.state,
-      leadership_role: current.leadership_role,
-    });
+  if (!isForward) {
+    return { winner_user_id: null, winner_candidate_id: null };
   }
 
-  return { winner_user_id: winnerUserId };
+  return resolveGeneralElectionWinner(supabase, id, {
+    office: current.office,
+    district_code: current.district_code,
+    state: current.state,
+    leadership_role: current.leadership_role,
+  });
 }

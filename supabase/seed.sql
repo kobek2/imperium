@@ -1,0 +1,3 @@
+-- Local dev: economy_dev_mode stays off by default so production-like rules apply after db reset.
+-- To test with free PAC registration and no budget gates locally, run:
+--   update public.simulation_settings set economy_dev_mode = true where id = 1;

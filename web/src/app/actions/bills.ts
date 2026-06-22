@@ -40,11 +40,25 @@ import {
   ON_DOCKET_AUTO_FLOOR_HOURS,
   hoursFromNowIso,
 } from "@/lib/legislation-automation-constants";
+import {
+  canBypassChangePolicyBillLimit,
+  countChangePolicyBillsInCongress,
+  policyCongressOrdinalLabel,
+  resolvePolicyCongressCycleStartYear,
+} from "@/lib/policy-congress-cycle";
+import {
+  defaultStockEffectFromPolicyTags,
+  parseStockMarketEffect,
+  sectorFromIssueKey,
+  SECTOR_BILL_MEASURES,
+} from "@/lib/legislation-stock";
+import { BUSINESS_SECTORS } from "@/lib/economy-config";
 
 function revalidateCongressPages() {
   revalidatePath("/congress");
   revalidatePath("/congress/house");
   revalidatePath("/congress/senate");
+  revalidatePath("/economy/stocks/market-events");
 }
 
 function revalidateCongressPagesAndLeadership() {
@@ -105,6 +119,7 @@ export async function submitBill(formData: FormData): Promise<void> {
   const preambleRaw = String(formData.get("preamble_html") ?? "").trim();
 
   let content_html = "";
+  let content_md = "";
   if (templateIdRaw && templateCoreMd) {
     const preHtml = preambleRaw ? sanitizeBillHtml(preambleRaw) : "";
     const coreHtml = sanitizeBillHtml(
@@ -113,11 +128,18 @@ export async function submitBill(formData: FormData): Promise<void> {
     content_html = preHtml
       ? `${preHtml}<hr class="my-4 border-[var(--psc-border)]" />${coreHtml}`
       : coreHtml;
+    content_md = htmlToPlainText(content_html);
   } else {
     const rawHtml = String(formData.get("content_html") ?? "").trim();
-    content_html = rawHtml ? sanitizeBillHtml(rawHtml) : "";
+    const rawMd = String(formData.get("content_md") ?? "").trim();
+    if (rawHtml) {
+      content_html = sanitizeBillHtml(rawHtml);
+      content_md = htmlToPlainText(content_html);
+    } else if (rawMd) {
+      content_md = rawMd;
+      content_html = sanitizeBillHtml(legacyMdToEditorHtml(rawMd) ?? `<pre>${escapeHtmlPlain(rawMd)}</pre>`);
+    }
   }
-  const content_md = htmlToPlainText(content_html);
 
   if (!title || !content_md) {
     throw new Error("Title and bill text are required.");
@@ -205,6 +227,110 @@ export async function submitBill(formData: FormData): Promise<void> {
   if (template_id) templateExtras.template_id = template_id;
   if (policy_tags) templateExtras.policy_tags = policy_tags;
 
+  let policy_congress_cycle_start_year: number | null = null;
+  if (template_id) {
+    const cycleStart = await resolvePolicyCongressCycleStartYear(supabase, {
+      isAdminForHeal: roleKeys.includes("admin"),
+    });
+    if (!canBypassChangePolicyBillLimit(roleKeys)) {
+      const used = await countChangePolicyBillsInCongress(supabase, user.id, cycleStart);
+      if (used >= 1) {
+        throw new Error(
+          `You may only file one Change Policy (preset issue) bill per two-year congressional term. You already used your filing for the ${policyCongressOrdinalLabel(cycleStart)}.`,
+        );
+      }
+    }
+    policy_congress_cycle_start_year = cycleStart;
+  }
+
+  const policyCongressExtras: Record<string, unknown> = {};
+  if (policy_congress_cycle_start_year != null) {
+    policyCongressExtras.policy_congress_cycle_start_year = policy_congress_cycle_start_year;
+  }
+
+  const sectorKeys = new Set(BUSINESS_SECTORS.map((s) => s.key));
+  const affectedSectorRaw = String(formData.get("affected_sector") ?? "").trim();
+  let affected_sector: string | null = sectorKeys.has(affectedSectorRaw as (typeof BUSINESS_SECTORS)[number]["key"])
+    ? affectedSectorRaw
+    : null;
+  let stock_market_effect = parseStockMarketEffect(String(formData.get("stock_market_effect") ?? ""));
+
+  if (!affected_sector && policy_tags) {
+    affected_sector = sectorFromIssueKey(String(policy_tags.issue_key ?? ""));
+  }
+  if (stock_market_effect === null && policy_tags && affected_sector) {
+    stock_market_effect = defaultStockEffectFromPolicyTags(policy_tags);
+  }
+
+  const filingKind = String(formData.get("filing_kind") ?? "custom").trim();
+  const lobbyOfferIdRaw = String(formData.get("lobby_offer_id") ?? "").trim();
+  const sectorFilingExtras: Record<string, unknown> = {};
+
+  if (filingKind === "company_sector") {
+    sectorFilingExtras.filing_kind = "company_sector";
+    if (lobbyOfferIdRaw) {
+      const { data: offer } = await supabase
+        .from("company_lobby_offers")
+        .select(
+          "id, recipient_user_id, status, affected_sector, stock_market_effect, bill_title, bill_content_md",
+        )
+        .eq("id", lobbyOfferIdRaw)
+        .maybeSingle();
+      if (!offer) throw new Error("Lobby offer not found.");
+      if (offer.recipient_user_id !== user.id) {
+        throw new Error("This lobby offer is not addressed to you.");
+      }
+      if (offer.status !== "funded") {
+        throw new Error("This lobby offer is no longer available for filing.");
+      }
+      if (title !== String(offer.bill_title).trim()) {
+        throw new Error("Company sector bills must use the lobby offer title unchanged.");
+      }
+      affected_sector = String(offer.affected_sector);
+      stock_market_effect = Number(offer.stock_market_effect);
+      sectorFilingExtras.lobby_offer_id = lobbyOfferIdRaw;
+    } else {
+      const companyId = String(formData.get("company_id") ?? "").trim();
+      const measureKey = String(formData.get("measure_key") ?? "").trim();
+      if (!companyId) throw new Error("Select a company for sector legislation.");
+      const { data: biz } = await supabase
+        .from("businesses")
+        .select("id, owner_user_id, sector, name, ticker_symbol")
+        .eq("id", companyId)
+        .maybeSingle();
+      if (!biz) throw new Error("Company not found.");
+      if (biz.owner_user_id !== user.id) {
+        throw new Error("Only the company founder may file founder-initiated sector bills.");
+      }
+      if (!affected_sector) affected_sector = String(biz.sector);
+      if (affected_sector !== String(biz.sector)) {
+        throw new Error("Affected sector must match your company's industry.");
+      }
+      if (stock_market_effect === null) {
+        const measure = SECTOR_BILL_MEASURES.find((m) => m.key === measureKey);
+        if (!measure) throw new Error("Select a sector legislation type.");
+        stock_market_effect = measure.stockEffect;
+      }
+    }
+    if (!affected_sector) {
+      throw new Error("Company sector bills must specify an affected sector.");
+    }
+    if (stock_market_effect === null || stock_market_effect === 0) {
+      throw new Error("Company sector bills must specify a non-zero stock market effect.");
+    }
+  } else if (template_id) {
+    sectorFilingExtras.filing_kind = "policy";
+  }
+
+  const economicExtras: Record<string, unknown> = {};
+  if (affected_sector) {
+    economicExtras.affected_sector = affected_sector;
+    economicExtras.sector_tag = affected_sector;
+    if (stock_market_effect !== null) {
+      economicExtras.stock_market_effect = stock_market_effect;
+    }
+  }
+
   const baseInsert = {
     title,
     content_md,
@@ -216,9 +342,20 @@ export async function submitBill(formData: FormData): Promise<void> {
     leadership_deadline_at: null as string | null,
     chamber_vote_deadline_at,
     ...templateExtras,
+    ...policyCongressExtras,
+    ...economicExtras,
+    ...sectorFilingExtras,
   };
 
   let { error } = await supabase.from("bills").insert(baseInsert);
+
+  if (error && dbErrorHintsMissingColumn(error.message, ["filing_kind", "lobby_offer_id"])) {
+    const withoutSectorMeta = { ...baseInsert } as Record<string, unknown>;
+    delete withoutSectorMeta.filing_kind;
+    delete withoutSectorMeta.lobby_offer_id;
+    const retry = await supabase.from("bills").insert(withoutSectorMeta);
+    error = retry.error;
+  }
 
   if (
     error &&
@@ -287,7 +424,33 @@ export async function submitBill(formData: FormData): Promise<void> {
     error = retry.error;
   }
 
+  if (error && dbErrorHintsMissingColumn(error.message, ["policy_congress_cycle_start_year"])) {
+    const withoutPolicy = { ...baseInsert } as Record<string, unknown>;
+    delete withoutPolicy.policy_congress_cycle_start_year;
+    const retry = await supabase.from("bills").insert(withoutPolicy);
+    error = retry.error;
+  }
+
   throwIfPostgrestError(error);
+
+  if (filingKind === "company_sector" && lobbyOfferIdRaw) {
+    const { data: newest } = await supabase
+      .from("bills")
+      .select("id")
+      .eq("author_id", user.id)
+      .eq("title", title)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (newest?.id) {
+      const { error: lobbyErr } = await supabase.rpc("complete_company_lobby_filing", {
+        p_offer_id: lobbyOfferIdRaw,
+        p_bill_id: newest.id,
+      });
+      if (lobbyErr) throw new Error(lobbyErr.message);
+    }
+  }
+
   await processBillDeadlines(supabase);
   revalidateCongressPages();
   revalidatePath("/directory");

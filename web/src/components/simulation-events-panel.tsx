@@ -6,20 +6,11 @@ import {
   SIMULATION_EVENT_CHOICES,
   type SimulationEventChoice,
   type UserSimulationEvent,
+  wireDeadlineLabel,
 } from "@/lib/simulation-events";
 
 const btn =
   "rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:brightness-110 disabled:opacity-50";
-
-function deadlineLabel(iso: string) {
-  const d = new Date(iso);
-  const ms = d.getTime() - Date.now();
-  if (ms <= 0) return "Past due";
-  const h = Math.floor(ms / 3_600_000);
-  if (h < 48) return `${h}h left`;
-  const days = Math.floor(h / 24);
-  return `${days}d left`;
-}
 
 export function SimulationEventsPanel({ events }: { events: UserSimulationEvent[] }) {
   const [pending, start] = useTransition();
@@ -28,8 +19,8 @@ export function SimulationEventsPanel({ events }: { events: UserSimulationEvent[
   if (!events.length) {
     return (
       <p className="text-sm text-[var(--psc-muted)]">
-        No active events assigned to you. New crises spawn on the daily simulation tick when the calendar is
-        running.
+        No action items assigned to you right now. Watch the wire feed — new stories appear when staff publish
+        them or the sim calendar advances.
       </p>
     );
   }
@@ -49,13 +40,13 @@ export function SimulationEventsPanel({ events }: { events: UserSimulationEvent[
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--psc-muted)]">
-                {ev.assignment.role_label}
+                Your action · {ev.assignment.role_label}
                 {ev.assignment.is_primary ? " · lead" : ""}
               </p>
               <h3 className="text-sm font-semibold text-[var(--psc-ink)]">{ev.title}</h3>
             </div>
             <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-950">
-              {deadlineLabel(ev.deadline_at)}
+              {wireDeadlineLabel(ev.deadline_at)}
             </span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-[var(--psc-muted)]">{ev.summary}</p>

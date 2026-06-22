@@ -53,15 +53,15 @@ export function OrientationTourPanelEconomy({ canAdvance }: { canAdvance: boolea
         <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
           Guided setup · Step 2 of 3
         </p>
-        <span className="text-xs font-semibold text-[var(--psc-ink)]">Economy</span>
+        <span className="text-xs font-semibold text-[var(--psc-ink)]">Finances</span>
       </div>
       <h2 id="orientation-economy-title" className="text-lg font-semibold text-[var(--psc-ink)]">
         Collect income (Blackjack optional)
       </h2>
       <p className="text-sm text-[var(--psc-muted)]">
-        Use <strong>Collect income</strong> when the timer allows (you need accrual time for a payout),
-        or place a <strong>Blackjack</strong> bet below — either creates a ledger entry. Then continue
-        to Congress.
+        Open <strong>Finances</strong> and use <strong>Collect income</strong> when the timer allows (you need accrual
+        time for a payout), or place a <strong>Blackjack</strong> bet — either creates a ledger entry. PACs and
+        PACs and the stock market live under <strong>Economy</strong>. Then continue to Congress.
       </p>
       <div className="flex flex-wrap gap-2 pt-1">
         <form action={advanceFromEconomyStep}>

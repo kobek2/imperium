@@ -21,7 +21,7 @@ export type AdminServerActivitySnapshot = {
     charter_ratified_at?: string | null;
   }>;
   officerCandidaciesTotal: number | null;
-  pacByLevel: Record<number, number>;
+  pacByKind: { standard: number; dark: number };
   pacTotal: number | null;
   primaryVotes14d: number | null;
   generalVotes14d: number | null;
@@ -156,7 +156,7 @@ export async function loadAdminServerActivitySnapshot(
       .select("party_key, treasury_balance, updated_at, charter_ratified_at")
       .order("party_key"),
     supabase.from("party_officer_candidacies").select("party_key", { count: "exact", head: true }),
-    supabase.from("economy_pacs").select("level"),
+    supabase.from("economy_pacs").select("is_dark_money"),
     supabase
       .from("primary_votes")
       .select("id", { count: "exact", head: true })
@@ -226,10 +226,10 @@ export async function loadAdminServerActivitySnapshot(
     walletBalanceSum += Number((w as { balance?: number }).balance ?? 0);
   }
 
-  const pacByLevel: Record<number, number> = {};
+  const pacByKind = { standard: 0, dark: 0 };
   for (const pr of pacRows ?? []) {
-    const lvl = Number((pr as { level: number }).level);
-    pacByLevel[lvl] = (pacByLevel[lvl] ?? 0) + 1;
+    if ((pr as { is_dark_money?: boolean }).is_dark_money) pacByKind.dark += 1;
+    else pacByKind.standard += 1;
   }
 
   const ledgerList = (ledgerRows ?? []) as Array<{ created_at: string; kind: string; delta: number | string | null }>;
@@ -250,7 +250,7 @@ export async function loadAdminServerActivitySnapshot(
     walletBalanceSum,
     partyOrgs: (partyOrgs ?? []) as AdminServerActivitySnapshot["partyOrgs"],
     officerCandidaciesTotal: officerCandidaciesTotal ?? null,
-    pacByLevel,
+    pacByKind,
     pacTotal: pacRows?.length ?? null,
     primaryVotes14d: primaryVotes14d ?? null,
     generalVotes14d: generalVotes14d ?? null,

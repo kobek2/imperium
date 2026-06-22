@@ -23,15 +23,25 @@ import { countWords } from "@/lib/word-count";
 import {
   canReachPhaseForward,
   computeGeneralWinner,
+  type ElectionWinnerResult,
   computePresidentialWinnerUserId,
   type ElectionCloseRow,
   type ElectionPhase,
   finalizeElectionToClosed,
   pickPrimaryWinners,
+  resolveGeneralElectionWinner,
 } from "@/lib/election-closeout";
+import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 import { pickNextSenateClassForState } from "@/lib/senate-seat-class";
 import { getStaffAccess, requireAnyStaffPermission } from "@/lib/staff-access";
+
+function electionWinnerUpdateFields(result: ElectionWinnerResult): Record<string, unknown> {
+  return {
+    winner_user_id: result.winner_user_id,
+    winner_candidate_id: result.winner_candidate_id,
+  };
+}
 
 function parseLocalDateTime(value: string) {
   const d = new Date(value);
@@ -262,7 +272,7 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
   const isForward = canReachPhaseForward(prevPhase, phase);
 
   if (phase === "closed") {
-    const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+    const winner = await finalizeElectionToClosed(supabase, {
       id: current.id,
       phase: prevPhase,
       office: current.office,
@@ -270,9 +280,9 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
       district_code: current.district_code,
       leadership_role: current.leadership_role,
     });
-    if (winner_user_id) {
-      updates.winner_user_id = winner_user_id;
-    }
+    Object.assign(updates, electionWinnerUpdateFields(winner));
+  } else if (isForward && phase === "primary" && prevPhase === "filing" && !current.leadership_role) {
+    await seedElectionNpcOpponents(supabase, id);
   } else if (isForward && phase === "general") {
     // Ensure primary winners are flagged before moving out of filing/primary. Leadership
     // races skip the primary entirely so we don't run pickPrimaryWinners for them.
@@ -304,7 +314,7 @@ async function closeSeatElectionRows(supabase: SupabaseClient, rows: ElectionClo
   const errors: string[] = [];
   for (const row of targets) {
     try {
-      const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+      const winner = await finalizeElectionToClosed(supabase, {
         id: row.id,
         phase: row.phase as ElectionPhase,
         office: row.office,
@@ -312,8 +322,7 @@ async function closeSeatElectionRows(supabase: SupabaseClient, rows: ElectionClo
         district_code: row.district_code,
         leadership_role: row.leadership_role,
       });
-      const upd: Record<string, unknown> = { phase: "closed" };
-      if (winner_user_id) upd.winner_user_id = winner_user_id;
+      const upd: Record<string, unknown> = { phase: "closed", ...electionWinnerUpdateFields(winner) };
       const { error } = await supabase.from("elections").update(upd).eq("id", row.id);
       throwIfPostgrestError(error);
       const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
@@ -467,7 +476,7 @@ export async function endSelectedElections(formData: FormData): Promise<void> {
   const errors: string[] = [];
   for (const row of targets) {
     try {
-      const { winner_user_id } = await finalizeElectionToClosed(supabase, {
+      const winner = await finalizeElectionToClosed(supabase, {
         id: row.id,
         phase: row.phase as ElectionPhase,
         office: row.office,
@@ -475,8 +484,7 @@ export async function endSelectedElections(formData: FormData): Promise<void> {
         district_code: row.district_code,
         leadership_role: row.leadership_role,
       });
-      const upd: Record<string, unknown> = { phase: "closed" };
-      if (winner_user_id) upd.winner_user_id = winner_user_id;
+      const upd: Record<string, unknown> = { phase: "closed", ...electionWinnerUpdateFields(winner) };
       const { error } = await supabase.from("elections").update(upd).eq("id", row.id);
       throwIfPostgrestError(error);
       const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
@@ -552,18 +560,18 @@ export async function finalizeHouseSenateGeneral(formData: FormData): Promise<vo
     throw new Error("Use Certify winner for presidential races.");
   }
 
-  const winnerUserId = await computeGeneralWinner(supabase, election_id, {
+  const winner = await resolveGeneralElectionWinner(supabase, election_id, {
     office: election.office,
     district_code: election.district_code,
     state: election.state,
   });
-  if (!winnerUserId) throw new Error("No candidates.");
+  if (!winner.winner_candidate_id) throw new Error("No candidates.");
 
   const { error } = await supabase
     .from("elections")
     .update({
       phase: "closed",
-      winner_user_id: winnerUserId,
+      ...electionWinnerUpdateFields(winner),
     })
     .eq("id", election_id);
 
@@ -998,13 +1006,14 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
       .maybeSingle(),
     supabase
       .from("election_candidates")
-      .select("party, user_id")
+      .select("party, user_id, is_npc")
       .eq("id", candidate_id)
       .eq("election_id", election_id)
       .maybeSingle(),
   ]);
 
   if (!cand) throw new Error("Candidate not found.");
+  if (cand.is_npc) throw new Error("NPC placeholders are not on the primary ballot.");
   if (!profile?.party)
     throw new Error("Set your party on the Character page before voting in a primary.");
   if (profile.party !== cand.party)
@@ -1112,8 +1121,14 @@ async function resolvePresidentialCampaignCandidate(
 
 export type SubmitCampaignAdResult = {
   qty: number;
-  ads_remaining: number;
+  ads_remaining: number | null;
   target_state: string | null;
+  ad_type?: string;
+  points?: number;
+  cost?: number;
+  outcome?: string;
+  npc_counter_attack?: boolean;
+  npc_speech?: boolean;
 };
 
 export async function submitCampaignAd(formData: FormData): Promise<SubmitCampaignAdResult> {
@@ -1124,9 +1139,8 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
   if (!user) throw new Error("Unauthorized");
 
   const election_id = String(formData.get("election_id") ?? "").trim();
-  const target_state = String(formData.get("target_state") ?? "").trim().toUpperCase() || null;
-  const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
-  const qty = Math.max(1, Math.min(5000, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
+  const ad_type = String(formData.get("ad_type") ?? "persuasion").trim();
+  const attack_target = String(formData.get("attack_target_id") ?? "").trim() || null;
   if (!election_id) throw new Error("Missing election id.");
 
   const { data: election } = await supabase
@@ -1179,7 +1193,9 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
     p_election: election_id,
     p_candidate: candidate.id,
     p_target_state: null,
-    p_qty: qty,
+    p_qty: 1,
+    p_ad_type: ad_type,
+    p_target_candidate: attack_target,
   });
   if (error) {
     const msg = error.message ?? "Unknown database error.";
@@ -1192,12 +1208,8 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
   }
 
   const row = (rpcData ?? {}) as Record<string, unknown>;
-  const qtyOut = Math.max(0, Math.floor(Number(row.qty ?? qty)));
-  const ads_remaining = Math.max(0, Math.floor(Number(row.ads_remaining ?? 0)));
-  const target_state_out =
-    row.target_state != null && String(row.target_state).trim() !== ""
-      ? String(row.target_state).trim().toUpperCase()
-      : null;
+  const points = Math.max(0, Math.floor(Number(row.points ?? 0)));
+  const cost = Number(row.cost ?? 0);
 
   revalidatePath("/economy");
   revalidatePath("/elections");
@@ -1205,13 +1217,24 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
   revalidatePath(`/admin/elections/${election_id}`);
 
   return {
-    qty: qtyOut,
-    ads_remaining,
-    target_state: target_state_out,
+    qty: 1,
+    ads_remaining: null,
+    target_state: null,
+    ad_type,
+    points,
+    cost,
+    outcome: String(row.outcome ?? "success"),
+    npc_counter_attack: Boolean(row.npc_counter_attack),
+    npc_speech: Boolean(row.npc_speech),
   };
 }
 
-export async function submitCampaignSpeech(formData: FormData): Promise<void> {
+export type CampaignNpcPulse = {
+  npc_speech: boolean;
+  npc_counter_attack: boolean;
+};
+
+export async function submitCampaignSpeech(formData: FormData): Promise<CampaignNpcPulse> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1309,11 +1332,25 @@ export async function submitCampaignSpeech(formData: FormData): Promise<void> {
     }
     throwIfPostgrestError(error);
   }
+
+  const { data: pulse, error: pulseError } = await supabase.rpc("election_npc_campaign_pulse", {
+    p_election_id: election_id,
+    p_player_candidate_id: candidate.id,
+    p_trigger: "speech",
+  });
+  if (pulseError) throwIfPostgrestError(pulseError);
+
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
+
+  const row = (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean };
+  return {
+    npc_speech: Boolean(row.speech),
+    npc_counter_attack: Boolean(row.counter_attack),
+  };
 }
 
-export async function submitCampaignRally(formData: FormData): Promise<void> {
+export async function submitCampaignRally(formData: FormData): Promise<CampaignNpcPulse> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -1438,8 +1475,22 @@ export async function submitCampaignRally(formData: FormData): Promise<void> {
     }
     throw new Error(msg);
   }
+
+  const { data: pulse, error: pulseError } = await supabase.rpc("election_npc_campaign_pulse", {
+    p_election_id: election_id,
+    p_player_candidate_id: candidate.id,
+    p_trigger: "rally",
+  });
+  if (pulseError) throwIfPostgrestError(pulseError);
+
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
+
+  const row = (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean };
+  return {
+    npc_speech: Boolean(row.speech),
+    npc_counter_attack: Boolean(row.counter_attack),
+  };
 }
 
 export async function submitCampaignEndorsement(formData: FormData): Promise<void> {

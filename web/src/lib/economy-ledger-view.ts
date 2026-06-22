@@ -21,12 +21,17 @@ export type EconomyLedgerDisplayRow = {
 export async function fetchEconomyLedgerWithDisplayNames(
   supabase: SupabaseClient,
   limit: number,
+  walletUserId?: string,
 ): Promise<EconomyLedgerDisplayRow[]> {
-  const { data: ledger, error } = await supabase
+  let query = supabase
     .from("economy_ledger")
     .select("id, wallet_user_id, delta, kind, detail, created_at")
     .order("created_at", { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 500));
+  if (walletUserId) {
+    query = query.eq("wallet_user_id", walletUserId);
+  }
+  const { data: ledger, error } = await query;
   if (error) return [];
 
   const ledgerRows = (ledger ?? []) as Array<{

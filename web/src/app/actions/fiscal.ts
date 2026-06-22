@@ -273,10 +273,12 @@ export async function adminEconomyFullResetKeepWallets(): Promise<{ ok: boolean;
   revalidatePath("/cabinet/treasury");
   revalidatePath("/directory");
   revalidatePath("/economy");
-  revalidatePath("/economy/federal");
+  revalidatePath("/economy/pac");
+  revalidatePath("/economy/stocks");
+  revalidatePath("/business");
   return {
     ok: true,
-    message: `Economy reset: FY1 restarted with seeded federal budget and metrics; player wallet balances kept (${nWallets.toLocaleString()} wallets; GDP opening ~$${gdp.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Ledger, PACs, ads inventory, blackjack, party treasuries, federal treasury, and FY2+ cleared.`,
+    message: `Economy reset: FY1 restarted with seeded federal budget and metrics; player wallet balances kept (${nWallets.toLocaleString()} wallets; GDP opening ~$${gdp.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Cleared ledger, PACs, contributions, corruption records, businesses, stock holdings/trades, campaign ads, party treasuries, federal treasury, and FY2+.`,
   };
 }
 

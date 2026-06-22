@@ -173,6 +173,12 @@ export default async function ProfilePage({
                 Edit character →
               </Link>
             ) : null}
+            <Link
+              href={`/economy/disclosures/${id}`}
+              className="rounded border border-[var(--psc-border)] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)] transition hover:bg-[var(--psc-canvas)]"
+            >
+              Stock disclosure →
+            </Link>
           </div>
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">Current position</p>

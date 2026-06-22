@@ -51,19 +51,16 @@ function effectiveRoleKeysForUser(
 }
 
 /**
- * Scheduled gross for one sim-hour collect (role + PAC), without the RPC.
- * PAC tiers only appear for `economy_pacs` rows visible to the caller under RLS (own row + staff auditors see all).
- * Prefer `fiscal_list_player_scheduled_hourly_gross` when deployed.
+ * Scheduled gross for one sim-hour collect (role wages only), without the RPC.
+ * PAC passive income was removed in 20260702010000; prefer `fiscal_list_player_scheduled_hourly_gross` when deployed.
  */
 export async function loadScheduledHourlyGrossWithoutRpc(supabase: SupabaseClient): Promise<number[]> {
-  const [{ data: profiles, error: pe }, { data: grants, error: ge }, { data: pacs, error: ace }] = await Promise.all([
+  const [{ data: profiles, error: pe }, { data: grants, error: ge }] = await Promise.all([
     supabase.from("profiles").select("id, office_role"),
     supabase.from("government_role_grants").select("user_id, role_key"),
-    supabase.from("economy_pacs").select("user_id, level"),
   ]);
   if (pe) throw new Error(pe.message);
   if (ge) throw new Error(ge.message);
-  if (ace) throw new Error(ace.message);
 
   const grantsByUser = new Map<string, string[]>();
   for (const row of grants ?? []) {
@@ -74,21 +71,12 @@ export async function loadScheduledHourlyGrossWithoutRpc(supabase: SupabaseClien
     grantsByUser.set(uid, arr);
   }
 
-  const pacByUser = new Map<string, number | null>();
-  for (const row of pacs ?? []) {
-    const uid = String((row as { user_id: string }).user_id);
-    const raw = (row as { level: number | null }).level;
-    pacByUser.set(uid, raw == null || Number.isNaN(Number(raw)) ? null : Number(raw));
-  }
-
   const out: number[] = [];
   for (const p of profiles ?? []) {
     const id = String((p as { id: string }).id);
     const officeRole = (p as { office_role: string | null }).office_role;
     const keys = effectiveRoleKeysForUser(id, officeRole, grantsByUser);
-    const roleH = economyHourlyFromRoleKeys(keys);
-    const lvl = pacByUser.get(id) ?? null;
-    out.push(roleH + economyPacHourly(lvl));
+    out.push(economyHourlyFromRoleKeys(keys));
   }
   return out;
 }

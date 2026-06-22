@@ -3,9 +3,12 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getIsAdmin, requireAdmin } from "@/lib/is-admin";
+import { getStaffAccess } from "@/lib/staff-access";
+import { createClient } from "@/lib/supabase/server";
 import { computeSimulationRpInstant, type SimulationSettingsRow } from "@/lib/simulation-calendar";
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
+import { runAdminWireEventsTick } from "@/lib/simulation-events";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const FILING_HOURS = 24;
@@ -161,10 +164,12 @@ export async function advanceSimulationToNextMonth(): Promise<void> {
     .eq("id", 1);
 
   throwIfPostgrestError(error);
+  await runAdminWireEventsTick(supabase);
   revalidatePath("/admin/elections");
   revalidatePath("/admin/operations");
   revalidatePath("/elections");
   revalidatePath("/congress");
+  revalidatePath("/events");
 }
 
 export async function manualFireCalendarEvent(formData: FormData): Promise<void> {
@@ -702,7 +707,16 @@ export async function beginPresidentDormantSeatFilings(): Promise<void> {
 
 /** Staff-only: wipe all elections, bills, offices, ledger, fiscal years, chat, and cabinet/diplomacy history. */
 export async function adminWipeGameHistory(): Promise<{ ok: boolean; message: string }> {
-  const { supabase } = await requireAdmin();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in.");
+  const staff = await getStaffAccess();
+  if (!staff?.hasFullStaff) {
+    throw new Error("Only full staff operators (admin / staff_super) may wipe game history.");
+  }
+
   const { data, error } = await supabase.rpc("admin_wipe_game_history");
   if (error) throw new Error(error.message);
   const row = data as { ok?: boolean; message?: string } | null;
@@ -713,6 +727,9 @@ export async function adminWipeGameHistory(): Promise<{ ok: boolean; message: st
     "/congress",
     "/oval",
     "/economy",
+    "/economy/pac",
+    "/economy/stocks",
+    "/business",
     "/directory",
     "/character",
     "/events",

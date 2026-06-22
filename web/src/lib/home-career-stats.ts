@@ -63,7 +63,7 @@ export async function fetchHomeCareerStats(
   ] = await Promise.all([
     supabase.from("profiles").select("office_role").eq("id", userId).maybeSingle(),
     supabase.from("economy_wallets").select("balance").eq("user_id", userId).maybeSingle(),
-    supabase.from("economy_pacs").select("level").eq("user_id", userId).maybeSingle(),
+    supabase.from("economy_pacs").select("pac_name").eq("user_id", userId).maybeSingle(),
     supabase.from("economy_inventory").select("quantity").eq("user_id", userId).eq("sku", "campaign_ad").maybeSingle(),
     supabase
       .from("election_candidates")
@@ -95,7 +95,7 @@ export async function fetchHomeCareerStats(
 
   let pacLevel: number | null = null;
   if (!pacRes.error && pacRes.data) {
-    pacLevel = Number((pacRes.data as { level: number }).level);
+    pacLevel = 1;
   }
 
   let campaignAdUnits = 0;

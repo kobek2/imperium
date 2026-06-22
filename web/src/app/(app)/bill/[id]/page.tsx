@@ -18,6 +18,9 @@ import { SubmitButton } from "@/components/submit-button";
 import { legacyMdToEditorHtml } from "@/lib/sanitize-bill-html";
 import { BillLeadershipEditForm } from "./bill-leadership-edit-form";
 import { BillAmendmentsPanel, type AmendmentRow } from "./bill-amendments-panel";
+import { BillPublicRecordPanel } from "@/components/bill-public-record-panel";
+import { CompanyBillPositionForm } from "@/components/company-bill-position-form";
+import { formatSectorEffectPct, sectorLabel } from "@/lib/legislation-stock";
 
 export default async function BillDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,7 +40,7 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
   const { data: bill } = await supabase
     .from("bills")
     .select(
-      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending, author_id, policy_tags, template_id, rejection_actor_id, rejection_at",
+      "id, title, content_html, content_md, status, originating_chamber, created_at, leadership_deadline_at, chamber_vote_deadline_at, vp_tie_break_pending, author_id, policy_tags, template_id, rejection_actor_id, rejection_at, affected_sector, stock_market_effect",
     )
     .eq("id", id)
     .maybeSingle();
@@ -198,6 +201,58 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
     floorVoteClockActive &&
     canAcceptRejectHopperForChamber(roleKeys, closeFloorChamber);
 
+  const [{ data: voteRows }, { data: positionRows }, { data: ownedCompanies }] = await Promise.all([
+    supabase
+      .from("bill_votes")
+      .select("id, vote, chamber, created_at, voter_id")
+      .eq("bill_id", id)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("company_bill_positions")
+      .select("id, position, created_at, company_id, company:businesses(name, ticker_symbol)")
+      .eq("bill_id", id)
+      .order("created_at", { ascending: false }),
+    supabase.from("businesses").select("id, name, ticker_symbol").eq("owner_user_id", user.id).order("name"),
+  ]);
+
+  const voterIds = [...new Set((voteRows ?? []).map((v) => v.voter_id as string))];
+  const { data: voterProfiles } =
+    voterIds.length > 0
+      ? await supabase.from("profiles").select("id, character_name, discord_username").in("id", voterIds)
+      : { data: [] as { id: string; character_name: string | null; discord_username: string | null }[] };
+  const voterNameById = new Map(
+    (voterProfiles ?? []).map((p) => [
+      p.id as string,
+      (p.character_name ?? p.discord_username ?? "Member").trim() || "Member",
+    ]),
+  );
+
+  const publicVotes = (voteRows ?? []).map((v) => ({
+    id: v.id as string,
+    vote: v.vote as string,
+    chamber: v.chamber as string,
+    created_at: v.created_at as string,
+    voter_id: v.voter_id as string,
+    voter_name: voterNameById.get(v.voter_id as string) ?? "Member",
+  }));
+
+  const companyPositions = (positionRows ?? []).map((p) => {
+    const companyRaw = p.company as { name: string; ticker_symbol: string | null } | { name: string; ticker_symbol: string | null }[] | null;
+    const company = Array.isArray(companyRaw) ? (companyRaw[0] ?? null) : companyRaw;
+    return {
+      id: p.id as string,
+      position: p.position as string,
+      created_at: p.created_at as string,
+      company_id: p.company_id as string,
+      company_name: company?.name ?? "Company",
+      ticker_symbol: company?.ticker_symbol ?? null,
+    };
+  });
+
+  const affectedSector = (bill as { affected_sector?: string | null }).affected_sector;
+  const stockEffect = (bill as { stock_market_effect?: number | null }).stock_market_effect;
+
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <header className="space-y-2 border-b border-[var(--psc-border)] pb-6">
@@ -264,6 +319,18 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         ) : null}
         {(bill.status === "house_floor" || bill.status === "senate_floor") && bill.chamber_vote_deadline_at ? (
           <BillVoteCountdown endsAtIso={bill.chamber_vote_deadline_at} />
+        ) : null}
+        {affectedSector ? (
+          <p className="text-sm text-[var(--psc-ink)]">
+            <span className="font-semibold">Market impact if enacted:</span> {sectorLabel(affectedSector)} sector{" "}
+            {stockEffect != null ? (
+              <span className={`font-mono font-semibold ${Number(stockEffect) >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                {formatSectorEffectPct(Number(stockEffect))}
+              </span>
+            ) : (
+              <span className="text-[var(--psc-muted)]">(default ±20%)</span>
+            )}
+          </p>
         ) : null}
       </header>
 
@@ -416,6 +483,18 @@ export default async function BillDetailPage({ params }: { params: Promise<{ id:
         canResolve={canResolveAmendments}
         initialBillHtml={initialHtml}
       />
+
+      <CompanyBillPositionForm
+        billId={bill.id}
+        companies={(ownedCompanies ?? []).map((c) => ({
+          id: c.id as string,
+          name: c.name as string,
+          ticker_symbol: (c.ticker_symbol as string | null) ?? null,
+        }))}
+        existing={companyPositions.map((p) => ({ company_id: p.company_id, position: p.position }))}
+      />
+
+      <BillPublicRecordPanel votes={publicVotes} companyPositions={companyPositions} />
 
       {canEdit ? (
         <BillLeadershipEditForm billId={bill.id} initialHtml={initialHtml} />

@@ -14,15 +14,15 @@ type Props = {
 };
 
 async function speechAction(
-  _prev: { error: string | null; ok: boolean },
+  _prev: { error: string | null; ok: boolean; npc_speech: boolean; npc_counter_attack: boolean },
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean }> {
+): Promise<{ error: string | null; ok: boolean; npc_speech: boolean; npc_counter_attack: boolean }> {
   try {
-    await submitCampaignSpeech(formData);
-    return { error: null, ok: true };
+    const pulse = await submitCampaignSpeech(formData);
+    return { error: null, ok: true, ...pulse };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false };
+    return { error: msg, ok: false, npc_speech: false, npc_counter_attack: false };
   }
 }
 
@@ -49,6 +49,8 @@ export function SpeechForm({
   const [result, formAction] = useActionState(speechAction, {
     error: null,
     ok: false,
+    npc_speech: false,
+    npc_counter_attack: false,
   });
 
   const needsStatePicker = false;
@@ -112,6 +114,8 @@ export function SpeechForm({
       {result.ok ? (
         <p className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
           Speech delivered. +5 pts added to your total.
+          {result.npc_speech ? " Your opponent just gave a speech." : ""}
+          {result.npc_counter_attack ? " They ran a reactive attack ad against you." : ""}
         </p>
       ) : null}
     </form>

@@ -51,6 +51,8 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
         { href: partyNavHref, label: "Party" },
         { href: "/elections", label: "Elections" },
         { href: "/congress", label: "Congress" },
+        { href: "/oval", label: "Oval Office" },
+        { href: "/events", label: "Newsroom" },
         { href: "/directory", label: "Directory" },
       ]
     : [{ href: "/imperium", label: "Imperium" }];

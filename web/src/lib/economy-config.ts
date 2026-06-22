@@ -1,6 +1,5 @@
 /**
- * Display copy for the economy UI. Authoritative payout rules live in Postgres
- * (`_economy_hourly_from_roles`, `economy_collect_income(p_body)`, PAC RPCs) — keep numbers aligned when tuning.
+ * Display copy for the economy UI. Authoritative payout rules live in Postgres.
  */
 export const ECONOMY_CITIZEN_HOURLY = 5_000;
 export const ECONOMY_REPRESENTATIVE_HOURLY = 142_000;
@@ -9,20 +8,63 @@ export const ECONOMY_SENATOR_HOURLY = 165_000;
 export const ECONOMY_PRESIDENT_ADDON_HOURLY = 400_000;
 export const ECONOMY_VP_ADDON_HOURLY = 230_000;
 
-/** Capped accrual window (matches Postgres `economy_collect_income`). */
 export const ECONOMY_MAX_OFFLINE_HOURS = 24;
 
-export const CAMPAIGN_AD_UNIT_PRICE = 1_000_000;
-export const CAMPAIGN_AD_POINTS = 1;
+export const PAC_REGISTER_COST = 5_000_000;
+export const PAC_LEGAL_CAP_PER_CANDIDATE = 10_000_000;
+export const PAC_LEGAL_POINTS_PER_500K = 1;
+export const PAC_MIN_CONTRIBUTION = 100_000;
 
-export const PAC_LEVEL_1_COST = 5_000_000;
-export const PAC_LEVEL_2_UPGRADE_COST = 20_000_000;
-export const PAC_LEVEL_3_UPGRADE_COST = 50_000_000;
-export const PAC_HOURLY_BY_LEVEL: Record<1 | 2 | 3, number> = {
-  1: 300_000,
-  2: 500_000,
-  3: 1_000_000,
-};
+/** One-time incorporation / IPO preparation fee (deducted from wallet). */
+export const STOCK_FOUNDING_FEE = 10_000_000;
+/** @deprecated Use STOCK_FOUNDING_FEE */
+export const STOCK_FOUNDING_MIN_CAPITAL = STOCK_FOUNDING_FEE;
+export const STOCK_MIN_VALUATION = 1_000_000;
+export const STOCK_MIN_TOTAL_SHARES = 1_000;
+export const STOCK_DISCLOSURE_PCT = 5;
+export const STOCK_PREMIUM_MIN = 0.25;
+export const STOCK_PREMIUM_MAX = 4.0;
+export const STOCK_TRADE_PREMIUM_PER_100_SHARES = 0.005;
 
-/** Table stakes for house blackjack (matches Postgres `economy_blackjack_start`). */
+export const COMPANY_STRATEGIES = [
+  {
+    key: "growth",
+    label: "Growth",
+    description: "10% hourly revenue growth — higher volatility on share price swings.",
+  },
+  {
+    key: "stable",
+    label: "Stable",
+    description: "3% hourly revenue growth — lower volatility, predictable movement.",
+  },
+  {
+    key: "market_expansion",
+    label: "Market Expansion",
+    description: "6% hourly revenue growth (+15% competitive bonus) — built to win sector share.",
+  },
+] as const;
+
+export const CAMPAIGN_AD_TYPES = {
+  persuasion: { cost: 1_000_000, points: 3, label: "Persuasion Ad" },
+  attack: { cost: 1_500_000, points: 0, targetPenalty: 4, label: "Attack Ad", successRate: 0.65 },
+} as const;
+
+export type CampaignAdType = keyof typeof CAMPAIGN_AD_TYPES;
+
+/** @deprecated Use CAMPAIGN_AD_TYPES */
+export const CAMPAIGN_AD_UNIT_PRICE = CAMPAIGN_AD_TYPES.persuasion.cost;
+/** @deprecated Use CAMPAIGN_AD_TYPES */
+export const CAMPAIGN_AD_POINTS = CAMPAIGN_AD_TYPES.persuasion.points;
+
 export const GAMBLE_BLACKJACK_MIN = 1_000;
+
+export const BUSINESS_SECTORS = [
+  { key: "defense", label: "Defense" },
+  { key: "energy", label: "Energy" },
+  { key: "finance", label: "Finance" },
+  { key: "healthcare", label: "Healthcare" },
+  { key: "tech", label: "Technology" },
+  { key: "media", label: "Media" },
+  { key: "real_estate", label: "Real Estate" },
+  { key: "agriculture", label: "Agriculture" },
+] as const;

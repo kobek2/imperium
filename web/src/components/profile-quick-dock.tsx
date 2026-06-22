@@ -82,7 +82,10 @@ export async function ProfileQuickDock() {
             Profile
           </Link>
           <Link href="/economy" className="rounded border border-[var(--psc-border)] bg-white px-2 py-1 text-[var(--psc-ink)]">
-            Economy
+            Finances
+          </Link>
+          <Link href="/business" className="rounded border border-[var(--psc-border)] bg-white px-2 py-1 text-[var(--psc-ink)]">
+            Business
           </Link>
           <Link href="/leaderboard" className="rounded border border-[var(--psc-border)] bg-white px-2 py-1 text-[var(--psc-ink)]">
             Leaderboard

@@ -47,10 +47,11 @@ export function EconomyFiscalAdminControls({
       <div className="rounded border border-indigo-900/30 bg-white/90 p-3 text-xs text-amber-950">
         <p className="font-semibold text-indigo-950">FY4 clean slate (enacted appropriations law)</p>
         <p className="mt-1 leading-relaxed text-[var(--psc-muted)]">
-          Clears economy ledgers, PACs, ads inventory, blackjack, party treasuries, and federal treasury cash; deletes all
-          fiscal years and opens one FY4 with the brackets and $284,067,634 appropriations table from the enrolled FY4 act.
-          Player wallet balances are kept. The bill must already be <span className="font-mono">law</span> and flagged as
-          federal appropriations. Leave blank to use the default bill id.
+          Clears economy ledgers, PACs, disclosed contributions, corruption records, businesses, stock holdings/trades,
+          campaign ads, ads inventory, blackjack, party treasuries, and federal treasury cash; deletes all fiscal years and
+          opens one FY4 with the brackets and $284,067,634 appropriations table from the enrolled FY4 act. Player wallet
+          balances are kept. The bill must already be <span className="font-mono">law</span> and flagged as federal
+          appropriations. Leave blank to use the default bill id.
         </p>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <label className="flex min-w-[min(100%,280px)] flex-1 flex-col gap-1">
@@ -220,7 +221,7 @@ export function EconomyFiscalAdminControls({
           onClick={() => {
             if (
               !window.confirm(
-                "Reset economy and fiscal simulation to FY1 while keeping personal wallet balances?",
+                "Reset economy and fiscal simulation to FY1 while keeping personal wallet balances? This also wipes PACs, businesses, stock market activity, and campaign ad spend history.",
               )
             ) {
               return;

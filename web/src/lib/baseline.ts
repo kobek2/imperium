@@ -4,7 +4,6 @@
  */
 
 export const BASELINE_DISABLED_PATH_PREFIXES = [
-  "/oval",
   "/policy",
   "/cabinet",
   "/economy/federal",
@@ -20,7 +19,6 @@ export const BASELINE_DISABLED_PATH_PREFIXES = [
   "/admin/operations",
   "/admin/party-leadership",
   "/admin/economy",
-  "/events",
 ] as const;
 
 export function isBaselineDisabledPath(pathname: string): boolean {
