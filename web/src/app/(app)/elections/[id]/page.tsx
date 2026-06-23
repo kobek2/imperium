@@ -19,6 +19,7 @@ import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
+import { sumCampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
 import {
   campaignAdCountFromPoints,
@@ -109,7 +110,7 @@ export default async function ElectionDetailPage({
     isAdmin,
     partisanLean,
     winnerLookup,
-    { data: adInventoryRow },
+    { data: adInventoryRows },
     { data: npcActivityRows },
   ] = await Promise.all([
     supabase.from("primary_votes").select("candidate_id").eq("election_id", id),
@@ -197,10 +198,9 @@ export default async function ElectionDetailPage({
     })(),
     supabase
       .from("economy_inventory")
-      .select("quantity")
+      .select("sku, quantity")
       .eq("user_id", user.id)
-      .eq("sku", "campaign_ad")
-      .maybeSingle(),
+      .in("sku", ["campaign_ad_persuasion", "campaign_ad_attack", "campaign_ad"]),
     supabase
       .from("npc_campaign_actions")
       .select("id, action_type, succeeded, points_delta, message, created_at")
@@ -438,7 +438,9 @@ export default async function ElectionDetailPage({
     const cid = row.candidate_id as string;
     rallyCountBy[cid] = (rallyCountBy[cid] ?? 0) + 1;
   }
-  const adsInventory = Number(adInventoryRow?.quantity ?? 0);
+  const adsInventory = sumCampaignAdInventory(
+    (adInventoryRows ?? []) as Array<{ sku: string; quantity: number | null }>,
+  );
 
   // Per-user rally rate-limit window: 10 rallies / 3 hours. This is one tiny follow-up query;
   // it only runs if the user is actually a candidate in this race.

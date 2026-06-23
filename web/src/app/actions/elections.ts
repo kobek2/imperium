@@ -1141,6 +1141,10 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
   const election_id = String(formData.get("election_id") ?? "").trim();
   const ad_type = String(formData.get("ad_type") ?? "persuasion").trim();
   const attack_target = String(formData.get("attack_target_id") ?? "").trim() || null;
+  const qty = Math.floor(Number(String(formData.get("qty") ?? "1").trim()));
+  if (!Number.isFinite(qty) || qty < 1 || qty > 100) {
+    throw new Error("Quantity must be between 1 and 100.");
+  }
   if (!election_id) throw new Error("Missing election id.");
 
   const { data: election } = await supabase
@@ -1193,7 +1197,7 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
     p_election: election_id,
     p_candidate: candidate.id,
     p_target_state: null,
-    p_qty: 1,
+    p_qty: qty,
     p_ad_type: ad_type,
     p_target_candidate: attack_target,
   });
@@ -1217,8 +1221,9 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
   revalidatePath(`/admin/elections/${election_id}`);
 
   return {
-    qty: 1,
-    ads_remaining: null,
+    qty,
+    ads_remaining:
+      row.ads_remaining != null ? Math.max(0, Number(row.ads_remaining)) : null,
     target_state: null,
     ad_type,
     points,

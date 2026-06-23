@@ -9,7 +9,8 @@ import {
 } from "@/app/actions/economy";
 import { payFiscalTax } from "@/app/actions/fiscal";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { EconomyCampaignAds, type EconomyCampaignRace } from "@/components/economy-campaign-ads";
+import { EconomyCampaignAds } from "@/components/economy-campaign-ads";
+import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { EconomyBlackjack } from "./economy-blackjack";
 import { EconomyPublicLedgerList } from "@/components/economy-public-ledger-list";
@@ -116,8 +117,7 @@ export function FinancesDashboard({
   federalEstimatedTax,
   taxAccount,
   showFederalBudgetLink,
-  campaignRaces = [],
-  characterName = null,
+  campaignAdInventory = { persuasion: 0, attack: 0 },
 }: {
   wallet: WalletRow | null;
   inventory?: InvRow;
@@ -134,8 +134,7 @@ export function FinancesDashboard({
     status?: string;
   } | null;
   showFederalBudgetLink: boolean;
-  campaignRaces?: EconomyCampaignRace[];
-  characterName?: string | null;
+  campaignAdInventory?: CampaignAdInventory;
 }) {
   const router = useRouter();
   const [flash, setFlash] = useState<{
@@ -276,8 +275,7 @@ export function FinancesDashboard({
       {flash?.section === "ads" ? sectionFlash(flash, "ads") : null}
 
       <EconomyCampaignAds
-        races={campaignRaces}
-        characterName={characterName}
+        inventory={campaignAdInventory}
         economyFrozen={freezeDisabled}
         onFlash={(message, ok) => setFlash({ message, ok, section: "ads" })}
       />

@@ -23,6 +23,57 @@ export type ActiveCandidacySlots = {
   hasPresident: boolean;
 };
 
+function isActiveSeatElection(e: {
+  phase: string;
+  leadership_role?: string | null;
+  filing_window_started_at?: string | null;
+}) {
+  if (e.phase === "closed" || e.leadership_role) return false;
+  if (e.phase === "filing" && !e.filing_window_started_at) return false;
+  return true;
+}
+
+const ACTIVE_ELECTION_PHASE_PRIORITY: Record<string, number> = {
+  general: 3,
+  primary: 2,
+  filing: 1,
+};
+
+const ACTIVE_ELECTION_OFFICE_PRIORITY: Record<string, number> = {
+  house: 3,
+  senate: 3,
+  president: 2,
+};
+
+/** Best active seat/president race to open when the player visits `/elections`. */
+export async function loadPrimaryActiveElectionId(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const { data: myCands } = await supabase.from("election_candidates").select("election_id").eq("user_id", userId);
+  const eids = [...new Set((myCands ?? []).map((c) => c.election_id))];
+  if (!eids.length) return null;
+
+  const { data: elecs } = await supabase
+    .from("elections")
+    .select("id, office, phase, leadership_role, filing_window_started_at")
+    .in("id", eids);
+  const active = (elecs ?? []).filter(isActiveSeatElection);
+  if (!active.length) return null;
+
+  active.sort((a, b) => {
+    const phaseDelta =
+      (ACTIVE_ELECTION_PHASE_PRIORITY[b.phase] ?? 0) - (ACTIVE_ELECTION_PHASE_PRIORITY[a.phase] ?? 0);
+    if (phaseDelta !== 0) return phaseDelta;
+    return (
+      (ACTIVE_ELECTION_OFFICE_PRIORITY[b.office] ?? 0) -
+      (ACTIVE_ELECTION_OFFICE_PRIORITY[a.office] ?? 0)
+    );
+  });
+
+  return active[0]?.id ?? null;
+}
+
 export async function loadActiveCandidacySlots(
   supabase: SupabaseClient,
   userId: string,
@@ -38,11 +89,7 @@ export async function loadActiveCandidacySlots(
     .from("elections")
     .select("office, phase, leadership_role, filing_window_started_at")
     .in("id", eids);
-  const active = (elecs ?? []).filter((e) => {
-    if (e.phase === "closed" || e.leadership_role) return false;
-    if (e.phase === "filing" && !e.filing_window_started_at) return false;
-    return true;
-  });
+  const active = (elecs ?? []).filter(isActiveSeatElection);
   return {
     hasCongress: active.some((e) => e.office === "house" || e.office === "senate"),
     hasPresident: active.some((e) => e.office === "president"),

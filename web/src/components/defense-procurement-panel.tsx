@@ -45,9 +45,9 @@ export function DefenseProcurementPanel({
     );
   }
 
-  const { fiscalYearLabel, defenseCap, obligatedTotal, budgetSubmitted, recent } = overview;
+  const { fiscalYearLabel, defenseCap, obligatedTotal, recent } = overview;
   const remaining = Math.max(0, defenseCap - obligatedTotal);
-  const canObligate = canAct && budgetSubmitted && defenseCap > 0;
+  const canObligate = canAct && defenseCap > 0;
 
   return (
     <section className="rounded-2xl border border-[var(--psc-border)] bg-white/35 p-5 shadow-sm backdrop-blur-sm">
@@ -71,12 +71,7 @@ export function DefenseProcurementPanel({
         </div>
       </div>
 
-      {!budgetSubmitted ? (
-        <p className="mt-4 rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          The President still needs to <span className="font-semibold">submit</span> the federal budget — store stays
-          locked until then.
-        </p>
-      ) : defenseCap <= 0 ? (
+      {defenseCap <= 0 ? (
         <p className="mt-4 text-sm text-[var(--psc-muted)]">Defense line is set to zero in the budget workbook.</p>
       ) : null}
 

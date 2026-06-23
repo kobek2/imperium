@@ -88,7 +88,8 @@ export function EconomyBlackjack({ economyFrozen = false }: { economyFrozen?: bo
       <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Blackjack vs the house</h2>
       {economyFrozen ? (
         <p className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-950">
-          Economy is frozen until the federal budget is marked submitted after congressional adoption.
+          Staff have frozen economic activity for this simulation. Gambling stays blocked until administrators clear the
+          freeze on the active fiscal year.
         </p>
       ) : null}
 

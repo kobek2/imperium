@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ProfileCard, ProfileCardBadge, profilePath } from "@/components/profile-card";
 import { SubmitButton } from "@/components/submit-button";
 import {
@@ -21,6 +20,7 @@ import {
   CAMPAIGN_AD_UNIT_PRICE,
   formatCampaignAdSpendUsd,
 } from "@/lib/campaign-ad-stats";
+import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { CampaignAdForm } from "./campaign-ad-form";
 import { WithdrawFilingForm } from "./withdraw-filing-form";
 
@@ -488,6 +488,7 @@ function CampaignPanel({
   states,
   partisanLean,
   opponentCandidates,
+  adsInventory,
 }: {
   election: ElectionRow;
   myCandidate: CandRow;
@@ -502,6 +503,7 @@ function CampaignPanel({
   states: Array<{ code: string; name: string }>;
   partisanLean: number;
   opponentCandidates: Array<{ id: string; label: string }>;
+  adsInventory: CampaignAdInventory;
 }) {
   const isRunningMate = false;
   const meta = partyMeta(myCandidate.party);
@@ -582,7 +584,7 @@ function CampaignPanel({
       </div>
       <CampaignAdForm
         electionId={election.id}
-        office={election.office}
+        inventory={adsInventory}
         opponentCandidates={opponentCandidates}
       />
     </section>
@@ -842,7 +844,7 @@ export function ElectionDetail({
   states: Array<{ code: string; name: string }>;
   leadershipMeta: LeadershipMeta | null;
   canCastLeadershipGeneralVote: boolean;
-  adsInventory: number;
+  adsInventory: CampaignAdInventory;
   speechFeed: SpeechFeedItem[];
   speechArchive?: CampaignSpeechArchiveItem[] | null;
   adSpendFeed: AdSpendFeedItem[];
@@ -948,15 +950,6 @@ export function ElectionDetail({
 
   return (
     <div className="space-y-8">
-      {isAdmin ? (
-        <Link
-          href={`/admin/elections/${election.id}`}
-          className="inline-block text-sm font-semibold text-[var(--psc-accent)] underline"
-        >
-          Admin console for this race →
-        </Link>
-      ) : null}
-
       <header className="space-y-3 border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)] px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-[var(--psc-ink)]">
@@ -1243,23 +1236,24 @@ export function ElectionDetail({
               states={states}
               partisanLean={partisanLean}
               opponentCandidates={opponentAdTargets}
+              adsInventory={adsInventory}
             />
           ) : null}
           <div className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
             <h2 className="text-lg font-semibold">
               {isLeadership ? "Chamber vote" : "General election"}
             </h2>
-            <p className="mt-1 text-sm text-[var(--psc-muted)]">
-              {isLeadership
-                ? `Vote once per race — you can vote for yourself. Only ${
-                    election.office === "house" ? "representatives" : "senators"
-                  }${
-                    leadershipMeta?.restricted_party
-                      ? ` in the ${leadershipMeta.restricted_party} caucus`
-                      : ""
-                  } can cast a ballot. The winner is the candidate with the most votes; ties go to the earliest filer.`
-                : "General election is points-only: campaign speeches, rallies, ads, and endorsements decide the winner. Community ballots do not count for House, Senate, or president."}
-            </p>
+            {isLeadership ? (
+              <p className="mt-1 text-sm text-[var(--psc-muted)]">
+                Vote once per race — you can vote for yourself. Only{" "}
+                {election.office === "house" ? "representatives" : "senators"}
+                {leadershipMeta?.restricted_party
+                  ? ` in the ${leadershipMeta.restricted_party} caucus`
+                  : ""}{" "}
+                can cast a ballot. The winner is the candidate with the most votes; ties go to the
+                earliest filer.
+              </p>
+            ) : null}
           </div>
           <PartyGroupedCandidates
             candidates={generalCandidates}

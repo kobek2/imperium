@@ -163,8 +163,8 @@ export default async function SituationRoomNscPage() {
         {procurementOverview && procurementOverview.defenseCap > 0 ? (
           <p className="mt-4 rounded border border-[var(--psc-border)] bg-white/45 px-3 py-2 text-sm leading-relaxed text-[var(--psc-muted)]">
             <span className="font-semibold text-[var(--psc-ink)]">Defense line obligations ({procurementOverview.fiscalYearLabel}):</span>{" "}
-            {fmtUsd(procurementOverview.obligatedTotal)} obligated of {fmtUsd(procurementOverview.defenseCap)} appropriated
-            {procurementOverview.budgetSubmitted ? "" : " (budget not yet submitted — obligations locked)"}. Detail on the{" "}
+            {fmtUsd(procurementOverview.obligatedTotal)} obligated of {fmtUsd(procurementOverview.defenseCap)} appropriated.
+            Detail on the{" "}
             <Link href="/cabinet/defense" className="font-semibold text-[var(--psc-accent)] underline-offset-2 hover:underline">
               Defense desk
             </Link>

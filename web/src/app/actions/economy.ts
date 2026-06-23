@@ -200,6 +200,7 @@ export async function applyCampaignAd(formData: FormData): Promise<{ ok: boolean
     cost?: number;
     ad_type?: string;
     outcome?: string;
+    ads_remaining?: number;
     npc_counter_attack?: boolean;
     npc_speech?: boolean;
   };
@@ -210,25 +211,50 @@ export async function applyCampaignAd(formData: FormData): Promise<{ ok: boolean
   const pts = Number(payload.points ?? cfg.points);
   let message: string;
   if (adType === "attack" && payload.outcome === "attack_miss") {
-    message = `Attack ad missed (−$${Number(payload.cost ?? cfg.cost).toLocaleString()}) — backlash cost you 1 point.`;
+    message = `Attack ad missed — backlash cost you 1 point.`;
   } else if (adType === "attack" && payload.outcome === "attack_hit") {
-    message = `Attack ad landed (−$${Number(payload.cost ?? cfg.cost).toLocaleString()}) → opponent −4 points.`;
+    message = `Attack ad landed → opponent −4 points.`;
   } else if (pts > 0) {
-    message = `Ran ${cfg.label} (−$${Number(payload.cost ?? cfg.cost).toLocaleString()}) → +${pts} points.`;
+    message = `Ran ${cfg.label} → +${pts} points.`;
   } else {
-    message = `Ran ${cfg.label} (−$${Number(payload.cost ?? cfg.cost).toLocaleString()}).`;
+    message = `Ran ${cfg.label}.`;
+  }
+  if (payload.ads_remaining != null) {
+    message += ` ${Number(payload.ads_remaining).toLocaleString()} left in stock.`;
   }
   if (payload.npc_speech) message += " Your opponent just gave a speech.";
   if (payload.npc_counter_attack) message += " They ran a reactive attack ad against you.";
   return { ok: true, message };
 }
 
-/** @deprecated Ads are wallet-direct; use applyCampaignAd */
-export async function buyCampaignAds(): Promise<{ ok: boolean; message: string }> {
-  return { ok: false, message: "Buy ads when you run them on an election — select an ad type there." };
+export async function buyCampaignAds(formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const supabase = await createClient();
+  const adType = String(formData.get("ad_type") ?? "persuasion").trim();
+  if (!(adType in CAMPAIGN_AD_TYPES)) return { ok: false, message: "Invalid ad type." };
+  const qty = Math.floor(Number(String(formData.get("qty") ?? "1").trim()));
+  if (!Number.isFinite(qty) || qty < 1 || qty > 5000) {
+    return { ok: false, message: "Quantity must be between 1 and 5000." };
+  }
+
+  const { data, error } = await supabase.rpc("economy_buy_campaign_ads", {
+    p_qty: qty,
+    p_ad_type: adType,
+  });
+  if (error) return { ok: false, message: error.message };
+
+  const payload = (data ?? {}) as { campaign_ads?: number; ad_type?: string };
+  const cfg = CAMPAIGN_AD_TYPES[adType as CampaignAdType];
+  const total = cfg.cost * qty;
+  const remaining = Number(payload.campaign_ads ?? qty);
+  revalidateEconomy();
+  revalidatePath("/elections");
+  return {
+    ok: true,
+    message: `Purchased ${qty} ${cfg.label}${qty === 1 ? "" : "s"} (−$${total.toLocaleString()}). You now have ${remaining.toLocaleString()} in inventory.`,
+  };
 }
 
-/** @deprecated */
+/** @deprecated Use buyCampaignAds — kept for older imports */
 export async function applyCampaignAdFromInventory(formData: FormData): Promise<{ ok: boolean; message: string }> {
   return applyCampaignAd(formData);
 }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { sumCampaignAdInventory, totalCampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 
@@ -65,7 +66,11 @@ export async function fetchHomeCareerStats(
     supabase.from("profiles").select("office_role, political_capital").eq("id", userId).maybeSingle(),
     supabase.from("economy_wallets").select("balance").eq("user_id", userId).maybeSingle(),
     supabase.from("economy_pacs").select("pac_name").eq("user_id", userId).maybeSingle(),
-    supabase.from("economy_inventory").select("quantity").eq("user_id", userId).eq("sku", "campaign_ad").maybeSingle(),
+    supabase
+      .from("economy_inventory")
+      .select("sku, quantity")
+      .eq("user_id", userId)
+      .in("sku", ["campaign_ad_persuasion", "campaign_ad_attack", "campaign_ad"]),
     supabase
       .from("election_candidates")
       .select("election_id, elections ( phase, winner_user_id )")
@@ -101,7 +106,9 @@ export async function fetchHomeCareerStats(
 
   let campaignAdUnits = 0;
   if (!invRes.error && invRes.data) {
-    campaignAdUnits = Number((invRes.data as { quantity: number }).quantity ?? 0);
+    campaignAdUnits = totalCampaignAdInventory(
+      sumCampaignAdInventory(invRes.data as Array<{ sku: string; quantity: number | null }>),
+    );
   }
 
   let electionsEntered = 0;

@@ -4,7 +4,6 @@ import { getServerAuth } from "@/lib/supabase/server";
 import { requireStaffPage } from "@/lib/staff-access";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import type { NationalMetricsRow } from "@/lib/national-metrics-types";
-import { EconomyOverviewUnlock } from "./economy-overview-unlock";
 import { EconomyFiscalConfig } from "./economy-fiscal-config";
 import { EconomyAppropriationsWindowControls } from "./economy-appropriations-window-controls";
 import { EconomyFiscalAdminControls } from "./economy-fiscal-admin-controls";
@@ -33,13 +32,6 @@ export default async function AdminEconomyOverviewPage() {
     : { data: null };
 
   const pendingId = (pendingTransition as { id?: string } | null)?.id ?? null;
-  const { data: fyBudget } = activeFy?.id
-    ? await supabase
-        .from("federal_budgets")
-        .select("status")
-        .eq("fiscal_year_id", pendingId ?? activeFy.id)
-        .maybeSingle()
-    : { data: null };
   const { data: activeMetrics } = activeFy?.id
     ? await supabase.from("national_metrics").select("*").eq("fiscal_year_id", activeFy.id).maybeSingle()
     : { data: null };
@@ -81,17 +73,10 @@ export default async function AdminEconomyOverviewPage() {
         </Link>
       </div>
 
-      <EconomyOverviewUnlock
-        fiscalYearId={pendingId ?? ((activeFy as { id?: string } | null)?.id ?? null)}
-        fiscalYearLabel={
-          pendingId
-            ? String((pendingTransition as { label?: string } | null)?.label ?? "Transition FY")
-            : String((activeFy as { label?: string } | null)?.label ?? "Active FY")
-        }
-        budgetStatus={fyBudget ? String((fyBudget as { status: string }).status) : null}
-        canMarkSubmitted={access.hasFullStaff}
-        isTransitionSubmit={Boolean(pendingId)}
-      />
+      <p className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-4 py-3 text-xs text-[var(--psc-muted)]">
+        Federal budget submission no longer gates economy actions in baseline mode. Use the manual economy freeze below
+        if you need to pause payouts.
+      </p>
       {activeFy ? (
         <EconomyFiscalConfig
           canEdit={access.hasFullStaff}

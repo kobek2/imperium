@@ -11,6 +11,7 @@ import {
 import { resolveSimulationSettingsForWidget } from "@/lib/simulation-widget-data";
 import { OrientationTourPanelElections } from "@/components/orientation-tour-panel";
 import { RpDatePill } from "@/components/rp-date-pill";
+import { loadPrimaryActiveElectionId } from "@/lib/election-filing";
 import {
   candidateCountForElectionDashboard,
   fetchElectionCandidateSummaryRows,
@@ -23,7 +24,11 @@ import {
 /** Avoid stale election rows / counts from RSC caching between navigations. */
 export const dynamic = "force-dynamic";
 
-export default async function ElectionsPage() {
+export default async function ElectionsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ all?: string }>;
+}) {
   const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
@@ -35,7 +40,15 @@ export default async function ElectionsPage() {
 
   if (!user) redirect("/login");
 
+  const params = (await searchParams) ?? {};
+  const showAllElections = params.all === "1" || params.all === "true";
+
   await runElectionPhaseSchedule(supabase);
+
+  if (!showAllElections) {
+    const activeElectionId = await loadPrimaryActiveElectionId(supabase, user.id);
+    if (activeElectionId) redirect(`/elections/${activeElectionId}`);
+  }
 
   const [{ data: elections }, { data: profile }, simSettingsRes] = await Promise.all([
     supabase

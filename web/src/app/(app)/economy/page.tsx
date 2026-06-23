@@ -4,32 +4,7 @@ import { getServerAuth } from "@/lib/supabase/server";
 import { OrientationTourPanelEconomy } from "@/components/orientation-tour-panel";
 import { FinancesDashboard } from "./economy-dashboard";
 import { fetchEconomyLedgerWithDisplayNames } from "@/lib/economy-ledger-view";
-import type { EconomyCampaignRace } from "@/components/economy-campaign-ads";
-import { throwIfPostgrestError } from "@/lib/supabase-error";
-
-async function loadCampaignRaces(
-  supabase: NonNullable<Awaited<ReturnType<typeof import("@/lib/supabase/server").getServerAuth>>["supabase"]>,
-): Promise<EconomyCampaignRace[]> {
-  const { data, error } = await supabase.rpc("economy_my_campaign_races");
-  throwIfPostgrestError(error);
-  const raw =
-    typeof data === "string"
-      ? (() => {
-          try {
-            return JSON.parse(data);
-          } catch {
-            return null;
-          }
-        })()
-      : data;
-  if (!Array.isArray(raw)) return [];
-
-  for (const race of raw as EconomyCampaignRace[]) {
-    await supabase.rpc("tick_npc_campaigns", { p_election_id: race.electionId });
-  }
-
-  return raw as EconomyCampaignRace[];
-}
+import { sumCampaignAdInventory } from "@/lib/campaign-ad-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -47,11 +22,11 @@ export default async function EconomyPage() {
   const [
     { data: wallet },
     { data: meProf },
+    { data: adInventoryRows },
     { data: activeFy },
     { data: taxRpcData },
     { data: taxLedger },
     recentLedger,
-    campaignRaces,
   ] = await Promise.all([
     supabase.from("economy_wallets").select("balance, last_collected_at").eq("user_id", user.id).maybeSingle(),
     supabase
@@ -59,12 +34,20 @@ export default async function EconomyPage() {
       .select("party, character_name, orientation_completed_at, orientation_step")
       .eq("id", user.id)
       .maybeSingle(),
+    supabase
+      .from("economy_inventory")
+      .select("sku, quantity")
+      .eq("user_id", user.id)
+      .in("sku", ["campaign_ad_persuasion", "campaign_ad_attack", "campaign_ad"]),
     supabase.from("rp_fiscal_years").select("economy_activity_frozen").eq("status", "active").maybeSingle(),
     supabase.rpc("fiscal_estimate_ytd_income_tax"),
     supabase.rpc("fiscal_my_tax_ledger_account"),
     fetchEconomyLedgerWithDisplayNames(supabase, 40, user.id),
-    loadCampaignRaces(supabase),
   ]);
+
+  const campaignAdInventory = sumCampaignAdInventory(
+    (adInventoryRows ?? []) as Array<{ sku: string; quantity: number | null }>,
+  );
 
   const economyFrozen = Boolean((activeFy as { economy_activity_frozen?: boolean } | null)?.economy_activity_frozen);
 
@@ -132,8 +115,7 @@ export default async function EconomyPage() {
         federalEstimatedTax={federalEstimatedTax}
         taxAccount={taxAccount}
         showFederalBudgetLink={false}
-        campaignRaces={campaignRaces}
-        characterName={me?.character_name ?? null}
+        campaignAdInventory={campaignAdInventory}
       />
     </div>
   );
