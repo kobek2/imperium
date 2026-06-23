@@ -30,11 +30,13 @@ import {
 
 type CandidateRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   party: string;
   campaign_points_total: number | null;
   primary_winner: boolean | null;
   created_at?: string | null;
+  is_npc?: boolean | null;
+  npc_name?: string | null;
 };
 
 type ProfileRow = {
@@ -70,6 +72,14 @@ function initials(name: string | null, fallback: string) {
   const parts = s.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+function candidateDisplayName(c: CandidateRow, profile?: ProfileRow | null): string {
+  if (c.is_npc && c.npc_name?.trim()) return `${c.npc_name.trim()} (NPC)`;
+  if (c.user_id) {
+    return profile?.character_name?.trim() || c.user_id.slice(0, 8);
+  }
+  return `NPC ${c.id.slice(0, 8)}`;
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -142,12 +152,14 @@ export default async function AdminElectionDetailPage({
 
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, user_id, party, campaign_points_total, primary_winner, created_at")
+    .select("id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name")
     .eq("election_id", id)
     .order("id", { ascending: true });
 
   const candList = (candidates ?? []) as CandidateRow[];
-  const userIds = candList.map((c) => c.user_id);
+  const userIds = [
+    ...new Set(candList.map((c) => c.user_id).filter((id): id is string => id != null)),
+  ];
 
   let profiles: ProfileRow[] = [];
   if (userIds.length) {
@@ -158,7 +170,10 @@ export default async function AdminElectionDetailPage({
     profiles = (p ?? []) as ProfileRow[];
   }
   const profileById = new Map(profiles.map((p) => [p.id, p]));
-  const candidateUserIdByCandId = new Map(candList.map((c) => [c.id, c.user_id]));
+  const candidateById = new Map(candList.map((c) => [c.id, c]));
+  const candidateUserIdByCandId = new Map(
+    candList.map((c) => [c.id, c.user_id] as const),
+  );
 
   const candIds = candList.map((c) => c.id);
 
@@ -253,6 +268,13 @@ export default async function AdminElectionDetailPage({
       profileById.get(userId)?.character_name?.trim() || userId.slice(0, 8);
     speechArchive = toCampaignSpeechArchiveItems(allSpeeches, {
       candidateName: (candidateId) => {
+        const cand = candidateById.get(candidateId);
+        if (cand) {
+          return candidateDisplayName(
+            cand,
+            cand.user_id ? profileById.get(cand.user_id) : null,
+          );
+        }
         const userId = candidateUserIdByCandId.get(candidateId);
         return userId ? displayName(userId) : candidateId.slice(0, 8);
       },
@@ -262,9 +284,20 @@ export default async function AdminElectionDetailPage({
     console.warn("[admin/elections/[id]] speech archive load failed:", err);
   }
 
+  const winnerCandidateId = (election as { winner_candidate_id?: string | null })
+    .winner_candidate_id;
   const winnerProfile = election.winner_user_id
     ? profileById.get(election.winner_user_id as string)
     : undefined;
+  const winnerNpcCandidate = winnerCandidateId
+    ? candList.find((c) => c.id === winnerCandidateId)
+    : undefined;
+  const winnerLabel = winnerProfile
+    ? winnerProfile.character_name?.trim() || winnerProfile.id.slice(0, 8)
+    : winnerNpcCandidate
+      ? candidateDisplayName(winnerNpcCandidate)
+      : null;
+  const winnerParty = winnerProfile?.party ?? winnerNpcCandidate?.party ?? null;
 
   const seatLabel = election.leadership_role
     ? `${leadershipRoleLabel(election.leadership_role as LeadershipRole)}${
@@ -313,11 +346,10 @@ export default async function AdminElectionDetailPage({
           <h2 className="text-2xl font-semibold">
             {election.office.toUpperCase()} · {seatLabel}
           </h2>
-          {winnerProfile ? (
+          {winnerLabel ? (
             <p className="mt-1 text-sm text-emerald-900">
-              Certified winner:{" "}
-              <strong>{winnerProfile.character_name ?? winnerProfile.id.slice(0, 8)}</strong>{" "}
-              ({partyLabel(winnerProfile.party ?? "")})
+              Certified winner: <strong>{winnerLabel}</strong>
+              {winnerParty ? <> ({partyLabel(winnerParty)})</> : null}
             </p>
           ) : null}
         </div>
@@ -458,14 +490,12 @@ export default async function AdminElectionDetailPage({
                 className="w-full min-w-0 max-w-xs border border-[var(--psc-border)] bg-white px-2 py-2 text-xs sm:w-auto"
               >
                 <option value="">Select candidate…</option>
-                {candList.map((c) => {
-                  const prof = profileById.get(c.user_id);
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {prof?.character_name ?? c.user_id.slice(0, 8)} ({partyLabel(c.party)})
-                    </option>
-                  );
-                })}
+                {candList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {candidateDisplayName(c, c.user_id ? profileById.get(c.user_id) : null)} (
+                    {partyLabel(c.party)})
+                  </option>
+                ))}
               </select>
               <SubmitButton
                 pendingLabel="Certifying…"
@@ -560,9 +590,8 @@ export default async function AdminElectionDetailPage({
         ) : (
           <ul className="grid gap-4 lg:grid-cols-2">
             {sortedCandidates.map((c) => {
-              const profile = profileById.get(c.user_id);
-              const name =
-                profile?.character_name?.trim() || c.user_id.slice(0, 8);
+              const profile = c.user_id ? profileById.get(c.user_id) : undefined;
+              const name = candidateDisplayName(c, profile);
               const avatarUrl = faceUrlOk(profile?.face_claim_url)
                 ? profile!.face_claim_url!
                 : null;
@@ -573,12 +602,31 @@ export default async function AdminElectionDetailPage({
               const endorsements = endorsementCountsByCandidate.get(c.id) ?? 0;
               const endorsementPts = endorsementPointsByCandidate.get(c.id) ?? 0;
               const isWinner =
-                election.phase === "closed" && election.winner_user_id === c.user_id;
+                election.phase === "closed" &&
+                ((c.user_id != null && election.winner_user_id === c.user_id) ||
+                  (winnerCandidateId != null && winnerCandidateId === c.id));
               const seatLine =
                 profile?.home_district_code?.trim() ||
                 (profile?.residence_state
                   ? profile.residence_state.toUpperCase()
-                  : "—");
+                  : c.is_npc
+                    ? "NPC placeholder"
+                    : "—");
+              const avatarInitials = initials(
+                profile?.character_name ?? c.npc_name ?? null,
+                c.user_id?.slice(0, 8) ?? c.id.slice(0, 8),
+              );
+              const avatarNode = avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="" className="h-14 w-14 rounded object-cover" />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded bg-[var(--psc-canvas)] text-sm font-semibold text-[var(--psc-ink)]">
+                  {avatarInitials}
+                </div>
+              );
+              const nameNode = (
+                <span className="truncate text-base font-semibold text-[var(--psc-ink)]">{name}</span>
+              );
 
               return (
                 <li
@@ -590,31 +638,28 @@ export default async function AdminElectionDetailPage({
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <Link
-                      href={`/profile/${c.user_id}`}
-                      className="shrink-0 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
-                    >
-                      {avatarUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={avatarUrl}
-                          alt=""
-                          className="h-14 w-14 rounded object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-14 w-14 items-center justify-center rounded bg-[var(--psc-canvas)] text-sm font-semibold text-[var(--psc-ink)]">
-                          {initials(profile?.character_name ?? null, c.user_id)}
-                        </div>
-                      )}
-                    </Link>
+                    {c.user_id ? (
+                      <Link
+                        href={`/profile/${c.user_id}`}
+                        className="shrink-0 outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--psc-accent)]"
+                      >
+                        {avatarNode}
+                      </Link>
+                    ) : (
+                      <div className="shrink-0">{avatarNode}</div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/profile/${c.user_id}`}
-                          className="truncate text-base font-semibold text-[var(--psc-ink)] hover:underline"
-                        >
-                          {name}
-                        </Link>
+                        {c.user_id ? (
+                          <Link
+                            href={`/profile/${c.user_id}`}
+                            className="truncate text-base font-semibold text-[var(--psc-ink)] hover:underline"
+                          >
+                            {name}
+                          </Link>
+                        ) : (
+                          nameNode
+                        )}
                         <span
                           className={`text-xs font-semibold uppercase ${partyClass(c.party)}`}
                         >

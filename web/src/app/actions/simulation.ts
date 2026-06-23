@@ -238,6 +238,16 @@ const SENATE_CLASS_TARGETS: Record<1 | 2 | 3, readonly SenateSeatTarget[]> = {
   ],
 };
 
+/** All six Senate seats in the simplified sim (two per region, classes 1–2). */
+const ALL_SENATE_SEATS: readonly SenateSeatTarget[] = [
+  { state: "NE", senateClass: 1 },
+  { state: "NE", senateClass: 2 },
+  { state: "SO", senateClass: 1 },
+  { state: "SO", senateClass: 2 },
+  { state: "WE", senateClass: 1 },
+  { state: "WE", senateClass: 2 },
+];
+
 /**
  * Inserts dormant filing templates for House districts and Senate seats that have at least one
  * resident profile but no active (non-closed) seat race yet — so bulk-open can run a full
@@ -246,6 +256,7 @@ const SENATE_CLASS_TARGETS: Record<1 | 2 | 3, readonly SenateSeatTarget[]> = {
 async function ensureDormantCongressionalSeatTemplatesForResidents(
   supabase: SupabaseClient,
   scope: CongressionalSeatScope = "all",
+  options?: { allHouseDistricts?: boolean; allSenateSeats?: boolean },
 ): Promise<number> {
   const sched = scheduleFromNow();
 
@@ -288,17 +299,30 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(
     typeof scope === "object" ? [scope.senateClass] : ([1, 2, 3] as const);
 
   const districtList = [...houseDistricts];
-  if (runHouse && districtList.length) {
+  if (runHouse && (options?.allHouseDistricts || districtList.length)) {
     const byCode = new Map<string, string>();
-    const chunkSize = 100;
-    for (let i = 0; i < districtList.length; i += chunkSize) {
-      const chunk = districtList.slice(i, i + chunkSize);
-      const { data: drows, error: dErr } = await supabase.from("districts").select("code, state").in("code", chunk);
-      throwIfPostgrestError(dErr);
-      for (const row of drows ?? []) {
+    if (options?.allHouseDistricts) {
+      const { data: allDistricts, error: allErr } = await supabase
+        .from("districts")
+        .select("code, state")
+        .order("code");
+      throwIfPostgrestError(allErr);
+      for (const row of allDistricts ?? []) {
         const code = String((row as { code: string }).code).trim().toUpperCase();
         const state = String((row as { state: string }).state).trim().toUpperCase();
         if (code && state) byCode.set(code, state);
+      }
+    } else {
+      const chunkSize = 100;
+      for (let i = 0; i < districtList.length; i += chunkSize) {
+        const chunk = districtList.slice(i, i + chunkSize);
+        const { data: drows, error: dErr } = await supabase.from("districts").select("code, state").in("code", chunk);
+        throwIfPostgrestError(dErr);
+        for (const row of drows ?? []) {
+          const code = String((row as { code: string }).code).trim().toUpperCase();
+          const state = String((row as { state: string }).state).trim().toUpperCase();
+          if (code && state) byCode.set(code, state);
+        }
       }
     }
 
@@ -340,24 +364,31 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(
     }),
   );
 
-  if (runSenate && residenceStates.size) {
+  if (runSenate && (options?.allSenateSeats || residenceStates.size)) {
     const senateInserts: Record<string, unknown>[] = [];
-    for (const S of residenceStates) {
-      for (const sc of senateClasses) {
-        const key = `${S}:${sc}`;
-        if (activeSenateKeys.has(key)) continue;
-        senateInserts.push({
-          office: "senate",
-          state: S,
-          district_code: null,
-          senate_class: sc,
-          phase: "filing",
-          ...sched,
-          primary_party_wide: true,
-          filing_window_started_at: null,
-        });
-        activeSenateKeys.add(key);
-      }
+    const seatTargets = options?.allSenateSeats
+      ? ALL_SENATE_SEATS
+      : [...residenceStates].flatMap((S) =>
+          senateClasses.map((sc) => ({ state: S as SimRegionCode, senateClass: sc })),
+        );
+
+    for (const target of seatTargets) {
+      const S = target.state;
+      const sc = target.senateClass;
+      if (sc > 2) continue;
+      const key = `${S}:${sc}`;
+      if (activeSenateKeys.has(key)) continue;
+      senateInserts.push({
+        office: "senate",
+        state: S,
+        district_code: null,
+        senate_class: sc,
+        phase: "filing",
+        ...sched,
+        primary_party_wide: true,
+        filing_window_started_at: null,
+      });
+      activeSenateKeys.add(key);
     }
     if (senateInserts.length) {
       const { error: insErr } = await supabase.from("elections").insert(senateInserts);
@@ -376,6 +407,7 @@ async function ensureDormantCongressionalSeatTemplatesForResidents(
 async function bulkOpenDormantCongressionalSeatFilings(
   supabase: SupabaseClient,
   scope: CongressionalSeatScope = "all",
+  options?: { skipResidentCheckForHouse?: boolean; skipResidentCheckForSenate?: boolean },
 ): Promise<OpenSeatFilingsResult> {
   const { data: dormant, error } = await supabase
     .from("elections")
@@ -409,24 +441,32 @@ async function bulkOpenDormantCongressionalSeatFilings(
         skipped += 1;
         continue;
       }
-      const { count, error: cErr } = await supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("home_district_code", code.trim().toUpperCase());
-      throwIfPostgrestError(cErr);
-      occupied = (count ?? 0) >= 1;
+      if (options?.skipResidentCheckForHouse) {
+        occupied = true;
+      } else {
+        const { count, error: cErr } = await supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("home_district_code", code.trim().toUpperCase());
+        throwIfPostgrestError(cErr);
+        occupied = (count ?? 0) >= 1;
+      }
     } else if (office === "senate") {
       const st = String(e.state ?? "").trim().toUpperCase();
       if (!st || st.length !== 2) {
         skipped += 1;
         continue;
       }
-      const { count, error: cErr } = await supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("residence_state", st);
-      throwIfPostgrestError(cErr);
-      occupied = (count ?? 0) >= 1;
+      if (options?.skipResidentCheckForSenate) {
+        occupied = true;
+      } else {
+        const { count, error: cErr } = await supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("residence_state", st);
+        throwIfPostgrestError(cErr);
+        occupied = (count ?? 0) >= 1;
+      }
     } else {
       skipped += 1;
       continue;
@@ -602,10 +642,15 @@ export async function runJanuaryAutoOpenIfEligible(): Promise<void> {
   revalidatePath("/elections");
 }
 
-async function beginSenateClassSeatFilingsInner(senateClass: 1 | 2 | 3): Promise<void> {
+async function beginSenateClassSeatFilingsInner(
+  senateClass: 1 | 2 | 3,
+  options?: { skipResidentCheck?: boolean },
+): Promise<void> {
   const { supabase } = await requireAdmin();
   const scope = { senateClass } as const;
-  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, scope);
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, scope, {
+    allSenateSeats: options?.skipResidentCheck === true,
+  });
   const targetKeys = new Set(SENATE_CLASS_TARGETS[senateClass].map((t) => `${t.state}:${t.senateClass}`));
   const { data: dormant, error } = await supabase
     .from("elections")
@@ -622,12 +667,14 @@ async function beginSenateClassSeatFilingsInner(senateClass: 1 | 2 | 3): Promise
     const st = String(row.state ?? "").trim().toUpperCase() as SimRegionCode;
     const sc = Number(row.senate_class);
     if (!targetKeys.has(`${st}:${sc}`)) continue;
-    const { count, error: cErr } = await supabase
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("residence_state", st);
-    throwIfPostgrestError(cErr);
-    if ((count ?? 0) < 1) continue;
+    if (!options?.skipResidentCheck) {
+      const { count, error: cErr } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("residence_state", st);
+      throwIfPostgrestError(cErr);
+      if ((count ?? 0) < 1) continue;
+    }
     await openOneDormantSeatElection(supabase, row.id);
   }
   revalidatePath("/admin/elections");
@@ -635,11 +682,31 @@ async function beginSenateClassSeatFilingsInner(senateClass: 1 | 2 | 3): Promise
   revalidatePath("/congress");
 }
 
-/** Admin: ensure dormant House templates, then open filing windows for occupied districts. */
+/** Admin: open all House (10 districts) and Senate (6 seats) filing windows. */
+export async function beginAllCongressionalSeatFilings(): Promise<void> {
+  const { supabase } = await requireAdmin();
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "all", {
+    allHouseDistricts: true,
+    allSenateSeats: true,
+  });
+  await bulkOpenDormantCongressionalSeatFilings(supabase, "all", {
+    skipResidentCheckForHouse: true,
+    skipResidentCheckForSenate: true,
+  });
+  revalidatePath("/admin/elections");
+  revalidatePath("/elections");
+  revalidatePath("/congress");
+}
+
+/** Admin: ensure dormant House templates for every district, then open all House filing windows. */
 export async function beginHouseCongressionalSeatFilings(): Promise<void> {
   const { supabase } = await requireAdmin();
-  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "house_only");
-  await bulkOpenDormantCongressionalSeatFilings(supabase, "house_only");
+  await ensureDormantCongressionalSeatTemplatesForResidents(supabase, "house_only", {
+    allHouseDistricts: true,
+  });
+  await bulkOpenDormantCongressionalSeatFilings(supabase, "house_only", {
+    skipResidentCheckForHouse: true,
+  });
   revalidatePath("/admin/elections");
   revalidatePath("/elections");
   revalidatePath("/congress");

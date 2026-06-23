@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
 import type { BillChamber } from "@/lib/bill-types";
+import {
+  houseSeatKey,
+  loadSeatedHousePoliticians,
+  loadSeatedSenatePoliticians,
+  loadSimLeadershipHolders,
+  mergeSenateDirectory,
+} from "@/lib/sim-politicians";
 
 export type PartyCounts = {
   democrat: number;
@@ -103,6 +110,19 @@ function compositionForMemberIds(
   return { counts, total: ids.size };
 }
 
+export function mergeHouseDirectory<T extends { home_district_code: string | null }>(
+  playerHolders: T[],
+  rosterHolders: T[],
+): T[] {
+  const playerDistricts = new Set(
+    playerHolders.map((h) => houseSeatKey(h)).filter(Boolean),
+  );
+  return [
+    ...playerHolders,
+    ...rosterHolders.filter((h) => !playerDistricts.has(houseSeatKey(h))),
+  ];
+}
+
 function displayName(p: {
   character_name: string | null;
   discord_username: string | null;
@@ -111,14 +131,24 @@ function displayName(p: {
   return n || "Vacant seat";
 }
 
+function compositionForParties(parties: Array<string | null>): ChamberComposition {
+  const counts = emptyCounts();
+  for (const party of parties) bumpParty(counts, party);
+  return { counts, total: parties.length };
+}
+
 export async function fetchCongressOverviewSnapshot(
   supabase: SupabaseClient,
 ): Promise<CongressOverviewSnapshot | null> {
-  const [{ data: grants }, { data: profiles }] = await Promise.all([
+  const [{ data: grants }, { data: profiles }, seatedHouse, seatedSenate, simLeadership] =
+    await Promise.all([
     supabase.from("government_role_grants").select("user_id, role_key"),
     supabase
       .from("profiles")
-      .select("id, character_name, discord_username, office_role, party"),
+      .select("id, character_name, discord_username, office_role, party, home_district_code, residence_state"),
+    loadSeatedHousePoliticians(supabase),
+    loadSeatedSenatePoliticians(supabase),
+    loadSimLeadershipHolders(supabase),
   ]);
 
   const gRows = (grants ?? []) as { user_id: string; role_key: string }[];
@@ -128,6 +158,8 @@ export async function fetchCongressOverviewSnapshot(
     discord_username: string | null;
     office_role: string | null;
     party: string | null;
+    home_district_code: string | null;
+    residence_state: string | null;
   }>;
 
   const profileById = new Map(pRows.map((p) => [p.id, p]));
@@ -149,15 +181,36 @@ export async function fetchCongressOverviewSnapshot(
   for (const p of pRows) {
     if (p.office_role) addHolder(p.office_role, p.id);
   }
+  for (const [roleKey, holder] of simLeadership) {
+    if (!holdersByRole.get(roleKey)?.size) {
+      const bucket = holdersByRole.get(roleKey) ?? new Map<string, LeaderHolder>();
+      bucket.set(holder.id, {
+        id: holder.id,
+        name: holder.character_name?.trim() || "Roster leader",
+        party: holder.party,
+      });
+      holdersByRole.set(roleKey, bucket);
+    }
+  }
 
   const houseIds = collectChamberMemberIds(gRows, pRows, "representative");
   const senateIds = collectChamberMemberIds(gRows, pRows, "senator");
 
-  const partyLookup = new Map<string, { party: string | null }>();
-  for (const p of pRows) partyLookup.set(p.id, { party: p.party });
+  const playerReps = [...houseIds]
+    .map((id) => profileById.get(id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => ({ party: p.party, home_district_code: p.home_district_code }));
 
-  const house = compositionForMemberIds(houseIds, partyLookup);
-  const senate = compositionForMemberIds(senateIds, partyLookup);
+  const playerSens = [...senateIds]
+    .map((id) => profileById.get(id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => ({ party: p.party, residence_state: p.residence_state }));
+
+  const houseMembers = mergeHouseDirectory(playerReps, seatedHouse);
+  const senateMembers = mergeSenateDirectory(playerSens, seatedSenate);
+
+  const house = compositionForParties(houseMembers.map((m) => m.party));
+  const senate = compositionForParties(senateMembers.map((m) => m.party));
 
   const slot = (keys: readonly string[]): LeaderSlot[] =>
     keys.map((roleKey) => ({

@@ -5,6 +5,13 @@ import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-role
 import { getServerAuth } from "@/lib/supabase/server";
 import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
 import type { DirectoryHolder } from "@/lib/directory-types";
+import {
+  loadSeatedHousePoliticians,
+  loadSeatedSenatePoliticians,
+  loadSimLeadershipHolders,
+  mergeSenateDirectory,
+} from "@/lib/sim-politicians";
+import { mergeHouseDirectory } from "@/lib/congress-composition";
 import { RegionsDistrictsMap } from "@/components/regions-districts-map";
 import {
   HierarchyTabs,
@@ -183,13 +190,17 @@ export default async function DirectoryPage() {
 
   if (!user) redirect("/login");
 
-  const [{ grants, profiles }, { data: lawBills }] = await Promise.all([
+  const [{ grants, profiles }, { data: lawBills }, seatedHouse, seatedSenate, simLeadership] =
+    await Promise.all([
     loadDirectoryGrantsAndProfiles(supabase),
     supabase
       .from("bills")
       .select("id, title, originating_chamber, created_at, signed_at, author_id")
       .eq("status", "law")
       .order("signed_at", { ascending: false, nullsFirst: false }),
+    loadSeatedHousePoliticians(supabase),
+    loadSeatedSenatePoliticians(supabase),
+    loadSimLeadershipHolders(supabase),
   ]);
 
   const lawBillRows = (lawBills ?? []) as Array<{
@@ -280,10 +291,20 @@ export default async function DirectoryPage() {
 
   function holdersForDirectory(roleKey: string, maxSlots?: number): DirectoryHolder[] {
     const real = getRealHolders(roleKey);
+    if (roleKey === "representative") {
+      const merged = mergeHouseDirectory(real, seatedHouse);
+      return merged.length > 0 ? merged : real;
+    }
+    if (roleKey === "senator") {
+      const merged = mergeSenateDirectory(real, seatedSenate);
+      return merged.length > 0 ? merged : real;
+    }
+    if (real.length > 0) return real;
+    const simHolder = simLeadership.get(roleKey);
+    if (simHolder) return [simHolder];
     if (roleKey === "associate_justice" && maxSlots != null && maxSlots > 0) {
       return mergeAssociateJusticeHolders(real, maxSlots);
     }
-    if (real.length > 0) return real;
     const ph = getPlaceholderForRole(roleKey);
     return ph ? [ph] : [];
   }

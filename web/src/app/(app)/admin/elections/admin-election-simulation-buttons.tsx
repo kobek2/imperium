@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FormSubmitButton } from "@/components/form-submit-button";
 import {
+  beginAllCongressionalSeatFilings,
   beginHouseCongressionalSeatFilings,
   beginPresidentDormantSeatFilings,
   beginSenateClass1SeatFilings,
@@ -41,9 +42,16 @@ export function AdminElectionSimulationButtons() {
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--psc-muted)]">Begin</p>
           <div className="mt-2 flex flex-col gap-2">
+            <form action={beginAllCongressionalSeatFilings}>
+              <FormSubmitButton
+                idleLabel="Begin all seat elections (10 House + 6 Senate)"
+                pendingLabel="Opening…"
+                className={beginBtn}
+              />
+            </form>
             <form action={beginHouseCongressionalSeatFilings}>
               <FormSubmitButton
-                idleLabel="Begin house elections"
+                idleLabel="Begin all house elections (10 districts)"
                 pendingLabel="Opening…"
                 className={beginBtn}
               />

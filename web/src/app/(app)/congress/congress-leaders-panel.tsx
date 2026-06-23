@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { LeaderSlot } from "@/lib/congress-composition";
+import { profilePath } from "@/components/profile-card";
 
 function partyDotClass(p: string | null | undefined) {
   if (p === "democrat") return "bg-blue-600";
@@ -44,7 +45,10 @@ export function CongressLeadersPanel({
                         className={`h-2 w-2 shrink-0 rounded-full ${partyDotClass(h.party)}`}
                         aria-hidden
                       />
-                      <Link href={`/profile/${h.id}`} className="font-medium text-[var(--psc-accent)] hover:underline">
+                      <Link
+                        href={profilePath(h.id) ?? "#"}
+                        className="font-medium text-[var(--psc-accent)] hover:underline"
+                      >
                         {h.name}
                       </Link>
                     </li>

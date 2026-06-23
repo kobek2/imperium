@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
+import { simPoliticianProfilePath } from "@/lib/sim-politicians-roster";
 
 export type ProfileCardData = {
   /** When set, callers can rely on `profilePath(profile)` to build a stable link. */
@@ -12,10 +13,12 @@ export type ProfileCardData = {
   home_district_code?: string | null;
 };
 
-/** Stable URL for a user's public profile page. */
+/** Stable URL for a user's public profile page (or roster politician). */
 export function profilePath(id: string | null | undefined): string | null {
   const v = (id ?? "").trim();
   if (!v || v.startsWith("placeholder:")) return null;
+  const simPath = simPoliticianProfilePath(v);
+  if (simPath) return simPath;
   return `/profile/${v}`;
 }
 

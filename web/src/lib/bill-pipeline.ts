@@ -3,6 +3,13 @@ import { processVoteApproval } from "@/lib/approval-ratings";
 import { countChamberVotingMembers } from "@/lib/congress-composition";
 import type { BillChamber } from "@/lib/bill-types";
 import { hoursFromNowIso } from "@/lib/legislation-automation-constants";
+import {
+  castActiveBillSimVotes,
+  castSimPoliticianFloorVotes,
+  tallyChamberPassWithSim,
+  tallyFloorYeasNaysAbstainWithSim,
+  tallySenateYeasNaysWithSim,
+} from "@/lib/sim-floor-votes";
 
 const SENATE_CONFIRMATION_ROLE_KEYS = [
   "senator",
@@ -37,19 +44,7 @@ async function tallyChamberPass(
   billId: string,
   chamber: BillChamber,
 ): Promise<boolean> {
-  const { data: votes } = await supabase
-    .from("bill_votes")
-    .select("vote")
-    .eq("bill_id", billId)
-    .eq("chamber", chamber);
-
-  let yea = 0;
-  let nay = 0;
-  for (const v of votes ?? []) {
-    if (v.vote === "yea") yea += 1;
-    else if (v.vote === "nay") nay += 1;
-  }
-  return yea > nay;
+  return tallyChamberPassWithSim(supabase, billId, chamber);
 }
 
 async function countSenateConfirmationElectorate(supabase: SupabaseClient): Promise<number> {
@@ -76,22 +71,7 @@ async function tallyFloorYeasNaysAbstain(
   billId: string,
   chamber: BillChamber,
 ): Promise<{ yea: number; nay: number; abstain: number; cast: number }> {
-  const { data: votes } = await supabase
-    .from("bill_votes")
-    .select("vote")
-    .eq("bill_id", billId)
-    .eq("chamber", chamber);
-
-  let yea = 0;
-  let nay = 0;
-  let abstain = 0;
-  for (const v of votes ?? []) {
-    if (v.vote === "yea") yea += 1;
-    else if (v.vote === "nay") nay += 1;
-    else if (v.vote === "abstain") abstain += 1;
-  }
-  const cast = (votes ?? []).length;
-  return { yea, nay, abstain, cast };
+  return tallyFloorYeasNaysAbstainWithSim(supabase, billId, chamber);
 }
 
 function classifyFloorMajority(args: {
@@ -120,19 +100,7 @@ async function tallySenateYeasNays(
   supabase: SupabaseClient,
   billId: string,
 ): Promise<{ yea: number; nay: number }> {
-  const { data: votes } = await supabase
-    .from("bill_votes")
-    .select("vote")
-    .eq("bill_id", billId)
-    .eq("chamber", "senate");
-
-  let yea = 0;
-  let nay = 0;
-  for (const v of votes ?? []) {
-    if (v.vote === "yea") yea += 1;
-    else if (v.vote === "nay") nay += 1;
-  }
-  return { yea, nay };
+  return tallySenateYeasNaysWithSim(supabase, billId);
 }
 
 /** After a successful floor vote: route directly to other chamber floor or Oval. */
@@ -319,6 +287,9 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
   if (maintErr && !isMissingLegislationMaintenanceRpc(maintErr.message)) {
     console.warn("[processBillDeadlines] legislation_run_maintenance:", maintErr.message);
   }
+  if (maintErr && isMissingLegislationMaintenanceRpc(maintErr.message)) {
+    await castActiveBillSimVotes(supabase);
+  }
 
   // Sweep active floor votes for immediate clinch transitions (all votes cast, irreversible margins, etc.)
   // so bills can advance without requiring an additional ballot event.
@@ -329,6 +300,7 @@ export async function processBillDeadlines(supabase: SupabaseClient): Promise<vo
   for (const row of liveFloorBills ?? []) {
     const billId = String((row as { id: string }).id);
     if (!billId) continue;
+    await castSimPoliticianFloorVotes(supabase, billId);
     await tryClinchFloorVoteAfterBallotChange(supabase, billId);
   }
 
@@ -489,6 +461,7 @@ export async function tryClinchFloorVoteAfterBallotChange(
 
   if (bill.status === "house_floor") {
     if (!clockStillRunning) return;
+    await castSimPoliticianFloorVotes(supabase, billId);
     const M = await countChamberVotingMembers(supabase, "house");
     if (M < 1) return;
     const { yea, nay, cast } = await tallyFloorYeasNaysAbstain(supabase, billId, "house");
@@ -536,6 +509,7 @@ export async function tryClinchFloorVoteAfterBallotChange(
 
   if (!clockStillRunning) return;
 
+  await castSimPoliticianFloorVotes(supabase, billId);
   const M = await countChamberVotingMembers(supabase, "senate");
   if (M < 1) return;
   const { yea, nay, cast } = await tallyFloorYeasNaysAbstain(supabase, billId, "senate");
