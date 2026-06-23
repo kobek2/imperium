@@ -68,13 +68,14 @@ function AdRunCard({
         const res = await submitCampaignAd(fd);
         let message: string;
         let tone: Flash["tone"] = "success";
+        const points = Number(res.points ?? 0);
         if (adType === "attack" && res.outcome === "attack_miss") {
           message = `${useQty === 1 ? "Attack ad" : `${useQty} attack ads`} missed — backlash cost you 1 point.`;
           tone = "warn";
         } else if (adType === "attack" && res.outcome === "attack_hit") {
           message = `${useQty === 1 ? "Attack ad" : `${useQty} attack ads`} landed → opponent −4 points.`;
-        } else if (res.points > 0) {
-          message = `Ran ${useQty} ${cfg.label}${useQty === 1 ? "" : "s"} · +${res.points} points.`;
+        } else if (points > 0) {
+          message = `Ran ${useQty} ${cfg.label}${useQty === 1 ? "" : "s"} · +${points} points.`;
         } else {
           message = `Ran ${useQty} ${cfg.label}${useQty === 1 ? "" : "s"}.`;
         }
