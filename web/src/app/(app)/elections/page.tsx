@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
+import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { getServerAuth } from "@/lib/supabase/server";
 import {
   computeSimulationRpInstant,
@@ -34,7 +35,7 @@ export default async function ElectionsPage() {
 
   if (!user) redirect("/login");
 
-  const isAdmin = await getStaffMayAccessElectionsConsole();
+  await runElectionPhaseSchedule(supabase);
 
   const [{ data: elections }, { data: profile }, simSettingsRes] = await Promise.all([
     supabase
@@ -50,6 +51,8 @@ export default async function ElectionsPage() {
       .maybeSingle(),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
   ]);
+
+  const isAdmin = await getStaffMayAccessElectionsConsole();
 
   const simSettingsRaw =
     simSettingsRes.error || !simSettingsRes.data

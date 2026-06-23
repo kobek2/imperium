@@ -16,7 +16,7 @@ export async function ProfileQuickDock() {
   const [{ data: profile }, { data: wallet }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("character_name, discord_username, office_role, approval_rating")
+      .select("character_name, discord_username, office_role, approval_rating, political_capital")
       .eq("id", user.id)
       .maybeSingle(),
     supabase.from("economy_wallets").select("balance").eq("user_id", user.id).maybeSingle(),
@@ -41,6 +41,7 @@ export async function ProfileQuickDock() {
       : baseTitle;
   const balance = Number((wallet as { balance?: number } | null)?.balance ?? 0);
   const approval = Math.max(0, Math.min(100, Math.round(Number((profile as { approval_rating?: number }).approval_rating ?? 50))));
+  const politicalCapital = Math.max(0, Math.round(Number((profile as { political_capital?: number }).political_capital ?? 0)));
 
   return (
     <details className="fixed bottom-4 right-4 z-[100]">
@@ -66,6 +67,10 @@ export async function ProfileQuickDock() {
         <div className="mt-4 space-y-2 rounded border border-[var(--psc-border)] bg-white p-3">
           <p className="text-xs text-[var(--psc-muted)]">Balance</p>
           <p className="font-mono text-xl font-semibold text-[var(--psc-ink)]">{usd(balance)}</p>
+          <div className="mt-2">
+            <p className="text-xs text-[var(--psc-muted)]">Political capital</p>
+            <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-indigo-950">{politicalCapital.toLocaleString()}</p>
+          </div>
           <div className="mt-2">
             <p className="text-xs text-[var(--psc-muted)]">Political approval</p>
             <div className="mt-1 flex items-center gap-2">

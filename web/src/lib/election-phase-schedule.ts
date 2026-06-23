@@ -1,17 +1,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type RunElectionPhaseScheduleOpts = {
-  /** @deprecated Ignored — elections are admin-driven only. */
+  /** @deprecated Kept for call-site compatibility; schedule always runs when invoked. */
   force?: boolean;
 };
 
 /**
- * Elections advance only via admin actions (`setElectionPhase`, finalize helpers).
- * The database RPC `advance_election_phases_by_schedule` is a no-op after simplification.
+ * Closes overdue election phases via `advance_election_phases_by_schedule`.
+ * Safe to call on every authenticated page load — the RPC is idempotent.
  */
 export async function runElectionPhaseSchedule(
-  _supabase: SupabaseClient,
+  supabase: SupabaseClient,
   _opts?: RunElectionPhaseScheduleOpts,
 ): Promise<void> {
-  /* manual-only */
+  try {
+    const { error } = await supabase.rpc("advance_election_phases_by_schedule");
+    if (error) {
+      console.error("[election-phase-schedule]", error.message);
+    }
+  } catch (err) {
+    console.error("[election-phase-schedule]", err);
+  }
 }

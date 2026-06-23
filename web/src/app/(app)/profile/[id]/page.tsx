@@ -57,7 +57,7 @@ export default async function ProfilePage({
     supabase
       .from("profiles")
       .select(
-        "id, character_name, discord_username, party, bio, face_claim_url, residence_state, home_district_code, office_role, former_positions, approval_rating, approval_history",
+        "id, character_name, discord_username, party, bio, face_claim_url, residence_state, home_district_code, office_role, former_positions, approval_rating, approval_history, political_capital, political_capital_history",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -211,6 +211,34 @@ export default async function ProfilePage({
               </ul>
             </div>
           ) : null}
+
+          <div className="space-y-2 rounded border border-[var(--psc-border)] bg-white p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
+              Political capital
+            </p>
+            <p className="font-mono text-3xl font-semibold tabular-nums text-indigo-950">
+              {Math.round(Number((profile as { political_capital?: number }).political_capital ?? 0)).toLocaleString()}
+            </p>
+            <p className="text-xs text-[var(--psc-muted)]">
+              Career influence from election wins, leadership races, and bills you signed into law.
+            </p>
+            {Array.isArray((profile as { political_capital_history?: unknown }).political_capital_history) &&
+            ((profile as { political_capital_history: unknown[] }).political_capital_history as unknown[]).length > 0 ? (
+              <ul className="mt-2 space-y-1 text-xs">
+                {((profile as { political_capital_history: Array<{ delta?: number; reason?: string }> }).political_capital_history)
+                  .slice(-5)
+                  .reverse()
+                  .map((e, i) => (
+                    <li key={i} className="flex justify-between gap-2 text-[var(--psc-muted)]">
+                      <span className="min-w-0 flex-1 truncate">{e.reason ?? "—"}</span>
+                      <span className="font-mono font-semibold text-indigo-800">+{e.delta}</span>
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--psc-muted)]">Win races and enact legislation to build capital.</p>
+            )}
+          </div>
 
           <div className="space-y-2 rounded border border-[var(--psc-border)] bg-white p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">

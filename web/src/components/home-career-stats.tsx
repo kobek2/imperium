@@ -31,13 +31,24 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-900/70">Career recognition</p>
             <h2 className="mt-1 text-xl font-bold tracking-tight text-[var(--psc-ink)] md:text-2xl">Your Washington receipt</h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
-              A compact award slip for what you have earned in the sim—office, purse, races, and bills shipped into law.
+              A compact award slip for what you have earned in the sim—office, purse, political capital, races, and bills
+              shipped into law.
             </p>
           </div>
         </div>
       </header>
 
-      <div className="relative grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4 lg:gap-4">
+      <div className="relative grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-5 xl:gap-4">
+        <div className="rounded-xl border border-indigo-200/80 bg-white/90 p-5 shadow-sm backdrop-blur-sm ring-1 ring-indigo-100">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Political capital</p>
+          <p className="mt-3 font-mono text-3xl font-bold tabular-nums tracking-tight text-indigo-950">
+            {stats.politicalCapital.toLocaleString()}
+          </p>
+          <p className="mt-2 text-xs text-[var(--psc-muted)]">
+            Earned from election wins, leadership races, and bills signed into law.
+          </p>
+        </div>
+
         <div className="rounded-xl border border-[var(--psc-border)] bg-white/90 p-5 shadow-sm backdrop-blur-sm">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">Office held</p>
           <p className="mt-3 text-lg font-bold leading-snug text-[var(--psc-ink)]">{stats.primaryTitle}</p>

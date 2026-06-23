@@ -15,6 +15,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServerAuth } from "@/lib/supabase/server";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
+import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import { ElectionConsole } from "./election-console";
 import { ElectionDetail } from "./election-detail";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
@@ -73,11 +74,17 @@ export default async function ElectionDetailPage({
 
   if (!user) redirect("/login");
 
+  await runElectionPhaseSchedule(supabase);
+
   const { data: election } = await supabase.from("elections").select("*").eq("id", id).maybeSingle();
   if (!election) notFound();
 
   if (election.phase === "primary" && !election.leadership_role) {
-    await seedElectionNpcOpponents(supabase, id);
+    try {
+      await seedElectionNpcOpponents(supabase, id);
+    } catch (err) {
+      console.warn("[elections/[id]] seed npc opponents failed:", err);
+    }
   }
 
   if (election.phase === "general") {

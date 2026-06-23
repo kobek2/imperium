@@ -6,6 +6,7 @@ export type HomeCareerStats = {
   primaryTitle: string;
   economyAvailable: boolean;
   walletBalance: number;
+  politicalCapital: number;
   pacLevel: number | null;
   campaignAdUnits: number;
   electionsEntered: number;
@@ -61,7 +62,7 @@ export async function fetchHomeCareerStats(
     billsLawRes,
     billsFailRes,
   ] = await Promise.all([
-    supabase.from("profiles").select("office_role").eq("id", userId).maybeSingle(),
+    supabase.from("profiles").select("office_role, political_capital").eq("id", userId).maybeSingle(),
     supabase.from("economy_wallets").select("balance").eq("user_id", userId).maybeSingle(),
     supabase.from("economy_pacs").select("pac_name").eq("user_id", userId).maybeSingle(),
     supabase.from("economy_inventory").select("quantity").eq("user_id", userId).eq("sku", "campaign_ad").maybeSingle(),
@@ -127,10 +128,15 @@ export async function fetchHomeCareerStats(
   const billsSignedIntoLaw = billsLawRes.error ? 0 : billsLawRes.count ?? 0;
   const billsDeadOrVetoed = billsFailRes.error ? 0 : billsFailRes.count ?? 0;
 
+  const politicalCapital = profileRes.error
+    ? 0
+    : Number((profileRes.data as { political_capital?: number } | null)?.political_capital ?? 0);
+
   return {
     primaryTitle,
     economyAvailable,
     walletBalance,
+    politicalCapital,
     pacLevel,
     campaignAdUnits,
     electionsEntered,
