@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { submitCampaignRally } from "@/app/actions/elections";
-import { formatCampaignActionResult } from "@/lib/campaign-action-feedback";
+import { formatCampaignActionResult, emptyCampaignActionResult, type RallyActionFormState } from "@/lib/campaign-action-feedback";
 
 type Props = {
   electionId: string;
@@ -20,9 +20,9 @@ type Props = {
 // Server-action wrapper that returns a client-friendly { error, ok } instead of throwing so the
 // Next.js error overlay never fires when the user just hits the rate limit.
 async function rallyAction(
-  _prev: { error: string | null; ok: boolean; spent: number; npc_speech: boolean; npc_counter_attack: boolean },
+  _prev: RallyActionFormState,
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean; spent: number; npc_speech: boolean; npc_counter_attack: boolean }> {
+): Promise<RallyActionFormState> {
   try {
     const qtyRaw = Number(String(formData.get("qty") ?? "1").trim());
     const qty = Math.max(1, Math.min(50, Math.floor(Number.isFinite(qtyRaw) ? qtyRaw : 1)));
@@ -30,7 +30,7 @@ async function rallyAction(
     return { error: null, ok: true, spent: qty, ...pulse };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, spent: 0, npc_speech: false, npc_counter_attack: false, player_points_delta: 0, opponent_points_delta: 0, action_points_awarded: 0, action_label: "" };
+    return { error: msg, ok: false, spent: 0, ...emptyCampaignActionResult() };
   }
 }
 
@@ -80,9 +80,8 @@ export function RallyForm({
     error: null,
     ok: false,
     spent: 0,
-    npc_speech: false,
-    npc_counter_attack: false,
-  });
+    ...emptyCampaignActionResult(),
+  } satisfies RallyActionFormState);
 
   /** Controlled so the presidential target state survives server-action re-renders. */
   const [targetState, setTargetState] = useState("");

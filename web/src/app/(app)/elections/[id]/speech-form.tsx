@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { submitCampaignSpeech } from "@/app/actions/elections";
-import { formatCampaignActionResult } from "@/lib/campaign-action-feedback";
+import { formatCampaignActionResult, emptyCampaignActionResult, type CampaignActionFormState } from "@/lib/campaign-action-feedback";
 import { SpeechTextareaWithCounter } from "./speech-textarea-with-counter";
 
 type Props = {
@@ -15,15 +15,15 @@ type Props = {
 };
 
 async function speechAction(
-  _prev: { error: string | null; ok: boolean; npc_speech: boolean; npc_counter_attack: boolean },
+  _prev: CampaignActionFormState,
   formData: FormData,
-): Promise<{ error: string | null; ok: boolean; npc_speech: boolean; npc_counter_attack: boolean }> {
+): Promise<CampaignActionFormState> {
   try {
     const pulse = await submitCampaignSpeech(formData);
     return { error: null, ok: true, ...pulse };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, npc_speech: false, npc_counter_attack: false, player_points_delta: 0, opponent_points_delta: 0, action_points_awarded: 0, action_label: "" };
+    return { error: msg, ok: false, ...emptyCampaignActionResult() };
   }
 }
 
@@ -50,9 +50,8 @@ export function SpeechForm({
   const [result, formAction] = useActionState(speechAction, {
     error: null,
     ok: false,
-    npc_speech: false,
-    npc_counter_attack: false,
-  });
+    ...emptyCampaignActionResult(),
+  } satisfies CampaignActionFormState);
 
   const needsStatePicker = false;
 
