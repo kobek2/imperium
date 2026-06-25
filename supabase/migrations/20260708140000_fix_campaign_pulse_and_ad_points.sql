@@ -1,95 +1,18 @@
--- Restore campaign-ad inventory: buy on Economy, deploy on any general-election race page.
-
-create or replace function public._campaign_ad_inventory_sku(p_ad_type text)
-returns text
-language sql
-immutable
-as $$
-  select case lower(trim(coalesce(p_ad_type, 'persuasion')))
-    when 'persuasion' then 'campaign_ad_persuasion'
-    when 'attack' then 'campaign_ad_attack'
-    else null
-  end;
-$$;
-
-alter table public.economy_inventory drop constraint if exists economy_inventory_sku_check;
-alter table public.economy_inventory
-  add constraint economy_inventory_sku_check
-  check (sku in ('campaign_ad', 'campaign_ad_persuasion', 'campaign_ad_attack'));
-
--- Legacy single-SKU rows become persuasion inventory.
-insert into public.economy_inventory as i (user_id, sku, quantity)
-select user_id, 'campaign_ad_persuasion', quantity
-from public.economy_inventory
-where sku = 'campaign_ad'
-on conflict (user_id, sku) do update
-  set quantity = i.quantity + excluded.quantity;
-
-delete from public.economy_inventory where sku = 'campaign_ad';
-
-drop function if exists public.economy_buy_campaign_ads(int);
-
-create or replace function public.economy_buy_campaign_ads(p_qty int, p_ad_type text default 'persuasion')
+-- Player campaign actions do not trigger NPC reactions (see 20260708150000).
+create or replace function public.election_npc_campaign_pulse(
+  p_election_id uuid,
+  p_player_candidate_id uuid default null,
+  p_trigger text default null
+)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_uid uuid := auth.uid();
-  ad_kind text := lower(trim(coalesce(p_ad_type, 'persuasion')));
-  v_sku text;
-  unit_price numeric;
-  q int := greatest(1, least(coalesce(p_qty, 1), 5000));
-  total numeric;
-  w record;
-  new_bal numeric;
-  new_qty int;
 begin
-  if v_uid is null then raise exception 'Not authenticated'; end if;
-  perform public._economy_require_active_budget();
-
-  if ad_kind not in ('persuasion', 'attack') then
-    raise exception 'Storefront supports persuasion and attack ads only';
-  end if;
-
-  v_sku := public._campaign_ad_inventory_sku(ad_kind);
-  unit_price := case ad_kind when 'persuasion' then 1000000 when 'attack' then 1500000 end;
-  total := unit_price * q;
-
-  insert into public.economy_wallets (user_id) values (v_uid) on conflict do nothing;
-  select * into w from public.economy_wallets where user_id = v_uid for update;
-  if w.balance < total then raise exception 'Insufficient balance ($% required)', total; end if;
-
-  new_bal := w.balance - total;
-  update public.economy_wallets set balance = new_bal, updated_at = now() where user_id = v_uid;
-
-  insert into public.economy_inventory as i (user_id, sku, quantity)
-  values (v_uid, v_sku, q)
-  on conflict (user_id, sku) do update set quantity = i.quantity + excluded.quantity
-  returning quantity into new_qty;
-
-  insert into public.economy_ledger (wallet_user_id, delta, balance_after, kind, detail)
-  values (
-    v_uid,
-    -total,
-    new_bal,
-    'campaign_ad_buy',
-    jsonb_build_object('qty', q, 'unit_price', unit_price, 'ad_type', ad_kind, 'sku', v_sku)
-  );
-
-  return jsonb_build_object(
-    'ok', true,
-    'balance', new_bal,
-    'ad_type', ad_kind,
-    'sku', v_sku,
-    'campaign_ads', new_qty
-  );
+  return jsonb_build_object('speech', false, 'counter_attack', false);
 end;
 $$;
-
-revoke all on function public.economy_buy_campaign_ads(int, text) from public;
-grant execute on function public.economy_buy_campaign_ads(int, text) to authenticated, service_role;
 
 create or replace function public.economy_use_campaign_ad(
   p_election uuid,
@@ -201,12 +124,8 @@ begin
   returning quantity into ads_remaining;
 
   cost := cost * spend_qty;
-  if ad_kind = 'persuasion' then
+  if ad_kind in ('persuasion', 'dark_money') then
     pts := pts * spend_qty;
-  end if;
-
-  if pts > 0 then
-    update public.election_candidates set campaign_points_total = coalesce(campaign_points_total, 0) + pts where id = p_candidate;
   end if;
 
   if ad_kind = 'attack' and attack_hit and p_target_candidate is not null then
@@ -220,8 +139,9 @@ begin
     exposure_add := exposure_add + 5;
   end if;
 
+  -- Points for persuasion/dark_money flow through campaign_ads_points_sync only.
   insert into public.campaign_ads (election_id, candidate_id, actor_id, target_state, target_district, points, ad_type, target_candidate_id, cost)
-  values (p_election, p_candidate, v_uid, use_state, use_district, greatest(pts, spend_qty), ad_kind, p_target_candidate, cost);
+  values (p_election, p_candidate, v_uid, use_state, use_district, pts, ad_kind, p_target_candidate, cost);
 
   if exposure_add > 0 then
     select * into pac_row from public.economy_pacs where user_id = v_uid for update;
@@ -270,8 +190,5 @@ begin
   );
 end;
 $$;
-
-revoke all on function public.economy_use_campaign_ad(uuid, uuid, text, int, text, uuid) from public;
-grant execute on function public.economy_use_campaign_ad(uuid, uuid, text, int, text, uuid) to authenticated, service_role;
 
 notify pgrst, 'reload schema';

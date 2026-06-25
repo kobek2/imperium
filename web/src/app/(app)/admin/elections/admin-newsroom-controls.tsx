@@ -40,8 +40,8 @@ export function AdminNewsroomControls({
     <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Newsroom</h3>
       <p className="mt-1 text-[11px] text-[var(--psc-muted)]">
-        Publish breaking stories from the pool or write custom copy. Continue an existing arc to develop a
-        storyline over multiple articles.
+        Breaking stories also spawn automatically once per day. Use these controls to override, continue arcs, or
+        resolve expired crises. Players respond with authored executive orders, statements, and legislation.
       </p>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">

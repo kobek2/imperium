@@ -82,8 +82,6 @@ function AdRunCard({
         if (res.ads_remaining != null) {
           message += ` ${res.ads_remaining.toLocaleString()} left in stock.`;
         }
-        if (res.npc_speech) message += " Opponent gave a speech.";
-        if (res.npc_counter_attack) message += " They ran a counter-attack.";
         onFlash({ adType, ok: true, message, tone });
         router.refresh();
       } catch (err) {

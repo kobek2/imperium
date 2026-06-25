@@ -34,6 +34,7 @@ import { applyApprovalDelta, processYearEndParticipationApproval } from "@/lib/a
 import { dbErrorHintsMissingColumn } from "@/lib/db-error-hints";
 import { receivingChamberForOrigination, leadershipEditChamberForBillStatus } from "@/lib/legislative-helpers";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
+import { generateCrisisFollowUpForArc } from "@/lib/crisis-followup";
 import {
   DEBATE_AUTO_FLOOR_HOURS,
   HOPPER_LEADERSHIP_HOURS,
@@ -331,6 +332,12 @@ export async function submitBill(formData: FormData): Promise<void> {
     }
   }
 
+  const crisisArcRaw = String(formData.get("crisis_story_arc_id") ?? "").trim();
+  const crisisExtras: Record<string, unknown> = {};
+  if (crisisArcRaw) {
+    crisisExtras.crisis_story_arc_id = crisisArcRaw;
+  }
+
   const baseInsert = {
     title,
     content_md,
@@ -345,6 +352,7 @@ export async function submitBill(formData: FormData): Promise<void> {
     ...policyCongressExtras,
     ...economicExtras,
     ...sectorFilingExtras,
+    ...crisisExtras,
   };
 
   let { error } = await supabase.from("bills").insert(baseInsert);
@@ -431,7 +439,23 @@ export async function submitBill(formData: FormData): Promise<void> {
     error = retry.error;
   }
 
+  if (error && dbErrorHintsMissingColumn(error.message, ["crisis_story_arc_id"])) {
+    const withoutCrisis = { ...baseInsert } as Record<string, unknown>;
+    delete withoutCrisis.crisis_story_arc_id;
+    const retry = await supabase.from("bills").insert(withoutCrisis);
+    error = retry.error;
+  }
+
   throwIfPostgrestError(error);
+
+  if (crisisArcRaw) {
+    try {
+      await generateCrisisFollowUpForArc(supabase, crisisArcRaw);
+    } catch (followUpErr) {
+      console.warn("[submitBill] crisis follow-up generation failed", followUpErr);
+    }
+    revalidatePath("/events");
+  }
 
   if (filingKind === "company_sector" && lobbyOfferIdRaw) {
     const { data: newest } = await supabase
@@ -821,10 +845,16 @@ export async function presidentialAction(formData: FormData): Promise<void> {
   const bill_id = String(formData.get("bill_id"));
   const action = String(formData.get("action"));
 
-  const { data: bill } = await supabase.from("bills").select("status").eq("id", bill_id).maybeSingle();
+  const { data: bill } = await supabase
+    .from("bills")
+    .select("status, crisis_story_arc_id")
+    .eq("id", bill_id)
+    .maybeSingle();
   if (!bill || bill.status !== "oval") {
     throw new Error("Bill is not on the President’s desk.");
   }
+
+  const crisisArcId = String(bill.crisis_story_arc_id ?? "").trim() || null;
 
   const next =
     action === "sign"
@@ -862,6 +892,14 @@ export async function presidentialAction(formData: FormData): Promise<void> {
       revalidatePath("/admin/economy/overview");
       revalidatePath("/cabinet/treasury");
       // TODO: Discord webhook — appropriations signed / FY rolled #announcements
+    }
+    if (crisisArcId) {
+      try {
+        await generateCrisisFollowUpForArc(supabase, crisisArcId);
+      } catch (followUpErr) {
+        console.warn("[presidentialAction] crisis follow-up generation failed", followUpErr);
+      }
+      revalidatePath("/events");
     }
   }
 

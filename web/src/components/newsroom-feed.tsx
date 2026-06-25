@@ -241,7 +241,7 @@ export function NewsroomFeed({
       <div className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-8 text-center">
         <p className="text-sm font-semibold text-[var(--psc-ink)]">The newsroom is quiet</p>
         <p className="mt-2 text-xs text-[var(--psc-muted)]">
-          Staff can publish breaking stories from Admin → Elections. Stories can develop over multiple updates.
+          Breaking stories spawn daily on the wire. When you are assigned to a crisis, response tools appear above.
         </p>
       </div>
     );

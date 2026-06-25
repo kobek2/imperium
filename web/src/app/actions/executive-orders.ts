@@ -29,7 +29,12 @@ export async function publishExecutiveOrder(formData: FormData): Promise<void> {
   const bodyHtmlRaw = String(formData.get("body_html") ?? "").trim();
   const bodyFallback = String(formData.get("body") ?? "").trim();
   const body = bodyHtmlRaw ? sanitizeBillHtml(bodyHtmlRaw) : bodyFallback;
-  const { error } = await supabase.rpc("publish_executive_order", { p_title: title, p_body: body });
+  const storyArcRaw = String(formData.get("story_arc_id") ?? "").trim();
+  const { error } = await supabase.rpc("publish_executive_order", {
+    p_title: title,
+    p_body: body,
+    p_story_arc_id: storyArcRaw || null,
+  });
   throwIfPostgrestError(error);
   revalidatePath("/oval");
   revalidatePath("/");

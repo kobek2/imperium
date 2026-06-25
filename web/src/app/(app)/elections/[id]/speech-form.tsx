@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { submitCampaignSpeech } from "@/app/actions/elections";
+import { formatCampaignActionResult } from "@/lib/campaign-action-feedback";
 import { SpeechTextareaWithCounter } from "./speech-textarea-with-counter";
 
 type Props = {
@@ -22,7 +23,7 @@ async function speechAction(
     return { error: null, ok: true, ...pulse };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return { error: msg, ok: false, npc_speech: false, npc_counter_attack: false };
+    return { error: msg, ok: false, npc_speech: false, npc_counter_attack: false, player_points_delta: 0, opponent_points_delta: 0, action_points_awarded: 0, action_label: "" };
   }
 }
 
@@ -113,9 +114,7 @@ export function SpeechForm({
       ) : null}
       {result.ok ? (
         <p className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          Speech delivered. +5 pts added to your total.
-          {result.npc_speech ? " Your opponent just gave a speech." : ""}
-          {result.npc_counter_attack ? " They ran a reactive attack ad against you." : ""}
+          {formatCampaignActionResult(result)}
         </p>
       ) : null}
     </form>

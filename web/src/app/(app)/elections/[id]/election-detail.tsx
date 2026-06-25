@@ -18,6 +18,8 @@ import {
 } from "@/components/campaign-speech-archive";
 import {
   CAMPAIGN_AD_UNIT_PRICE,
+  campaignAdCountFromPoints,
+  campaignAdSpendUsd,
   formatCampaignAdSpendUsd,
 } from "@/lib/campaign-ad-stats";
 import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
@@ -84,6 +86,7 @@ type AdSpendFeedItem = {
   candidateId: string;
   targetState: string | null;
   points: number;
+  costUsd: number | null;
   createdAt: string;
 };
 
@@ -176,8 +179,8 @@ function AdSpendFeedSection({
             nameBy[ad.actorId]?.trim() ||
             ad.actorId.slice(0, 8);
           const loc = ad.targetState ? ` · ${ad.targetState}` : "";
-          const ads = Math.max(1, Math.round(ad.points));
-          const spendUsd = ads * CAMPAIGN_AD_UNIT_PRICE;
+          const ads = campaignAdCountFromPoints(ad.points);
+          const spendUsd = ad.costUsd != null && ad.costUsd > 0 ? ad.costUsd : campaignAdSpendUsd(ad.points);
           const adLabel = ads === 1 ? "1 ad" : `${ads} ads`;
           return (
             <li
@@ -1285,7 +1288,7 @@ export function ElectionDetail({
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
                   Opponent activity
                 </h3>
-                <span className="text-xs text-[var(--psc-muted)]">Speeches every 3h · reactive counter-ads</span>
+                <span className="text-xs text-[var(--psc-muted)]">Speeches & ads every 3h</span>
               </div>
               <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
                 {npcActivity.map((row) => (

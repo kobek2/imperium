@@ -223,7 +223,6 @@ export async function applyCampaignAd(formData: FormData): Promise<{ ok: boolean
     message += ` ${Number(payload.ads_remaining).toLocaleString()} left in stock.`;
   }
   if (payload.npc_speech) message += " Your opponent just gave a speech.";
-  if (payload.npc_counter_attack) message += " They ran a reactive attack ad against you.";
   return { ok: true, message };
 }
 

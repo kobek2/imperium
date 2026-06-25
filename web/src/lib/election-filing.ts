@@ -50,7 +50,10 @@ export async function loadPrimaryActiveElectionId(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
-  const { data: myCands } = await supabase.from("election_candidates").select("election_id").eq("user_id", userId);
+  const { data: myCands } = await supabase
+    .from("election_candidates")
+    .select("election_id")
+    .or(`user_id.eq.${userId},running_mate_user_id.eq.${userId}`);
   const eids = [...new Set((myCands ?? []).map((c) => c.election_id))];
   if (!eids.length) return null;
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   getFilingEligibilityMessage,
@@ -32,6 +33,7 @@ import {
   toCampaignSpeechArchiveItems,
 } from "@/lib/campaign-speeches";
 import type { CampaignSpeechArchiveItem } from "@/components/campaign-speech-archive";
+import { navRouteButtonClass } from "@/components/nav-route-button";
 
 /** Always refetch election + map from Supabase; avoids stale RSC after env or DB changes. */
 export const dynamic = "force-dynamic";
@@ -148,7 +150,7 @@ export default async function ElectionDetailPage({
     supabase.from("campaign_rallies").select("candidate_id").eq("election_id", id),
     supabase
       .from("campaign_ads")
-      .select("actor_id, candidate_id, target_state, points, created_at")
+      .select("actor_id, candidate_id, target_state, points, cost, created_at")
       .eq("election_id", id)
       .order("created_at", { ascending: false })
       .limit(5000),
@@ -408,28 +410,44 @@ export default async function ElectionDetailPage({
       candidate_id: string;
       target_state: string | null;
       points: number | null;
+      cost: number | null;
       created_at: string;
     }>;
     const bucket = new Map<
       string,
-      { actorId: string; candidateId: string; targetState: string | null; points: number; createdAt: string }
+      {
+        actorId: string;
+        candidateId: string;
+        targetState: string | null;
+        points: number;
+        costUsd: number;
+        createdAt: string;
+      }
     >();
     for (const a of raw) {
       const targetState = a.target_state ? String(a.target_state).trim().toUpperCase() : null;
       const key = `${a.actor_id}\t${a.candidate_id}\t${targetState ?? ""}\t${a.created_at}`;
-      const pts = Number(a.points ?? 1);
+      const pts = Number(a.points ?? 0);
+      const cost = Number(a.cost ?? 0);
       const cur = bucket.get(key);
-      if (cur) cur.points += pts;
-      else
+      if (cur) {
+        cur.points += pts;
+        cur.costUsd += cost;
+      } else
         bucket.set(key, {
           actorId: a.actor_id,
           candidateId: a.candidate_id,
           targetState,
           points: pts,
+          costUsd: cost,
           createdAt: a.created_at,
         });
     }
     return [...bucket.values()]
+      .map((row) => ({
+        ...row,
+        costUsd: row.costUsd > 0 ? row.costUsd : null,
+      }))
       .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())
       .slice(0, 100);
   })();
@@ -484,6 +502,11 @@ export default async function ElectionDetailPage({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href="/elections?all=1" className={navRouteButtonClass}>
+          All elections
+        </Link>
+      </div>
       <ElectionDetail
         election={election}
         candidates={candList.map((c) => {

@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
+import { CrisisBriefingPanel } from "@/components/crisis-briefing-panel";
 import { NewsroomFeed, NewsroomTicker } from "@/components/newsroom-feed";
-import { SimulationEventsPanel } from "@/components/simulation-events-panel";
-import { fetchUserSimulationEvents, fetchWireFeed, groupWireIntoArcs } from "@/lib/simulation-events";
+import { fetchCrisisBriefings, fetchWireFeed, groupWireIntoArcs } from "@/lib/simulation-events";
+import { canFileLegislationInChamber } from "@/lib/legislative-eligibility";
+import { canActAsPresident, mergeRoleKeys } from "@/lib/role-capabilities";
+import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -9,9 +12,23 @@ export default async function EventsPage() {
   const { supabase, user } = await getServerAuth();
   if (!supabase || !user) redirect("/imperium");
 
-  const [feed, myEvents, canAdminDelete] = await Promise.all([
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("office_role, presidential_signature")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
+  const mergedRoleKeys = mergeRoleKeys(roleKeys, profile?.office_role);
+  const filingChamber = canFileLegislationInChamber(mergedRoleKeys, "senate") ? "senate" : "house";
+  const mayActAsPresident = canActAsPresident(mergedRoleKeys);
+
+  const [feed, briefings, canAdminDelete] = await Promise.all([
     fetchWireFeed(supabase),
-    fetchUserSimulationEvents(supabase, user.id),
+    fetchCrisisBriefings(supabase, user.id, {
+      presidentialSignature: profile?.presidential_signature ?? null,
+      roleKeys: mergedRoleKeys,
+    }),
     getStaffMayAccessElectionsConsole(),
   ]);
 
@@ -20,6 +37,25 @@ export default async function EventsPage() {
 
   return (
     <div className="space-y-6">
+      {briefings.length > 0 ? (
+        <section className="space-y-3 rounded-lg border-2 border-red-400 bg-red-50/50 p-4 shadow-sm ring-1 ring-red-200">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-red-800">
+            Your crisis briefings — respond here
+          </h2>
+          <p className="text-xs text-red-900/80">
+            Write your own executive order or statement below. The wire will publish a follow-up article reacting to what you wrote.
+          </p>
+          <CrisisBriefingPanel briefings={briefings} filingChamber={filingChamber} />
+        </section>
+      ) : liveCount > 0 && mayActAsPresident ? (
+        <section className="rounded-lg border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Live crisis on the wire — briefing failed to load</p>
+          <p className="mt-1 text-xs">
+            Hard-refresh this page (Cmd+Shift+R). If this persists, restart <code className="font-mono">npm run dev</code>.
+          </p>
+        </section>
+      ) : null}
+
       <header className="space-y-3 border-b border-[var(--psc-border)] pb-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -31,23 +67,14 @@ export default async function EventsPage() {
           </p>
         </div>
         <p className="max-w-2xl text-sm text-[var(--psc-muted)]">
-          Full wire coverage — context, quotes, and developing timelines on immigration, healthcare, conflict,
-          and more. Copy any article for Discord. Stories build across multiple updates.
+          Crises spawn automatically on the wire. Respond with real executive orders, statements, and legislation —
+          you write the text; the simulation follows the paper trail. Copy any article for Discord RP.
         </p>
       </header>
 
       <NewsroomTicker arcs={arcs} />
 
       <NewsroomFeed items={feed} canAdminDelete={canAdminDelete} />
-
-      {myEvents.length > 0 ? (
-        <section className="space-y-3 rounded-lg border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--psc-muted)]">
-            Your action items
-          </h2>
-          <SimulationEventsPanel events={myEvents} />
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { NavRouteButton } from "@/components/nav-route-button";
 import { RpDatePill } from "@/components/rp-date-pill";
 
 export type DashboardElection = {
@@ -27,6 +28,10 @@ type Props = {
   userDistrict: string | null;
   userState: string | null;
   rpDateLabel?: string | null;
+  /** True when the user opened `/elections?all=1` instead of being redirected to their race. */
+  showAllElections?: boolean;
+  /** Active race where the viewer is filed (or running mate); powers "My race" shortcut. */
+  primaryElectionId?: string | null;
 };
 
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
@@ -349,6 +354,8 @@ export function ElectionsDashboard({
   userDistrict,
   userState,
   rpDateLabel = null,
+  showAllElections = false,
+  primaryElectionId = null,
 }: Props) {
   const [query, setQuery] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<Phase | "all">("all");
@@ -404,11 +411,17 @@ export function ElectionsDashboard({
         <div>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
-            {elections.length} active race{elections.length === 1 ? "" : "s"} across House,
-            Senate, and President.
+            {showAllElections
+              ? `${elections.length} active race${elections.length === 1 ? "" : "s"} — browse every open contest.`
+              : `${elections.length} active race${elections.length === 1 ? "" : "s"} across House, Senate, and President.`}
           </p>
         </div>
-        {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {showAllElections && primaryElectionId ? (
+            <NavRouteButton href={`/elections/${primaryElectionId}`}>My race</NavRouteButton>
+          ) : null}
+          {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
+        </div>
       </header>
 
       {/* Your ballot: hero cards */}

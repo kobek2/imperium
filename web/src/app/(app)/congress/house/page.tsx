@@ -25,7 +25,13 @@ function countByStatus(
   return { submitted, onDocket, debate, floor };
 }
 
-export default async function CongressHousePage() {
+export default async function CongressHousePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ crisis_arc?: string }>;
+}) {
+  const params = (await searchParams) ?? {};
+  const crisisStoryArcId = String(params.crisis_arc ?? "").trim() || null;
   const { supabase, user } = await getServerAuth();
   if (!supabase) {
     return (
@@ -113,6 +119,7 @@ export default async function CongressHousePage() {
           <p className="mt-1 text-xs text-[var(--psc-muted)]">Your seat files in the House.</p>
           <FileBillForm
             originatingChamber="house"
+            crisisStoryArcId={crisisStoryArcId}
             changePolicyBlocked={changePolicyGate.blocked}
             changePolicyBlockedMessage={changePolicyGate.message}
             changePolicyCongressLabel={changePolicyGate.congressOrdinalLabel}

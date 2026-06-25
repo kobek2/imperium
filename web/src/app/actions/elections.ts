@@ -1077,6 +1077,43 @@ const RALLY_POINTS = 0.5;
 const RALLY_WINDOW_MS = 3 * 60 * 60 * 1000;
 const RALLY_LIMIT_PER_WINDOW = 10;
 
+type RacePointTotals = { playerPts: number; opponentPts: number };
+
+async function readRacePointTotals(
+  supabase: SupabaseClient,
+  electionId: string,
+  playerCandidateId: string,
+): Promise<RacePointTotals> {
+  const { data: rows } = await supabase
+    .from("election_candidates")
+    .select("id, campaign_points_total, is_npc")
+    .eq("election_id", electionId);
+  const list = rows ?? [];
+  const player = list.find((r) => r.id === playerCandidateId);
+  const playerPts = Number(player?.campaign_points_total ?? 0);
+  const opponentPts = list
+    .filter((r) => r.id !== playerCandidateId && r.is_npc)
+    .reduce((s, r) => s + Number(r.campaign_points_total ?? 0), 0);
+  return { playerPts, opponentPts };
+}
+
+function buildCampaignActionResult(
+  before: RacePointTotals,
+  after: RacePointTotals,
+  actionPointsAwarded: number,
+  actionLabel: string,
+  pulse: { speech?: boolean; counter_attack?: boolean },
+) {
+  return {
+    npc_speech: Boolean(pulse.speech),
+    npc_counter_attack: Boolean(pulse.counter_attack),
+    action_points_awarded: actionPointsAwarded,
+    action_label: actionLabel,
+    player_points_delta: after.playerPts - before.playerPts,
+    opponent_points_delta: after.opponentPts - before.opponentPts,
+  };
+}
+
 /** After primaries, only nominee tickets may earn state-targeted campaign points. */
 async function assertPresidentNomineeCanCampaign(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1237,6 +1274,10 @@ export async function submitCampaignAd(formData: FormData): Promise<SubmitCampai
 export type CampaignNpcPulse = {
   npc_speech: boolean;
   npc_counter_attack: boolean;
+  player_points_delta: number;
+  opponent_points_delta: number;
+  action_points_awarded: number;
+  action_label: string;
 };
 
 export async function submitCampaignSpeech(formData: FormData): Promise<CampaignNpcPulse> {
@@ -1300,6 +1341,8 @@ export async function submitCampaignSpeech(formData: FormData): Promise<Campaign
     await assertPresidentNomineeCanCampaign(supabase, election_id, candidate.id, "deliver speeches");
   }
 
+  const beforePts = await readRacePointTotals(supabase, election_id, candidate.id);
+
   // Speech targeting:
   //   house   -> auto-attributed to the district (and state) of the race.
   //   senate  -> auto-attributed to the state of the race.
@@ -1345,14 +1388,18 @@ export async function submitCampaignSpeech(formData: FormData): Promise<Campaign
   });
   if (pulseError) throwIfPostgrestError(pulseError);
 
+  const afterPts = await readRacePointTotals(supabase, election_id, candidate.id);
+
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
 
-  const row = (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean };
-  return {
-    npc_speech: Boolean(row.speech),
-    npc_counter_attack: Boolean(row.counter_attack),
-  };
+  return buildCampaignActionResult(
+    beforePts,
+    afterPts,
+    SPEECH_POINTS,
+    "Speech delivered",
+    (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean },
+  );
 }
 
 export async function submitCampaignRally(formData: FormData): Promise<CampaignNpcPulse> {
@@ -1412,6 +1459,8 @@ export async function submitCampaignRally(formData: FormData): Promise<CampaignN
   if (election.office === "president") {
     await assertPresidentNomineeCanCampaign(supabase, election_id, candidate.id, "hold rallies");
   }
+
+  const beforePts = await readRacePointTotals(supabase, election_id, candidate.id);
 
   const windowStart = new Date(Date.now() - RALLY_WINDOW_MS).toISOString();
   const { count } = await supabase
@@ -1488,14 +1537,19 @@ export async function submitCampaignRally(formData: FormData): Promise<CampaignN
   });
   if (pulseError) throwIfPostgrestError(pulseError);
 
+  const afterPts = await readRacePointTotals(supabase, election_id, candidate.id);
+  const rallyPointsAwarded = qty * RALLY_POINTS;
+
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
 
-  const row = (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean };
-  return {
-    npc_speech: Boolean(row.speech),
-    npc_counter_attack: Boolean(row.counter_attack),
-  };
+  return buildCampaignActionResult(
+    beforePts,
+    afterPts,
+    rallyPointsAwarded,
+    qty === 1 ? "Rally recorded" : `${qty} rallies recorded`,
+    (pulse ?? {}) as { speech?: boolean; counter_attack?: boolean },
+  );
 }
 
 export async function submitCampaignEndorsement(formData: FormData): Promise<void> {

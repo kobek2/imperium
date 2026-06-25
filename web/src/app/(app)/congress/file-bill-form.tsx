@@ -102,6 +102,7 @@ function sectorContentHtml(md: string): string {
 
 export function FileBillForm({
   originatingChamber,
+  crisisStoryArcId = null,
   changePolicyBlocked = false,
   changePolicyBlockedMessage = null,
   changePolicyCongressLabel = null,
@@ -116,6 +117,8 @@ export function FileBillForm({
   changePolicyCongressLabel?: string | null;
   lobbyOffers?: CompanyLobbyOfferRow[];
   ownedCompanies?: OwnedCompanyForFiling[];
+  /** When set, filed legislation is linked to an active newsroom crisis arc. */
+  crisisStoryArcId?: string | null;
 }) {
   const [mode, setMode] = useState<"free" | "template" | "sector">("free");
   const [templates, setTemplates] = useState<BillTemplateRow[]>([]);
@@ -149,6 +152,10 @@ export function FileBillForm({
   useEffect(() => {
     void listBillTemplates().then(setTemplates);
   }, []);
+
+  useEffect(() => {
+    if (crisisStoryArcId) setMode("free");
+  }, [crisisStoryArcId]);
 
   useEffect(() => {
     if (changePolicyBlocked && mode === "template") {
@@ -222,6 +229,12 @@ export function FileBillForm({
 
   return (
     <div className="mt-4 space-y-4">
+      {crisisStoryArcId ? (
+        <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-950">
+          <span className="font-semibold">Crisis legislation.</span> This bill will be linked to the active newsroom
+          crisis. Write your own emergency measure below.
+        </div>
+      ) : null}
       {modeToggle}
 
       {changePolicyBlocked ? (
@@ -375,6 +388,9 @@ export function FileBillForm({
           </div>
           <form action={submitBillThenRefresh} className="grid gap-4 md:grid-cols-2">
             <input type="hidden" name="originating_chamber" value={originatingChamber} />
+            {crisisStoryArcId ? (
+              <input type="hidden" name="crisis_story_arc_id" value={crisisStoryArcId} />
+            ) : null}
             <label className="grid gap-2 text-sm font-semibold md:col-span-2">
               Title
               <input

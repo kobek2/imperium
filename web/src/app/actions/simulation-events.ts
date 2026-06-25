@@ -98,6 +98,13 @@ export async function adminRunWireEventsTick(): Promise<void> {
   const { error } = await supabase.rpc("admin_wire_events_tick", { p_force: true });
   if (error) throw new Error(error.message);
 
+  const { processPendingCrisisFollowUps } = await import("@/lib/crisis-followup");
+  try {
+    await processPendingCrisisFollowUps(5);
+  } catch (err) {
+    console.warn("[adminRunWireEventsTick] pending crisis follow-ups", err);
+  }
+
   revalidatePath("/events");
   revalidatePath("/admin/elections");
 }

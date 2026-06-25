@@ -45,9 +45,10 @@ export default async function ElectionsPage({
 
   await runElectionPhaseSchedule(supabase);
 
-  if (!showAllElections) {
-    const activeElectionId = await loadPrimaryActiveElectionId(supabase, user.id);
-    if (activeElectionId) redirect(`/elections/${activeElectionId}`);
+  const primaryElectionId = await loadPrimaryActiveElectionId(supabase, user.id);
+
+  if (!showAllElections && primaryElectionId) {
+    redirect(`/elections/${primaryElectionId}`);
   }
 
   const [{ data: elections }, { data: profile }, simSettingsRes] = await Promise.all([
@@ -220,6 +221,8 @@ export default async function ElectionsPage({
         userDistrict={profile?.home_district_code ?? null}
         userState={profile?.residence_state ?? null}
         rpDateLabel={rpDateLabel}
+        showAllElections={showAllElections}
+        primaryElectionId={primaryElectionId}
       />
     </div>
   );

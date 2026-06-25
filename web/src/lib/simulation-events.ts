@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { canActAsPresident } from "@/lib/role-capabilities";
 import { wireArticlePlainText } from "@/lib/wire-article-format";
 
 export type SimulationEventStatus = "active" | "resolved" | "escalated" | "failed";
@@ -77,8 +78,25 @@ export type StoryContinueTarget = {
   status: SimulationEventStatus;
 };
 
+export type CrisisInstrument =
+  | "executive_order"
+  | "presidential_statement"
+  | "letter_to_congress"
+  | "bill_filed"
+  | "bill_enacted";
+
 export type UserSimulationEvent = SimulationEventInstanceRow & {
   assignment: SimulationEventAssignmentRow;
+  story_arc_id: string;
+  category: WireScope;
+  topic: string;
+};
+
+export type CrisisBriefing = UserSimulationEvent & {
+  hasPresidentialSignature: boolean;
+  isPresidentLead: boolean;
+  isCongressAssignee: boolean;
+  responsesCount: number;
 };
 
 export const SIMULATION_EVENT_CHOICES: Array<{
@@ -229,6 +247,13 @@ export function groupWireIntoArcs(items: WireFeedItem[]): NewsStoryArc[] {
 export async function runSimulationEventsDailyTick(supabase: SupabaseClient): Promise<void> {
   const { error } = await supabase.rpc("rp_simulation_events_daily_tick");
   if (error) console.warn("[runSimulationEventsDailyTick]", error.message);
+
+  const { processPendingCrisisFollowUps } = await import("@/lib/crisis-followup");
+  try {
+    await processPendingCrisisFollowUps(3);
+  } catch (err) {
+    console.warn("[runSimulationEventsDailyTick] pending crisis follow-ups", err);
+  }
 }
 
 export async function runAdminWireEventsTick(supabase: SupabaseClient): Promise<void> {
@@ -295,22 +320,138 @@ export async function fetchUserSimulationEvents(
   const instanceIds = [...new Set(assignments.map((a) => String((a as { instance_id: string }).instance_id)))];
   const { data: instances, error: iErr } = await supabase
     .from("simulation_event_instances")
-    .select("id, template_key, title, summary, status, severity, deadline_at, outcome, opened_at")
+    .select(
+      "id, template_key, title, summary, body, dateline, status, severity, deadline_at, outcome, opened_at, story_arc_id, beat_number, beat_label, metadata",
+    )
     .in("id", instanceIds)
     .eq("status", "active");
   if (iErr || !instances?.length) return [];
 
-  const byId = new Map(
-    (instances as SimulationEventInstanceRow[]).map((i) => [i.id, i] as const),
+  const templateKeys = [...new Set(instances.map((i) => String((i as { template_key: string }).template_key)))];
+  const { data: templates } = await supabase
+    .from("simulation_event_templates")
+    .select("template_key, category, topic")
+    .in("template_key", templateKeys);
+
+  const enriched = enrichWireItems(
+    instances as SimulationEventInstanceRow[],
+    (templates ?? []) as Array<{ template_key: string; category: WireScope; topic: string }>,
   );
+
+  const byId = new Map(enriched.map((i) => [i.id, i] as const));
 
   const out: UserSimulationEvent[] = [];
   for (const row of assignments as SimulationEventAssignmentRow[]) {
     const inst = byId.get(row.instance_id);
     if (!inst) continue;
-    out.push({ ...inst, assignment: row });
+    out.push({
+      ...inst,
+      story_arc_id: inst.story_arc_id ?? inst.id,
+      category: inst.category,
+      topic: inst.topic,
+      assignment: row,
+    });
   }
   return out.sort(
+    (a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime(),
+  );
+}
+
+export async function fetchCrisisBriefings(
+  supabase: SupabaseClient,
+  userId: string,
+  opts?: { presidentialSignature?: string | null; roleKeys?: string[] },
+): Promise<CrisisBriefing[]> {
+  const roleKeys = opts?.roleKeys ?? [];
+  const canPresident = canActAsPresident(roleKeys);
+  const events: UserSimulationEvent[] = [];
+
+  if (canPresident) {
+    const { data: activeNews } = await supabase
+      .from("simulation_event_instances")
+      .select(
+        "id, template_key, title, summary, body, dateline, status, severity, deadline_at, outcome, opened_at, story_arc_id, beat_number, beat_label, metadata",
+      )
+      .eq("status", "active")
+      .like("template_key", "news_%")
+      .order("opened_at", { ascending: false })
+      .limit(5);
+
+    if (activeNews?.length) {
+      const templateKeys = [...new Set(activeNews.map((i) => String(i.template_key)))];
+      const { data: templates } = await supabase
+        .from("simulation_event_templates")
+        .select("template_key, category, topic")
+        .in("template_key", templateKeys);
+
+      const enriched = enrichWireItems(
+        activeNews as SimulationEventInstanceRow[],
+        (templates ?? []) as Array<{ template_key: string; category: WireScope; topic: string }>,
+      );
+
+      for (const inst of enriched) {
+        const arcId = inst.story_arc_id ?? inst.id;
+        events.push({
+          ...inst,
+          story_arc_id: arcId,
+          category: inst.category,
+          topic: inst.topic,
+          assignment: {
+            id: `president-${arcId}`,
+            instance_id: inst.id,
+            assignee_user_id: userId,
+            role_label: "President",
+            is_primary: true,
+            completed_at: null,
+            response_key: null,
+          },
+        });
+      }
+    }
+  }
+
+  const assigned = await fetchUserSimulationEvents(supabase, userId);
+  const byArc = new Map(events.map((e) => [e.story_arc_id, e]));
+  for (const ev of assigned) {
+    if (!byArc.has(ev.story_arc_id) || (ev.assignment.is_primary && ev.assignment.role_label === "President")) {
+      byArc.set(ev.story_arc_id, ev);
+    }
+  }
+  const mergedEvents = [...byArc.values()];
+  if (!mergedEvents.length) return [];
+
+  const arcIds = [...new Set(mergedEvents.map((e) => e.story_arc_id))];
+  const { data: responses } = await supabase
+    .from("simulation_event_responses")
+    .select("story_arc_id")
+    .in("story_arc_id", arcIds);
+
+  const responseCountByArc = new Map<string, number>();
+  for (const r of responses ?? []) {
+    const arc = String((r as { story_arc_id: string }).story_arc_id);
+    responseCountByArc.set(arc, (responseCountByArc.get(arc) ?? 0) + 1);
+  }
+
+  const sig = (opts?.presidentialSignature ?? "").trim();
+  const hasPresidentialSignature = sig.length >= 2;
+
+  const byArcBriefing = new Map<string, CrisisBriefing>();
+  for (const ev of mergedEvents) {
+    const existing = byArcBriefing.get(ev.story_arc_id);
+    const briefing: CrisisBriefing = {
+      ...ev,
+      hasPresidentialSignature,
+      isPresidentLead:
+        canPresident || (ev.assignment.is_primary && ev.assignment.role_label === "President"),
+      isCongressAssignee: ev.assignment.role_label === "Member of Congress",
+      responsesCount: responseCountByArc.get(ev.story_arc_id) ?? 0,
+    };
+    if (!existing || (briefing.isPresidentLead && !existing.isPresidentLead)) {
+      byArcBriefing.set(ev.story_arc_id, briefing);
+    }
+  }
+
+  return [...byArcBriefing.values()].sort(
     (a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime(),
   );
 }
