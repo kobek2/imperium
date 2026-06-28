@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FormSubmitButton } from "@/components/form-submit-button";
+import { AdminBootCampaignSeasonButton } from "@/app/(app)/admin/elections/admin-boot-campaign-season-button";
 import {
   beginAllCongressionalSeatFilings,
   beginHouseCongressionalSeatFilings,
@@ -39,6 +40,9 @@ export function AdminElectionSimulationButtons() {
         .
       </p>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2">
+          <AdminBootCampaignSeasonButton />
+        </div>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--psc-muted)]">Begin</p>
           <div className="mt-2 flex flex-col gap-2">

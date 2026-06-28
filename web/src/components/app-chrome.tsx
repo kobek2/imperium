@@ -46,6 +46,7 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
   const links = canUseAppTabs
     ? [
         { href: "/", label: "Home" },
+        { href: "/campaign", label: "War Room" },
         { href: "/character", label: "Character" },
         { href: "/economy", label: "Economy" },
         { href: partyNavHref, label: "Party" },

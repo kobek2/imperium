@@ -54,7 +54,9 @@ export async function loadElectionPacFilings(
 ): Promise<ElectionPacFilingsBundle> {
   const { data: rows } = await supabase
     .from("pac_contributions")
-    .select("id, pac_user_id, candidate_id, amount, campaign_points, target_state, disclosed_at")
+    .select(
+      "id, pac_user_id, candidate_id, amount, campaign_points, target_state, disclosed_at, funded_by_rival, contributor_label",
+    )
     .eq("election_id", electionId)
     .eq("is_dark", false)
     .order("disclosed_at", { ascending: false });
@@ -64,11 +66,16 @@ export async function loadElectionPacFilings(
     return { filings: [], totalDisclosed: 0, committeeCount: 0, byCandidate: [] };
   }
 
-  const pacUserIds = [...new Set(contributions.map((r) => (r as { pac_user_id: string }).pac_user_id))];
-  const { data: pacs } = await supabase
-    .from("economy_pacs")
-    .select("user_id, pac_name")
-    .in("user_id", pacUserIds);
+  const pacUserIds = [
+    ...new Set(
+      contributions
+        .map((r) => (r as { pac_user_id: string | null }).pac_user_id)
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const { data: pacs } = pacUserIds.length
+    ? await supabase.from("economy_pacs").select("user_id, pac_name").in("user_id", pacUserIds)
+    : { data: [] };
   const pacNameByUser = new Map(
     (pacs ?? []).map((p) => [p.user_id as string, String(p.pac_name ?? "PAC")]),
   );
@@ -76,17 +83,24 @@ export async function loadElectionPacFilings(
   const filings: ElectionPacFilingRow[] = contributions.map((raw) => {
     const row = raw as {
       id: string;
-      pac_user_id: string;
+      pac_user_id: string | null;
       candidate_id: string;
       amount: number;
       campaign_points: number;
       target_state: string | null;
       disclosed_at: string;
+      funded_by_rival?: boolean;
+      contributor_label?: string | null;
     };
+    const committeeKey = row.funded_by_rival
+      ? `rival:${row.contributor_label ?? "Rival War Room"}`
+      : (row.pac_user_id ?? "unknown");
     return {
       id: row.id,
-      pacName: pacNameByUser.get(row.pac_user_id) ?? "Unknown committee",
-      pacUserId: row.pac_user_id,
+      pacName: row.funded_by_rival
+        ? (row.contributor_label?.trim() || "Rival War Room")
+        : (pacNameByUser.get(row.pac_user_id ?? "") ?? "Unknown committee"),
+      pacUserId: committeeKey,
       candidateId: row.candidate_id,
       candidateName: candidateLabel(row.candidate_id, candidates, nameBy),
       amount: Number(row.amount),
@@ -121,10 +135,12 @@ export async function loadElectionPacFilings(
     }))
     .sort((a, b) => b.totalAmount - a.totalAmount);
 
+  const committeeIds = [...new Set(filings.map((f) => f.pacUserId))];
+
   return {
     filings,
     totalDisclosed: filings.reduce((s, f) => s + f.amount, 0),
-    committeeCount: pacUserIds.length,
+    committeeCount: committeeIds.length,
     byCandidate,
   };
 }

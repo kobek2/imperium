@@ -62,7 +62,9 @@ async function loadProfileNameMap(
 export async function loadPacContributionTargets(
   supabase: SupabaseClient,
   userId: string,
+  options?: { party?: string | null },
 ): Promise<PacContributionTarget[]> {
+  const partyFilter = options?.party?.trim().toLowerCase() || null;
   const nowIso = new Date().toISOString();
   const { data: elections } = await supabase
     .from("elections")
@@ -88,6 +90,7 @@ export async function loadPacContributionTargets(
 
   for (const c of candidateRows) {
     if (c.user_id === userId) continue;
+    if (partyFilter && c.party !== partyFilter) continue;
     if (!isGeneralNominee(c.election_id, c, candidateRows)) continue;
     const el = electionById.get(c.election_id);
     if (!el) continue;

@@ -293,6 +293,15 @@ export async function contributePacToCandidate(formData: FormData): Promise<{ ok
   if (!electionId || !candidateId) return { ok: false, message: "Select a candidate." };
   if (!Number.isFinite(amt) || amt < 100_000) return { ok: false, message: "Minimum contribution is $100,000." };
 
+  const { data: cmStatus } = await supabase.rpc("campaign_manager_status");
+  const cm = (cmStatus ?? {}) as { active?: boolean; election_window?: boolean; is_human_strategist?: boolean };
+  if (cm.active && cm.is_human_strategist && !cm.election_window) {
+    return {
+      ok: false,
+      message: "PAC spending is locked during the Congress cycle (noon–midnight CST). Use the War Room elections window.",
+    };
+  }
+
   const { data: election } = await supabase
     .from("elections")
     .select("phase, general_closes_at, leadership_role, office")
@@ -335,9 +344,11 @@ export async function contributePacToCandidate(formData: FormData): Promise<{ ok
     disclosed_remaining?: number;
   };
   const pts = Number(payload.campaign_points ?? 0);
+  void supabase.rpc("rival_strategist_react_to_human").then(() => undefined);
   revalidateEconomy();
   revalidatePath("/elections");
   revalidatePath("/economy/pac");
+  revalidatePath("/campaign");
   if (electionId) revalidatePath(`/elections/${electionId}`);
   const stateNote = isPresident && payload.target_state ? ` in ${payload.target_state}` : "";
   const remaining =
