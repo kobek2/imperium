@@ -64,13 +64,13 @@ export function ExecutiveOrdersPanel({
               className="max-w-xl rounded border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
             />
           </label>
-          <label className="grid gap-1 text-sm font-semibold text-[var(--psc-ink)]">
+          <div className="grid gap-1 text-sm font-semibold text-[var(--psc-ink)]">
             Body
             <span className="text-xs font-normal text-[var(--psc-muted)]">
               Use the same rich formatting controls as chamber bill filing.
             </span>
             <BillRichTextEditorWithHiddenInput fieldName="body_html" />
-          </label>
+          </div>
           <SubmitButton
             disabled={!hasSignature}
             title={!hasSignature ? "Save your signature first" : undefined}

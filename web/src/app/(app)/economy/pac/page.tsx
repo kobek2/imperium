@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { NavRouteButton } from "@/components/nav-route-button";
 import { PacDashboard } from "@/components/pac-dashboard";
 import { getServerAuth } from "@/lib/supabase/server";
-import { loadMyPacDisclosures, loadPacContributionTargets } from "@/lib/business-data";
+import { loadMyPacDisclosures, loadPacCandidateFundingSummaries, loadPacContributionTargets, loadPacGeneralElectionOpen } from "@/lib/business-data";
 import type { PacStatus } from "@/components/pac-dashboard";
 
 export default async function EconomyPacPage() {
@@ -15,10 +15,17 @@ export default async function EconomyPacPage() {
     supabase.rpc("pac_my_status"),
   ]);
 
-  const [contributionTargets, disclosures] = await Promise.all([
+  const [contributionTargets, disclosures, generalElectionOpen, { data: stateRows }] = await Promise.all([
     loadPacContributionTargets(supabase, user.id),
     loadMyPacDisclosures(supabase, user.id),
+    loadPacGeneralElectionOpen(supabase),
+    supabase.from("states").select("code, name").order("code"),
   ]);
+  const fundingSummaries = await loadPacCandidateFundingSummaries(supabase, user.id, contributionTargets);
+  const states = (stateRows ?? []).map((s) => ({
+    code: String(s.code).trim().toUpperCase(),
+    name: String(s.name),
+  }));
   const pacStatus = ((pacRpc as PacStatus | null) ?? { has_pac: false }) as PacStatus;
   const economyFrozen = Boolean((activeFy as { economy_activity_frozen?: boolean } | null)?.economy_activity_frozen);
 
@@ -44,6 +51,9 @@ export default async function EconomyPacPage() {
       <PacDashboard
         pacStatus={pacStatus}
         contributionTargets={contributionTargets}
+        fundingSummaries={fundingSummaries}
+        states={states}
+        generalElectionOpen={generalElectionOpen}
         economyFrozen={economyFrozen}
       />
       {disclosures.length > 0 ? (
@@ -55,7 +65,8 @@ export default async function EconomyPacPage() {
               <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--psc-border)]/60 pb-2 last:border-0">
                 <span className="font-medium text-[var(--psc-ink)]">{r.label}</span>
                 <span className="text-[var(--psc-muted)]">
-                  ${r.amount.toLocaleString()} → +{r.campaignPoints} pts ·{" "}
+                  ${r.amount.toLocaleString()} → +{r.campaignPoints} pts
+                  {r.targetState ? ` · ${r.targetState}` : ""} ·{" "}
                   {new Date(r.disclosedAt).toLocaleDateString()}
                 </span>
               </li>

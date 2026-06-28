@@ -5,7 +5,7 @@ export type StockMarketTab = "market" | "sectors" | "create" | "portfolio" | "tr
 const TABS: Array<{ id: StockMarketTab; href: string; label: string }> = [
   { id: "market", href: "/economy/stocks", label: "Stock market" },
   { id: "sectors", href: "/economy/stocks/sectors", label: "Sectors" },
-  { id: "create", href: "/economy/stocks/create", label: "Incorporate a company" },
+  { id: "create", href: "/economy/stocks/create", label: "Start a business" },
   { id: "portfolio", href: "/economy/stocks/portfolio", label: "My portfolio" },
   { id: "trades", href: "/economy/stocks/trades", label: "Public trades" },
   { id: "market-events", href: "/economy/stocks/market-events", label: "Market events" },

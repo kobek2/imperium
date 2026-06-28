@@ -13,7 +13,7 @@ export default async function CompanyCreatePage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-semibold">Incorporate a company</h1>
+        <h1 className="text-2xl font-semibold">Start a business</h1>
         <p className="mt-1 text-sm text-[var(--psc-muted)]">
           Pay the founding fee, file your IPO, and list shares on the public market.
         </p>

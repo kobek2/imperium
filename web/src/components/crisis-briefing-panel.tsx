@@ -104,10 +104,10 @@ function PresidentInstruments({ briefing }: { briefing: CrisisBriefing }) {
               className="border border-[var(--psc-border)] bg-white px-2 py-2 text-sm normal-case"
             />
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase">
+          <div className="grid gap-1 text-xs font-semibold uppercase">
             Order text
             <BillRichTextEditorWithHiddenInput fieldName="body_html" />
-          </label>
+          </div>
           <FormSubmitButton
             idleLabel="Publish executive order"
             pendingLabel="Publishing…"
@@ -149,10 +149,10 @@ function PresidentInstruments({ briefing }: { briefing: CrisisBriefing }) {
               ))}
             </select>
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase">
+          <div className="grid gap-1 text-xs font-semibold uppercase">
             Remarks
             <BillRichTextEditorWithHiddenInput fieldName="body_html" />
-          </label>
+          </div>
           <FormSubmitButton
             idleLabel="Deliver address"
             pendingLabel="Publishing…"
@@ -179,10 +179,10 @@ function PresidentInstruments({ briefing }: { briefing: CrisisBriefing }) {
               className="border border-[var(--psc-border)] bg-white px-2 py-2 text-sm normal-case"
             />
           </label>
-          <label className="grid gap-1 text-xs font-semibold uppercase">
+          <div className="grid gap-1 text-xs font-semibold uppercase">
             Letter
             <BillRichTextEditorWithHiddenInput fieldName="body_html" />
-          </label>
+          </div>
           <FormSubmitButton
             idleLabel="Send to Congress"
             pendingLabel="Sending…"

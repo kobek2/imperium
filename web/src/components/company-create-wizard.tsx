@@ -366,7 +366,7 @@ export function CompanyCreateWizard() {
               onClick={submit}
               className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
             >
-              {pending ? "Incorporating…" : `Pay ${formatUsd(STOCK_FOUNDING_FEE)} & go public`}
+              {pending ? "Starting…" : `Pay ${formatUsd(STOCK_FOUNDING_FEE)} & go public`}
             </button>
           )}
         </div>

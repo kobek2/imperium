@@ -32,6 +32,7 @@ import {
   fetchAllCampaignSpeechesForElection,
   toCampaignSpeechArchiveItems,
 } from "@/lib/campaign-speeches";
+import { loadElectionPacFilings } from "@/lib/pac-filings";
 import type { CampaignSpeechArchiveItem } from "@/components/campaign-speech-archive";
 import { navRouteButtonClass } from "@/components/nav-route-button";
 
@@ -500,6 +501,21 @@ export default async function ElectionDetailPage({
   const totalCampaignAdSpendUsd = campaignAdSpendUsd(totalCampaignAdPoints);
   const totalCampaignAdsPlaced = campaignAdCountFromPoints(totalCampaignAdPoints);
 
+  const pacFilings =
+    election.leadership_role || (election.phase !== "general" && election.phase !== "closed")
+      ? null
+      : await loadElectionPacFilings(
+          supabase,
+          id,
+          candList.map((c) => ({
+            id: c.id,
+            user_id: c.user_id,
+            is_npc: c.is_npc,
+            npc_name: c.npc_name,
+          })),
+          nameBy,
+        );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -558,6 +574,7 @@ export default async function ElectionDetailPage({
           message: string;
           created_at: string;
         }>}
+        pacFilings={pacFilings}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

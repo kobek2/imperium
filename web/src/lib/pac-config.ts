@@ -2,7 +2,7 @@
  * PAC corruption economy display constants.
  * Authoritative rules live in Postgres (`_pac_tier_*`, contribution RPCs).
  */
-export const PAC_LEVEL_1_COST = 5_000_000;
+export const PAC_LEVEL_1_COST = 75_000_000;
 export const PAC_LEVEL_2_UPGRADE_COST = 20_000_000;
 export const PAC_LEVEL_3_UPGRADE_COST = 50_000_000;
 

@@ -38,7 +38,7 @@ export function SectorOverviewPanel({ sectors }: { sectors: SectorOverviewRow[] 
         <p className="text-sm text-[var(--psc-muted)]">
           No public companies yet.{" "}
           <Link href="/economy/stocks/create" className="underline">
-            Incorporate the first one
+            Start the first business
           </Link>
           .
         </p>

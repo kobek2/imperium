@@ -25,6 +25,8 @@ import {
 import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { CampaignAdForm } from "./campaign-ad-form";
 import { WithdrawFilingForm } from "./withdraw-filing-form";
+import { ElectionPacFilings } from "@/components/election-pac-filings";
+import type { ElectionPacFilingsBundle } from "@/lib/pac-filings";
 
 type ElectionRow = {
   id: string;
@@ -822,6 +824,7 @@ export function ElectionDetail({
   totalCampaignAdsPlaced = 0,
   viewerIsIncumbentForThisSenateSeat = false,
   npcActivity = [],
+  pacFilings = null,
 }: {
   election: ElectionRow;
   candidates: CandRow[];
@@ -865,6 +868,7 @@ export function ElectionDetail({
     message: string;
     created_at: string;
   }>;
+  pacFilings?: ElectionPacFilingsBundle | null;
 }) {
   const now = new Date();
   const isLeadership = !!leadershipMeta;
@@ -1356,6 +1360,13 @@ export function ElectionDetail({
             nameBy={nameBy}
             listKeyPrefix="ad"
           />
+          {pacFilings ? (
+            <ElectionPacFilings
+              bundle={pacFilings}
+              electionOffice={election.office}
+              listKeyPrefix="general-pac"
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -1410,6 +1421,13 @@ export function ElectionDetail({
             nameBy={nameBy}
             listKeyPrefix="closed-ad"
           />
+          {pacFilings ? (
+            <ElectionPacFilings
+              bundle={pacFilings}
+              electionOffice={election.office}
+              listKeyPrefix="closed-pac"
+            />
+          ) : null}
         </section>
       ) : null}
     </div>

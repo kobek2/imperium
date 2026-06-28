@@ -295,13 +295,22 @@ export async function contributePacToCandidate(formData: FormData): Promise<{ ok
 
   const { data: election } = await supabase
     .from("elections")
-    .select("phase, general_closes_at, leadership_role")
+    .select("phase, general_closes_at, leadership_role, office")
     .eq("id", electionId)
     .maybeSingle();
   if (!election) return { ok: false, message: "Election not found." };
   if (election.leadership_role) return { ok: false, message: "PAC contributions don't apply to leadership races." };
   if (election.phase !== "general") return { ok: false, message: "Contributions only work during the general election." };
   if (new Date() > new Date(election.general_closes_at)) return { ok: false, message: "General election is closed." };
+
+  const targetStateRaw = String(formData.get("target_state") ?? "").trim().toUpperCase();
+  const isPresident = election.office === "president";
+  if (isPresident && !/^[A-Z]{2}$/.test(targetStateRaw)) {
+    return { ok: false, message: "Select a state for presidential PAC spending." };
+  }
+  if (!isPresident && targetStateRaw) {
+    return { ok: false, message: "State targeting applies only to presidential races." };
+  }
 
   const { data: candidate } = await supabase
     .from("election_candidates")
@@ -317,16 +326,32 @@ export async function contributePacToCandidate(formData: FormData): Promise<{ ok
     p_candidate: candidateId,
     p_amount: amt,
     p_dark: false,
+    p_target_state: isPresident ? targetStateRaw : null,
   });
   if (error) return { ok: false, message: error.message };
-  const pts = Number((data as { campaign_points?: number })?.campaign_points ?? 0);
+  const payload = data as {
+    campaign_points?: number;
+    target_state?: string | null;
+    disclosed_remaining?: number;
+  };
+  const pts = Number(payload.campaign_points ?? 0);
   revalidateEconomy();
   revalidatePath("/elections");
+  revalidatePath("/economy/pac");
   if (electionId) revalidatePath(`/elections/${electionId}`);
+  const stateNote = isPresident && payload.target_state ? ` in ${payload.target_state}` : "";
+  const remaining =
+    typeof payload.disclosed_remaining === "number"
+      ? ` ${formatMoney(payload.disclosed_remaining)} remaining for this candidate.`
+      : "";
   return {
     ok: true,
-    message: `Disclosed: $${amt.toLocaleString()} → +${pts} campaign points.`,
+    message: `Disclosed: $${amt.toLocaleString()} → +${pts} campaign points${stateNote}.${remaining}`,
   };
+}
+
+function formatMoney(n: number): string {
+  return `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 export async function suggestCompanyTicker(name: string): Promise<{ ok: boolean; ticker?: string; message?: string }> {

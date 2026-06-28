@@ -123,7 +123,7 @@ export function StockMarketPanel({
           <p className="mt-3 text-sm text-[var(--psc-muted)]">
             No public companies yet.{" "}
             <Link href="/economy/stocks/create" className="underline">
-              Incorporate the first one
+              Start the first business
             </Link>
             .
           </p>

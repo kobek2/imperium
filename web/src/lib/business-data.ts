@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PacContributionTarget } from "@/components/pac-dashboard";
+import { PAC_LEGAL_CAP_PER_CANDIDATE } from "@/lib/economy-config";
 
 type CandidateRow = {
   id: string;
@@ -103,13 +104,102 @@ export async function loadPacContributionTargets(
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
+export async function loadPacGeneralElectionOpen(
+  supabase: SupabaseClient,
+): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const { count } = await supabase
+    .from("elections")
+    .select("id", { count: "exact", head: true })
+    .eq("phase", "general")
+    .is("leadership_role", null)
+    .gt("general_closes_at", nowIso);
+  return (count ?? 0) > 0;
+}
+
 export type PacDisclosureRow = {
   id: string;
   amount: number;
   campaignPoints: number;
   disclosedAt: string;
   label: string;
+  targetState: string | null;
 };
+
+export type PacCandidateFundingSummary = {
+  electionId: string;
+  candidateId: string;
+  label: string;
+  office: string;
+  disclosedTotal: number;
+  remaining: number;
+  cap: number;
+  byState: Array<{ state: string; amount: number; points: number }>;
+};
+
+export async function loadPacCandidateFundingSummaries(
+  supabase: SupabaseClient,
+  userId: string,
+  targets: PacContributionTarget[],
+): Promise<PacCandidateFundingSummary[]> {
+  if (targets.length === 0) return [];
+
+  const { data: rows } = await supabase
+    .from("pac_contributions")
+    .select("election_id, candidate_id, amount, campaign_points, target_state")
+    .eq("pac_user_id", userId)
+    .eq("is_dark", false);
+
+  const cap = PAC_LEGAL_CAP_PER_CANDIDATE;
+  const byKey = new Map<
+    string,
+    { total: number; byState: Map<string, { amount: number; points: number }> }
+  >();
+
+  for (const raw of rows ?? []) {
+    const row = raw as {
+      election_id: string;
+      candidate_id: string;
+      amount: number;
+      campaign_points: number;
+      target_state: string | null;
+    };
+    const key = `${row.election_id}__${row.candidate_id}`;
+    let agg = byKey.get(key);
+    if (!agg) {
+      agg = { total: 0, byState: new Map() };
+      byKey.set(key, agg);
+    }
+    const amt = Number(row.amount);
+    agg.total += amt;
+    const st = row.target_state?.trim().toUpperCase();
+    if (st) {
+      const prev = agg.byState.get(st) ?? { amount: 0, points: 0 };
+      agg.byState.set(st, {
+        amount: prev.amount + amt,
+        points: prev.points + Number(row.campaign_points),
+      });
+    }
+  }
+
+  return targets.map((t) => {
+    const key = `${t.electionId}__${t.candidateId}`;
+    const agg = byKey.get(key);
+    const disclosedTotal = agg?.total ?? 0;
+    return {
+      electionId: t.electionId,
+      candidateId: t.candidateId,
+      label: t.label,
+      office: t.office,
+      disclosedTotal,
+      remaining: Math.max(0, cap - disclosedTotal),
+      cap,
+      byState: [...(agg?.byState.entries() ?? [])]
+        .map(([state, v]) => ({ state, amount: v.amount, points: v.points }))
+        .sort((a, b) => a.state.localeCompare(b.state)),
+    };
+  });
+}
 
 export async function loadMyPacDisclosures(
   supabase: SupabaseClient,
@@ -117,7 +207,7 @@ export async function loadMyPacDisclosures(
 ): Promise<PacDisclosureRow[]> {
   const { data: rows } = await supabase
     .from("pac_contributions")
-    .select("id, amount, campaign_points, disclosed_at, election_id, candidate_id")
+    .select("id, amount, campaign_points, disclosed_at, election_id, candidate_id, target_state")
     .eq("pac_user_id", userId)
     .eq("is_dark", false)
     .order("disclosed_at", { ascending: false })
@@ -149,6 +239,7 @@ export async function loadMyPacDisclosures(
       disclosed_at: string;
       election_id: string;
       candidate_id: string;
+      target_state: string | null;
     };
     const cand = candidateById.get(row.candidate_id);
     const el = electionById.get(row.election_id);
@@ -162,6 +253,7 @@ export async function loadMyPacDisclosures(
       campaignPoints: Number(row.campaign_points),
       disclosedAt: row.disclosed_at,
       label,
+      targetState: row.target_state?.trim().toUpperCase() || null,
     };
   });
 }

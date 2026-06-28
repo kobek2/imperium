@@ -53,7 +53,7 @@ export default async function EconomyStocksPage() {
         <div>
           <h1 className="text-2xl font-semibold">Stock market</h1>
           <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            Trade public company shares. Incorporate a company or browse listed tickers.
+            Trade public company shares. Start a business or browse listed tickers.
           </p>
         </div>
         <NavRouteButton href="/economy">Economy</NavRouteButton>

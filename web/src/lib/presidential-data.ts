@@ -104,6 +104,7 @@ export async function loadPresidentialBundle(
     ralliesRes,
     adsRes,
     endorsementsRes,
+    pacContribsRes,
     statesRes,
   ] = await Promise.all([
     db
@@ -121,6 +122,11 @@ export async function loadPresidentialBundle(
       election_id,
     ),
     db
+      .from("pac_contributions")
+      .select("candidate_id, target_state, campaign_points")
+      .eq("election_id", election_id)
+      .eq("is_dark", false),
+    db
       .from("states")
       .select("code, name, pvi, electoral_votes")
       .order("code"),
@@ -133,6 +139,7 @@ export async function loadPresidentialBundle(
     ["campaign_rallies", ralliesRes],
     ["campaign_ads", adsRes],
     ["campaign_endorsements", endorsementsRes],
+    ["pac_contributions", pacContribsRes],
   ] as const) {
     if (res.error) {
       console.warn(`[loadPresidentialBundle] ${label} (${election_id}):`, res.error.message);
@@ -300,7 +307,17 @@ export async function loadPresidentialBundle(
     );
   }
 
-  const events: PresCampaignEvent[] = [...speeches, ...rallies, ...ads, ...endorsements];
+  const pacContribs = ((pacContribsRes.data ?? []) as Array<{
+    candidate_id: string;
+    target_state: string | null;
+    campaign_points: number | null;
+  }>).map((p) => ({
+    candidate_id: p.candidate_id,
+    target_state: normalizeStateCode(p.target_state),
+    points: Number(p.campaign_points ?? 0),
+  }));
+
+  const events: PresCampaignEvent[] = [...speeches, ...rallies, ...ads, ...endorsements, ...pacContribs];
 
   return { candidates, states, votes, events };
 }

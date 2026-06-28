@@ -10,13 +10,21 @@ export const ECONOMY_VP_ADDON_HOURLY = 230_000;
 
 export const ECONOMY_MAX_OFFLINE_HOURS = 24;
 
-export const PAC_REGISTER_COST = 5_000_000;
+export const PAC_REGISTER_COST = 75_000_000;
 export const PAC_LEGAL_CAP_PER_CANDIDATE = 10_000_000;
+/** Disclosed PAC spending converts to campaign points at this rate (rounded down). */
+export const PAC_DOLLARS_PER_POINT = 250_000;
+/** @deprecated Use PAC_DOLLARS_PER_POINT */
 export const PAC_LEGAL_POINTS_PER_500K = 1;
 export const PAC_MIN_CONTRIBUTION = 100_000;
+export const PAC_MIN_FOR_ONE_POINT = PAC_DOLLARS_PER_POINT;
+
+export function pacCampaignPointsFromAmount(amount: number): number {
+  return Math.floor(Math.max(0, amount) / PAC_DOLLARS_PER_POINT);
+}
 
 /** One-time incorporation / IPO preparation fee (deducted from wallet). */
-export const STOCK_FOUNDING_FEE = 10_000_000;
+export const STOCK_FOUNDING_FEE = 100_000_000;
 /** @deprecated Use STOCK_FOUNDING_FEE */
 export const STOCK_FOUNDING_MIN_CAPITAL = STOCK_FOUNDING_FEE;
 export const STOCK_MIN_VALUATION = 1_000_000;
