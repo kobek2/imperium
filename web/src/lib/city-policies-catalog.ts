@@ -6,6 +6,7 @@ import { formatPropertyTaxRateDelta, type PropertyTaxStanceParams } from "@/lib/
 import { formatParametricOrdinanceStatus } from "@/lib/city-ordinance-param-score";
 import { formatMarijuanaPolicyFromOrdinance } from "@/lib/marijuana-policy-display";
 import { formatPolicingPolicyStatus } from "@/lib/policing-community-programs-scoring";
+import { ordinanceStanceLabel } from "@/lib/city-ordinance-templates";
 import type { OrdinanceProposalRow } from "@/lib/city-office-data";
 
 export type CityPolicyCategoryKey =
