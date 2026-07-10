@@ -5,7 +5,7 @@ import { loadCityFiscalSnapshot } from "@/lib/city-fiscal-data";
 import { ensureCityMetricsCaughtUp } from "@/lib/city-metrics-data";
 import { loadCityOfficeData } from "@/lib/city-office-data";
 import { getIsAdmin } from "@/lib/is-admin";
-import { getCityOfficeSalaryAccrual } from "@/app/actions/city-office-salary";
+import { loadCityOfficeSalaryAccrual } from "@/lib/city-office-salary-accrual";
 import { loadCitySimWeekStatus } from "@/lib/city-sim-week-data";
 import { ensureCityElectionSeatingForUser } from "@/lib/city-election-seating";
 
@@ -37,7 +37,7 @@ export default async function CouncilPage() {
     loadCityOfficeData(supabase, user.id),
     ensureCityMetricsCaughtUp(supabase, undefined, fiscal),
     getIsAdmin(),
-    getCityOfficeSalaryAccrual(),
+    loadCityOfficeSalaryAccrual(supabase, user.id),
     loadCitySimWeekStatus(supabase),
   ]);
 

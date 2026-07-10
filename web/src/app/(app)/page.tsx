@@ -3,6 +3,7 @@ import { BriefingInbox } from "@/components/briefing-inbox";
 import { HomeCareerStats } from "@/components/home-career-stats";
 import { fetchBriefingMoments } from "@/lib/briefing-inbox";
 import { fetchHomeCareerStats } from "@/lib/home-career-stats";
+import { runBackgroundSimTicks } from "@/lib/city-sim-week-data";
 import { isProfileOnboardingComplete, type ProfileOnboardingFields } from "@/lib/character-onboarding";
 import { orientationStepOrDefault } from "@/lib/orientation-tour";
 import { computeSimulationRpInstant, formatRpCalendarShort, type SimulationSettingsRow } from "@/lib/simulation-calendar";
@@ -33,6 +34,7 @@ export default async function HomePage() {
     if (!isProfileOnboardingComplete(profile as ProfileOnboardingFields | null)) {
       redirect("/onboarding");
     }
+    await runBackgroundSimTicks(supabase);
     if (!profile?.orientation_completed_at) {
       const st = orientationStepOrDefault(
         (profile as { orientation_step?: number | null }).orientation_step ?? null,

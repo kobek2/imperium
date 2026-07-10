@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaffMayAccessElectionsConsole } from "@/lib/staff-access";
-import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
+import { runBackgroundSimTicks } from "@/lib/city-sim-week-data";
 import { getServerAuth } from "@/lib/supabase/server";
 import {
   computeSimulationRpInstant,
@@ -44,7 +44,7 @@ export default async function ElectionsPage({
   const params = (await searchParams) ?? {};
   const showAllElections = params.all === "1" || params.all === "true";
 
-  await runElectionPhaseSchedule(supabase);
+  await runBackgroundSimTicks(supabase);
 
   const primaryElectionId = await loadPrimaryActiveElectionId(supabase, user.id);
 

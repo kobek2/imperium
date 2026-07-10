@@ -21,9 +21,19 @@ export async function runCityRealtimeTick(
   }
 }
 
-/** Page-load backup for city realtime automation (replaces Vercel cron). */
+/** Page-load backup for city realtime automation (replaces Vercel cron). Never blocks render long. */
 export async function runBackgroundSimTicks(supabase: SupabaseClient): Promise<void> {
-  await Promise.all([runCityRealtimeTick(supabase), runElectionPhaseSchedule(supabase)]);
+  const timeoutMs = 6_000;
+  try {
+    await Promise.race([
+      Promise.all([runCityRealtimeTick(supabase), runElectionPhaseSchedule(supabase)]),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    console.warn("[background-sim-ticks] failed:", err);
+  }
 }
 
 export async function reopenCityBienniumBudgetIfNeeded(

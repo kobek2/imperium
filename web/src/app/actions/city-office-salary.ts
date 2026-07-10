@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { NYC_CITY_CODE } from "@/lib/city";
+import { loadCityOfficeSalaryAccrual } from "@/lib/city-office-salary-accrual";
 
 export type CityOfficeSalaryResult = {
   ok: boolean;
@@ -54,23 +55,5 @@ export async function getCityOfficeSalaryAccrual(): Promise<{
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-
-  await supabase.rpc("refresh_city_office_salary_accruals", { p_city_code: NYC_CITY_CODE });
-
-  const { data } = await supabase
-    .from("city_office_salary_ledger")
-    .select("accrued_usd, role_key, accrual_capped, collection_deadline_at, collected_at")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!data) {
-    return { accruedUsd: 0, roleKey: null, accrualCapped: false, collectionDeadlineAt: null };
-  }
-
-  return {
-    accruedUsd: Number(data.accrued_usd ?? 0),
-    roleKey: data.role_key ?? null,
-    accrualCapped: Boolean(data.accrual_capped),
-    collectionDeadlineAt: data.collection_deadline_at ?? null,
-  };
+  return loadCityOfficeSalaryAccrual(supabase, user.id);
 }
