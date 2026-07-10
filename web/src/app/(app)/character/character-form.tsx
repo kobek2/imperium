@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, useRef, Fragment } from "react";
 import { saveCharacter } from "@/app/actions/profile";
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
 import { NycCouncilDistrictsPanel } from "@/components/nyc-council-districts-panel";
-import { SIM_REGIONS, normalizeSimRegionCode } from "@/lib/regions";
+import { NYC_CITY_CODE, NYC_CITY_NAME } from "@/lib/city";
 import { hasGeographicHomeChange } from "@/lib/geographic-move";
 
 type Profile = {
@@ -53,8 +53,6 @@ export function CharacterForm({
   const formRef = useRef<HTMLFormElement>(null);
   const geoConfirmBypassRef = useRef(false);
   const [geoConfirmOpen, setGeoConfirmOpen] = useState(false);
-  const initialRegion = normalizeSimRegionCode(profile?.residence_state);
-  const [state, setState] = useState(initialRegion);
   const [homeDistrict, setHomeDistrict] = useState(() => {
     const d = (profile?.home_district_code ?? "").trim().toUpperCase();
     return /^W\d{2}$/.test(d) ? d : "";
@@ -84,7 +82,7 @@ export function CharacterForm({
           setDistricts(rows);
           setHomeDistrict((prev) => {
             if (prev && rows.some((r) => r.code.toUpperCase() === prev)) return prev;
-            return rows[0]?.code?.toUpperCase() ?? "";
+            return isOnboarding ? "" : (rows[0]?.code?.toUpperCase() ?? "");
           });
         }
       } finally {
@@ -95,7 +93,7 @@ export function CharacterForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isOnboarding]);
 
   useEffect(() => {
     return () => {
@@ -148,7 +146,7 @@ export function CharacterForm({
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setMessage(null);
-    formData.set("residence_state", state);
+    formData.set("residence_state", NYC_CITY_CODE);
 
     if (portraitError) {
       setMessage(portraitError);
@@ -171,7 +169,7 @@ export function CharacterForm({
       }
     }
 
-    const newResidence = state.trim().toUpperCase();
+    const newResidence = NYC_CITY_CODE;
     const newDistrict = String(formData.get("home_district_code") ?? "").trim().toUpperCase();
     const geographyChanges =
       !isOnboarding &&
@@ -290,24 +288,15 @@ export function CharacterForm({
           selectedCode={homeDistrict || null}
           onSelect={setHomeDistrict}
         />
-        <div className="grid gap-3 md:grid-cols-2">
-          <select
-            name="residence_state"
-            value={state}
-            onChange={(e) => {
-              setState(normalizeSimRegionCode(e.target.value));
-              setHomeDistrict("");
-            }}
-            required
-            aria-label="Home region"
-            className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal"
-          >
-            {SIM_REGIONS.map((r) => (
-              <option key={r.code} value={r.code}>
-                {r.code} — {r.name}
-              </option>
-            ))}
-          </select>
+        <input type="hidden" name="residence_state" value={NYC_CITY_CODE} />
+        <label className="grid gap-1.5 font-normal">
+          <span className="text-xs text-[var(--psc-muted)]">Home city</span>
+          <div className="border border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 px-3 py-2 text-sm font-normal text-[var(--psc-ink)]">
+            {NYC_CITY_NAME} ({NYC_CITY_CODE})
+          </div>
+        </label>
+        <label className="grid gap-1.5 font-normal">
+          <span className="text-xs text-[var(--psc-muted)]">Council district</span>
           <select
             name="home_district_code"
             value={homeDistrict}
@@ -328,7 +317,7 @@ export function CharacterForm({
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <p className="text-xs font-normal text-[var(--psc-muted)]">
           Seven NYC council districts (W01–W07). Your home district must match any council ward race you file for.
         </p>
@@ -426,7 +415,7 @@ export function CharacterForm({
 
       <button
         type="submit"
-        disabled={pending || districtsLoading || Boolean(portraitError)}
+        disabled={pending || districtsLoading || Boolean(portraitError) || !homeDistrict}
         className="justify-self-start border border-[var(--psc-border)] bg-[var(--psc-ink)] px-6 py-3 text-sm font-semibold uppercase tracking-wide text-white disabled:opacity-60"
       >
         {pending ? "Saving…" : isOnboarding ? "Save and continue" : "Save record"}

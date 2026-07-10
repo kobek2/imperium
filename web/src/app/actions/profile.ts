@@ -3,10 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
-import { SIM_REGION_CODES } from "@/lib/regions";
+import { isNycCouncilDistrictCode, NYC_CITY_CODE } from "@/lib/city";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
-const REGION_SET = new Set<string>(SIM_REGION_CODES);
 const PARTIES = new Set(["democrat", "republican", "independent"]);
 
 const PORTRAIT_MAX_BYTES = 5 * 1024 * 1024;
@@ -109,14 +108,12 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   if (!Number.isFinite(dobMs)) {
     throw new Error("Date of birth is not a valid date.");
   }
-  if (!REGION_SET.has(residence_state)) {
-    throw new Error("Choose a valid region (NE, SO, or WE).");
+  if (residence_state !== NYC_CITY_CODE) {
+    throw new Error("Home city must be New York City (MB).");
   }
-  if (!/^(NE|SO|WE)-\d{2}$/i.test(home_district_code)) {
-    throw new Error("Home district must be a valid code (e.g. NE-01).");
-  }
-  if (!home_district_code) {
-    throw new Error("Home congressional district is required.");
+  const wardCode = home_district_code.trim().toUpperCase();
+  if (!isNycCouncilDistrictCode(wardCode)) {
+    throw new Error("Home council district must be a valid NYC ward (W01–W07).");
   }
   if (!PARTIES.has(party)) {
     throw new Error("Choose a valid party.");
@@ -125,22 +122,21 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   const wasOnboardingComplete = isProfileOnboardingComplete(beforeProfile);
   const isFirstOnboardingCompletion = !wasOnboardingComplete;
 
-  // Release any legacy exclusive district claim so we never strand `claimed_by` after the
-  // player moves. Home district is not exclusive — multiple players may share a district
-  // and run competitively for the same House seat.
+  // Release any legacy exclusive district claim (federal sim).
   await supabase.from("districts").update({ claimed_by: null }).eq("claimed_by", user.id);
 
-  const { data: open, error: districtReadError } = await supabase
-    .from("districts")
+  const { data: wardRow, error: wardReadError } = await supabase
+    .from("wards")
     .select("code")
-    .eq("code", home_district_code)
+    .eq("city_code", NYC_CITY_CODE)
+    .eq("code", wardCode)
     .maybeSingle();
 
-  if (districtReadError) {
-    throw new Error(districtReadError.message);
+  if (wardReadError) {
+    throw new Error(wardReadError.message);
   }
-  if (!open) {
-    throw new Error("District not found.");
+  if (!wardRow) {
+    throw new Error("Council district not found.");
   }
 
   if (
@@ -148,7 +144,7 @@ export async function saveCharacter(formData: FormData): Promise<void> {
       character_name,
       date_of_birth,
       residence_state,
-      home_district_code,
+      home_district_code: wardCode,
       party,
     })
   ) {
@@ -158,7 +154,7 @@ export async function saveCharacter(formData: FormData): Promise<void> {
   if (!isFirstOnboardingCompletion) {
     const { error: moveErr } = await supabase.rpc("apply_profile_geographic_move", {
       p_new_residence_state: residence_state,
-      p_new_home_district: home_district_code,
+      p_new_home_district: wardCode,
     });
     throwIfPostgrestError(moveErr);
   }
@@ -167,7 +163,7 @@ export async function saveCharacter(formData: FormData): Promise<void> {
     character_name,
     date_of_birth: date_of_birth || null,
     residence_state: residence_state || null,
-    home_district_code: home_district_code.trim().toUpperCase() || null,
+    home_district_code: wardCode || null,
     party,
     bio,
     face_claim_url,

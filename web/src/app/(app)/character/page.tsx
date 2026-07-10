@@ -12,6 +12,7 @@ import {
 import { isGeographicMoveExempt } from "@/lib/geographic-move";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
+import { NYC_CITY_CODE } from "@/lib/city";
 import { PersonnelEditShell } from "./personnel-edit-shell";
 import type { PersonnelProfile } from "./personnel-record";
 
@@ -75,12 +76,13 @@ export default async function CharacterPage() {
 
   let districtPvi: number | null = null;
   if (profile.home_district_code) {
-    const { data: districtRow } = await supabase
-      .from("districts")
+    const { data: wardRow } = await supabase
+      .from("wards")
       .select("pvi")
+      .eq("city_code", NYC_CITY_CODE)
       .eq("code", profile.home_district_code)
       .maybeSingle();
-    const raw = (districtRow as { pvi?: number | null } | null)?.pvi;
+    const raw = (wardRow as { pvi?: number | null } | null)?.pvi;
     districtPvi = typeof raw === "number" ? raw : null;
   }
 

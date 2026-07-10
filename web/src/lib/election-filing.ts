@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { NYC_CITY_CODE } from "@/lib/city";
 
 const PARTIES = ["democrat", "republican", "independent"] as const;
 export type CandidacyParty = (typeof PARTIES)[number];
@@ -123,8 +124,20 @@ export function getFilingEligibilityMessage(
   }
 
   if (office === "council_ward") {
-    if (!String(election.ward_code ?? "").trim()) {
+    const need = String(election.ward_code ?? "")
+      .trim()
+      .toUpperCase();
+    if (!need) {
       return "This council race has no ward configured; ask an admin to fix it.";
+    }
+    const home = String(profile?.home_district_code ?? "")
+      .trim()
+      .toUpperCase();
+    if (!home) {
+      return "Set your home council district on the Character page before filing.";
+    }
+    if (home !== need) {
+      return "You may only file for the council ward that matches your home district (W01–W07).";
     }
     if (active.hasCouncilWard) {
       return "You are already filed in an active council ward race. Withdraw that filing first.";
@@ -133,6 +146,12 @@ export function getFilingEligibilityMessage(
   }
 
   if (office === "mayor") {
+    const city = String(profile?.residence_state ?? "")
+      .trim()
+      .toUpperCase();
+    if (city !== NYC_CITY_CODE) {
+      return "Set your home city to New York City on the Character page before filing for mayor.";
+    }
     if (active.hasMayor) {
       return "You are already filed in an active mayor race.";
     }

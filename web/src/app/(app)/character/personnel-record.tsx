@@ -1,5 +1,5 @@
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
-import { simRegionByCode } from "@/lib/regions";
+import { councilDistrictLabel } from "@/lib/city";
 import { displayFormerPositionsRp } from "@/lib/rp-former-positions";
 
 export type PersonnelProfile = {
@@ -34,11 +34,8 @@ export function PersonnelRecord({
   districtPvi?: number | null;
 }) {
   const name = displayName(profile.character_name);
-  const region = simRegionByCode(profile.residence_state ?? "");
   const districtLine = profile.home_district_code
-    ? region
-      ? `${profile.home_district_code} · ${region.name}`
-      : profile.home_district_code
+    ? councilDistrictLabel(profile.home_district_code)
     : null;
   return (
     <section
@@ -101,7 +98,7 @@ export function PersonnelRecord({
         </div>
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            Home congressional district
+            Home council district
           </dt>
           <dd className="mt-1 font-mono text-[var(--psc-ink)]">
             {districtLine ?? <span className="text-[var(--psc-muted)]">—</span>}

@@ -1,4 +1,4 @@
-import { SIM_REGION_CODES } from "@/lib/regions";
+import { isNycCouncilDistrictCode, NYC_CITY_CODE } from "@/lib/city";
 
 export type ProfileOnboardingFields = {
   character_name: string | null;
@@ -8,13 +8,11 @@ export type ProfileOnboardingFields = {
   party: string | null;
 };
 
-const REGION_SET = new Set<string>(SIM_REGION_CODES);
-
 const PARTIES = new Set(["democrat", "republican", "independent"]);
 
 /**
  * True when the player has supplied the minimum character record needed to use the sim
- * (name, DOB, party, region, House home district). Bios are optional.
+ * (name, DOB, party, NYC residence, council district W01–W07). Bios are optional.
  */
 export function isProfileOnboardingComplete(row: ProfileOnboardingFields | null | undefined): boolean {
   if (!row) return false;
@@ -24,8 +22,8 @@ export function isProfileOnboardingComplete(row: ProfileOnboardingFields | null 
   const party = row.party;
   if (!party || !PARTIES.has(party)) return false;
   const region = (row.residence_state ?? "").trim().toUpperCase();
-  if (!REGION_SET.has(region)) return false;
+  if (region !== NYC_CITY_CODE) return false;
   const dist = (row.home_district_code ?? "").trim().toUpperCase();
-  if (!/^(NE|SO|WE)-\d{2}$/.test(dist)) return false;
+  if (!isNycCouncilDistrictCode(dist)) return false;
   return true;
 }

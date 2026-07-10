@@ -23,6 +23,7 @@ export function OrientationTourPanelElections({ canAdvance }: { canAdvance: bool
       </h2>
       <p className="text-sm text-[var(--psc-muted)]">
         Scroll the list and open a race you are eligible for, then <strong>file as a candidate</strong>.
+        Council ward races require your home district (W01–W07) to match the seat; mayor is citywide.
         Continue once you appear on the ballot for any race that is not closed yet — including races
         still in the early filing setup. If there are no such races, you can continue immediately.
         Use <strong>Skip tour</strong> if nothing fits your character yet.

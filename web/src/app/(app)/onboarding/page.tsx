@@ -49,9 +49,10 @@ export default async function OnboardingPage() {
         </h1>
         <p className="max-w-2xl text-sm text-[var(--psc-muted)]">
           Before you can use the home page, elections, or the directory, finish this record with your{" "}
-          <strong>name</strong>, <strong>date of birth</strong>, <strong>party</strong>,{" "}
-          <strong>home borough region</strong>, and <strong>council district (W01–W07)</strong>.
-          Biography fields are optional and you can edit everything later under Character.
+          <strong>name</strong>, <strong>date of birth</strong>, <strong>party</strong>, and{" "}
+          <strong>NYC council district (W01–W07)</strong>. Pick the borough region on the map that matches where
+          your character lives — it must match any council ward race you file for. Biography fields are optional
+          and you can edit everything later under Character.
         </p>
       </header>
       <CharacterForm profile={profile} variant="onboarding" />
