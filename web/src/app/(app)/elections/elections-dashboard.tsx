@@ -7,18 +7,18 @@ import { RpDatePill } from "@/components/rp-date-pill";
 
 export type DashboardElection = {
   id: string;
-  office: "house" | "senate" | "president" | string;
+  office: "mayor" | "council_ward" | string;
   phase: "filing" | "primary" | "general" | "closed" | string;
   filing_opens_at: string;
   filing_closes_at: string;
   primary_closes_at: string | null;
   general_closes_at: string;
   district_code: string | null;
+  ward_code?: string | null;
   state: string | null;
   senate_class: number | null;
   leadership_role: string | null;
   restricted_party: string | null;
-  /** Null while a seat race is an admin-only dormant template (filings not opened). */
   filing_window_started_at?: string | null;
   candidate_count: number;
 };
@@ -35,27 +35,28 @@ type Props = {
 };
 
 import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
+import {
+  electionSeatHeadline,
+  electionSeatSubhead,
+  isCityElectionOffice,
+  councilDistrictLabel,
+  NYC_CITY_NAME,
+} from "@/lib/city";
 
 const PHASES = ["filing", "primary", "general"] as const;
-const OFFICES = ["house", "senate", "president", "leadership"] as const;
+const OFFICES = ["mayor", "council_ward"] as const;
 
 type Phase = (typeof PHASES)[number];
 type Office = (typeof OFFICES)[number];
 
 const OFFICE_LABEL: Record<Office, string> = {
-  house: "House",
-  senate: "Senate",
-  president: "President",
-  leadership: "Leadership",
+  mayor: "Mayor",
+  council_ward: "City Council",
 };
 
-/**
- * Logical bucket for a race: leadership races get their own "leadership" category regardless
- * of whether they're House- or Senate-scoped, so admins and voters can find them together.
- */
-function officeBucket(e: DashboardElection): Office {
-  if (e.leadership_role) return "leadership";
-  return e.office as Office;
+function officeBucket(e: DashboardElection): Office | null {
+  if (e.office === "mayor" || e.office === "council_ward") return e.office;
+  return null;
 }
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -144,40 +145,43 @@ function countdown(e: DashboardElection): { text: string; urgent: boolean } | nu
 }
 
 function seatHeadline(e: DashboardElection): string {
+  if (isCityElectionOffice(e.office)) {
+    return electionSeatHeadline({ office: e.office, ward_code: e.ward_code });
+  }
   if (e.leadership_role) {
     return leadershipRoleLabel(e.leadership_role as LeadershipRole);
   }
-  if (e.office === "president") return "President of the United States";
+  if (e.office === "president") return "President of the United States (archived)";
   if (e.office === "senate") {
     const cls = e.senate_class ? ` · Class ${e.senate_class}` : "";
-    return `${e.state ?? "—"} Senate${cls}`;
+    return `${e.state ?? "—"} Senate${cls} (archived)`;
   }
-  return `${e.district_code ?? e.state ?? "—"}`;
+  return `${e.district_code ?? e.state ?? "—"} (archived)`;
 }
 
 function seatSubhead(e: DashboardElection): string {
+  if (isCityElectionOffice(e.office)) {
+    return electionSeatSubhead({ office: e.office, ward_code: e.ward_code });
+  }
   if (e.leadership_role) {
     const chamber = e.office === "house" ? "House" : "Senate";
-    return e.restricted_party
-      ? `${chamber} · ${e.restricted_party} caucus`
-      : `${chamber} chamber-wide`;
+    return `${chamber} · archived federal sim`;
   }
-  if (e.office === "president") return "Nationwide race";
-  if (e.office === "senate") return "Statewide race";
-  return "House district";
+  if (e.office === "president") return "Archived federal race";
+  if (e.office === "senate") return "Archived statewide race";
+  return "Archived House district";
 }
 
 function searchBlob(e: DashboardElection): string {
   return [
     e.office,
     e.phase,
+    e.ward_code ?? "",
     e.district_code ?? "",
     e.state ?? "",
-    e.senate_class ? `class ${e.senate_class}` : "",
-    e.leadership_role ?? "",
-    e.leadership_role ? leadershipRoleLabel(e.leadership_role as LeadershipRole) : "",
-    e.restricted_party ?? "",
-    OFFICE_LABEL[officeBucket(e)] ?? e.office,
+    OFFICE_LABEL[officeBucket(e) ?? "mayor"] ?? e.office,
+    seatHeadline(e),
+    seatSubhead(e),
   ]
     .join(" ")
     .toLowerCase();
@@ -185,20 +189,10 @@ function searchBlob(e: DashboardElection): string {
 
 function isMyRace(
   e: DashboardElection,
-  userDistrict: string | null,
-  userState: string | null,
+  _userDistrict: string | null,
+  _userState: string | null,
 ): boolean {
-  // Leadership races: everyone in the matching chamber-ish area sees them in "your ballot".
-  // We don't have role info here, so fall back to matching the chamber's geographic area.
-  if (e.leadership_role) return true;
-  if (e.office === "president") return true;
-  if (e.office === "house" && userDistrict) {
-    return e.district_code?.toUpperCase() === userDistrict.toUpperCase();
-  }
-  if (e.office === "senate" && userState) {
-    return (e.state ?? "").toUpperCase() === userState.toUpperCase();
-  }
-  return false;
+  return e.office === "mayor" || e.office === "council_ward";
 }
 
 /**
@@ -236,7 +230,7 @@ function RaceCard({
             {tone.badgeLabel}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
-            {OFFICE_LABEL[officeBucket(e)] ?? e.office}
+            {OFFICE_LABEL[officeBucket(e) ?? "mayor"] ?? e.office}
           </span>
           {hero ? (
             <span className="ml-auto rounded bg-[var(--psc-ink)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
@@ -319,14 +313,9 @@ function ChamberSection({
   if (!races.length) return null;
 
   const sorted = [...races].sort((a, b) => {
-    if (office === "leadership") {
-      const ak = a.leadership_role ?? "";
-      const bk = b.leadership_role ?? "";
-      if (ak !== bk) return ak.localeCompare(bk);
-      return (a.restricted_party ?? "").localeCompare(b.restricted_party ?? "");
-    }
-    const ac = a.district_code ?? a.state ?? "";
-    const bc = b.district_code ?? b.state ?? "";
+    if (office === "mayor") return 0;
+    const ac = a.ward_code ?? "";
+    const bc = b.ward_code ?? "";
     return ac.localeCompare(bc);
   });
 
@@ -368,19 +357,15 @@ export function ElectionsDashboard({
 
   const phaseCounts: Record<Phase, number> = { filing: 0, primary: 0, general: 0 };
   const officeCounts: Record<Office, number> = {
-    house: 0,
-    senate: 0,
-    president: 0,
-    leadership: 0,
+    mayor: 0,
+    council_ward: 0,
   };
   for (const e of elections) {
     if ((PHASES as readonly string[]).includes(e.phase)) {
       phaseCounts[e.phase as Phase]++;
     }
     const bucket = officeBucket(e);
-    if ((OFFICES as readonly string[]).includes(bucket)) {
-      officeCounts[bucket]++;
-    }
+    if (bucket) officeCounts[bucket]++;
   }
 
   const filtered = useMemo(() => {
@@ -397,7 +382,7 @@ export function ElectionsDashboard({
     const byOffice = new Map<Office, DashboardElection[]>();
     for (const e of filtered) {
       const key = officeBucket(e);
-      if (!OFFICES.includes(key)) continue;
+      if (!key) continue;
       const list = byOffice.get(key) ?? [];
       list.push(e);
       byOffice.set(key, list);
@@ -412,8 +397,8 @@ export function ElectionsDashboard({
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
           <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
             {showAllElections
-              ? `${elections.length} active race${elections.length === 1 ? "" : "s"} — browse every open contest.`
-              : `${elections.length} active race${elections.length === 1 ? "" : "s"} across House, Senate, and President.`}
+              ? `${elections.length} active race${elections.length === 1 ? "" : "s"} — browse every open contest in ${NYC_CITY_NAME}.`
+              : `${elections.length} active race${elections.length === 1 ? "" : "s"} for mayor and city council.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -424,6 +409,13 @@ export function ElectionsDashboard({
         </div>
       </header>
 
+      {phaseCounts.primary > 0 ? (
+        <section className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+          <strong>Citywide primaries.</strong> Every NYC player votes in each council district primary
+          for their party — open every race below to cast your ballot.
+        </section>
+      ) : null}
+
       {/* Your ballot: hero cards */}
       {myRaces.length ? (
         <section className="space-y-3">
@@ -432,9 +424,8 @@ export function ElectionsDashboard({
               Your ballot
             </h2>
             <span className="text-[10px] text-[var(--psc-muted)]">
-              {userDistrict ? `District ${userDistrict}` : ""}
-              {userDistrict && userState ? " · " : ""}
-              {userState ? `State ${userState}` : ""}
+              {userDistrict ? councilDistrictLabel(userDistrict) : ""}
+              {userDistrict ? ` · ${NYC_CITY_NAME}` : NYC_CITY_NAME}
             </span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -445,14 +436,7 @@ export function ElectionsDashboard({
         </section>
       ) : (
         <section className="rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-canvas)]/60 p-4 text-xs text-[var(--psc-muted)]">
-          Set your{" "}
-          <Link
-            href="/character"
-            className="font-semibold text-[var(--psc-accent)] underline"
-          >
-            Character
-          </Link>{" "}
-          home district and residence state to pin your own races at the top.
+          No active city races right now. Staff can open the next wave from Admin → Elections → City sim.
         </section>
       )}
 
@@ -461,7 +445,7 @@ export function ElectionsDashboard({
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
-            placeholder="Search state or district (e.g. CA-12)…"
+            placeholder="Search mayor or council district…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="min-w-0 flex-1 rounded border border-[var(--psc-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--psc-accent)] sm:min-w-[20rem] sm:flex-initial"
@@ -503,17 +487,12 @@ export function ElectionsDashboard({
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--psc-muted)]">
-              Chamber
+              Office
             </span>
             <FilterChip
               active={officeFilter === "all"}
               onClick={() => setOfficeFilter("all")}
-              count={
-                officeCounts.house +
-                officeCounts.senate +
-                officeCounts.president +
-                officeCounts.leadership
-              }
+              count={officeCounts.mayor + officeCounts.council_ward}
             >
               All
             </FilterChip>

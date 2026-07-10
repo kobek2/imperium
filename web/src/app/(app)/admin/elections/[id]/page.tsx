@@ -14,6 +14,7 @@ import {
   endPrimarySelectWinners,
   finalizePresident,
   recertifyPresidentElectoralWinner,
+  recertifySeatElectionWinner,
   reapplyPresidentRoleTransitions,
   setCandidateCampaignPoints,
   setElectionPhase,
@@ -24,9 +25,9 @@ import {
 } from "@/lib/campaign-speeches";
 import {
   isLeadershipRole,
-  leadershipRoleLabel,
   type LeadershipRole,
 } from "@/lib/leadership";
+import { electionOfficeLabel, electionSeatLabel } from "@/lib/election-seat-label";
 
 type CandidateRow = {
   id: string;
@@ -37,6 +38,7 @@ type CandidateRow = {
   created_at?: string | null;
   is_npc?: boolean | null;
   npc_name?: string | null;
+  npc_synthetic_votes?: number | null;
 };
 
 type ProfileRow = {
@@ -152,7 +154,9 @@ export default async function AdminElectionDetailPage({
 
   const { data: candidates } = await supabase
     .from("election_candidates")
-    .select("id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name")
+    .select(
+      "id, user_id, party, campaign_points_total, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes",
+    )
     .eq("election_id", id)
     .order("id", { ascending: true });
 
@@ -299,11 +303,15 @@ export default async function AdminElectionDetailPage({
       : null;
   const winnerParty = winnerProfile?.party ?? winnerNpcCandidate?.party ?? null;
 
-  const seatLabel = election.leadership_role
-    ? `${leadershipRoleLabel(election.leadership_role as LeadershipRole)}${
-        election.restricted_party ? ` · ${election.restricted_party} caucus` : ""
-      }`
-    : (election.district_code ?? election.state ?? "Nationwide");
+  const seatLabel = electionSeatLabel({
+    office: election.office,
+    state: election.state,
+    district_code: election.district_code,
+    ward_code: (election as { ward_code?: string | null }).ward_code ?? null,
+    senate_class: (election as { senate_class?: number | null }).senate_class ?? null,
+    leadership_role: election.leadership_role,
+    restricted_party: (election as { restricted_party?: string | null }).restricted_party ?? null,
+  });
 
   const sortedCandidates = [...candList].sort((a, b) => {
     // primary winners first, then general vote count desc, then filing order (id asc)
@@ -343,9 +351,8 @@ export default async function AdminElectionDetailPage({
           </Link>
         </div>
         <div>
-          <h2 className="text-2xl font-semibold">
-            {election.office.toUpperCase()} · {seatLabel}
-          </h2>
+          <h2 className="text-2xl font-semibold">{seatLabel}</h2>
+          <p className="mt-0.5 text-sm text-[var(--psc-muted)]">{electionOfficeLabel(election.office)}</p>
           {winnerLabel ? (
             <p className="mt-1 text-sm text-emerald-900">
               Certified winner: <strong>{winnerLabel}</strong>
@@ -550,6 +557,31 @@ export default async function AdminElectionDetailPage({
           </div>
         ) : null}
 
+        {election.phase === "closed" &&
+        (election.office === "house" ||
+          election.office === "senate" ||
+          election.office === "council_ward" ||
+          election.office === "mayor") ? (
+          <div className="border-t border-[var(--psc-border)] pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
+              Recertify seat winner
+            </p>
+            <p className="mt-1 max-w-xl text-xs text-[var(--psc-muted)]">
+              Recomputes the winner from campaign points and district lean only. Use this if an NPC was
+              certified ahead of a player with more visible campaign points.
+            </p>
+            <form action={recertifySeatElectionWinner} className="mt-2">
+              <input type="hidden" name="election_id" value={id} />
+              <SubmitButton
+                pendingLabel="Recertifying…"
+                className="border border-green-900 bg-green-950 px-3 py-2 text-xs font-semibold uppercase text-white transition hover:brightness-110"
+              >
+                Recertify from scores
+              </SubmitButton>
+            </form>
+          </div>
+        ) : null}
+
         {election.phase === "primary" ? (
           <div className="border-t border-[var(--psc-border)] pt-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--psc-muted)]">
@@ -596,7 +628,8 @@ export default async function AdminElectionDetailPage({
                 ? profile!.face_claim_url!
                 : null;
               const primaryVotes = primaryCountsByCandidate.get(c.id) ?? 0;
-              const generalVotes = generalCountsByCandidate.get(c.id) ?? 0;
+              const synthVotes = Math.max(0, Number(c.npc_synthetic_votes ?? 0));
+              const generalVotes = (generalCountsByCandidate.get(c.id) ?? 0) + synthVotes;
               const speeches = speechCountsByCandidate.get(c.id) ?? 0;
               const rallies = rallyCountsByCandidate.get(c.id) ?? 0;
               const endorsements = endorsementCountsByCandidate.get(c.id) ?? 0;
@@ -684,7 +717,10 @@ export default async function AdminElectionDetailPage({
 
                   <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                     <Stat label="Primary votes" value={primaryVotes} />
-                    <Stat label="General votes" value={generalVotes} />
+                    <Stat
+                      label={synthVotes > 0 ? "General votes (incl. NPC)" : "General votes"}
+                      value={generalVotes}
+                    />
                     <Stat label="Campaign pts" value={Number(c.campaign_points_total ?? 0)} />
                     <Stat label="Speeches" value={speeches} />
                     <Stat label="Rallies" value={rallies} />

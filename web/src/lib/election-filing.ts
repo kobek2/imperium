@@ -21,6 +21,10 @@ export type ActiveCandidacySlots = {
   hasCongress: boolean;
   /** User has an active filing in a presidential race. */
   hasPresident: boolean;
+  /** User has an active city council ward filing. */
+  hasCouncilWard: boolean;
+  /** User has an active mayor filing. */
+  hasMayor: boolean;
 };
 
 function isActiveSeatElection(e: {
@@ -40,9 +44,11 @@ const ACTIVE_ELECTION_PHASE_PRIORITY: Record<string, number> = {
 };
 
 const ACTIVE_ELECTION_OFFICE_PRIORITY: Record<string, number> = {
-  house: 3,
-  senate: 3,
-  president: 2,
+  council_ward: 4,
+  mayor: 3,
+  house: 2,
+  senate: 2,
+  president: 1,
 };
 
 /** Best active seat/president race to open when the player visits `/elections`. */
@@ -83,7 +89,7 @@ export async function loadActiveCandidacySlots(
 ): Promise<ActiveCandidacySlots> {
   const { data: myCands } = await supabase.from("election_candidates").select("election_id").eq("user_id", userId);
   const eids = [...new Set((myCands ?? []).map((c) => c.election_id))];
-  if (!eids.length) return { hasCongress: false, hasPresident: false };
+  if (!eids.length) return { hasCongress: false, hasPresident: false, hasCouncilWard: false, hasMayor: false };
 
   // Leadership races don't consume a "congressional seat" filing slot — filing for Speaker
   // shouldn't prevent you from filing for a House seat the same cycle. Select
@@ -96,6 +102,8 @@ export async function loadActiveCandidacySlots(
   return {
     hasCongress: active.some((e) => e.office === "house" || e.office === "senate"),
     hasPresident: active.some((e) => e.office === "president"),
+    hasCouncilWard: active.some((e) => e.office === "council_ward"),
+    hasMayor: active.some((e) => e.office === "mayor"),
   };
 }
 
@@ -105,13 +113,30 @@ export async function loadActiveCandidacySlots(
  */
 export function getFilingEligibilityMessage(
   office: string,
-  election: { state: string | null; district_code: string | null },
+  election: { state: string | null; district_code: string | null; ward_code?: string | null },
   profile: ProfileSeatFields | null,
   active: ActiveCandidacySlots,
 ): string | null {
   const p = candidacyPartyFromProfile(profile?.party);
   if (!p) {
     return "Set your party on the Character page before filing. You can change party there any time.";
+  }
+
+  if (office === "council_ward") {
+    if (!String(election.ward_code ?? "").trim()) {
+      return "This council race has no ward configured; ask an admin to fix it.";
+    }
+    if (active.hasCouncilWard) {
+      return "You are already filed in an active council ward race. Withdraw that filing first.";
+    }
+    return null;
+  }
+
+  if (office === "mayor") {
+    if (active.hasMayor) {
+      return "You are already filed in an active mayor race.";
+    }
+    return null;
   }
 
   if (office === "house") {

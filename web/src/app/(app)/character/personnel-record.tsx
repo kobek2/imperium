@@ -48,7 +48,7 @@ export function PersonnelRecord({
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--psc-border)] pb-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[var(--psc-muted)]">
-            Federal personnel record
+            City personnel record
           </p>
           <h1
             id="personnel-record-heading"
@@ -64,7 +64,7 @@ export function PersonnelRecord({
           <ProfileImageWithFallback
             src={profile.face_claim_url}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-24 w-24 items-center justify-center text-2xl font-semibold text-[var(--psc-muted)]"
           />
         </div>

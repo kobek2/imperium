@@ -5,6 +5,8 @@
 
 const FLOOR_SCHEDULERS = new Set([
   "admin",
+  "council_spokesperson",
+  "mayor",
   "speaker",
   "house_deputy",
   "house_majority_leader",
@@ -14,7 +16,8 @@ const FLOOR_SCHEDULERS = new Set([
   "senate_majority_whip",
 ]);
 
-const PRESIDENT_OFFICE = new Set(["admin", "president"]);
+const MAYOR_OFFICE = new Set(["admin", "mayor"]);
+const PRESIDENT_OFFICE = new Set(["admin", "president", "mayor"]);
 
 const VP_TIE = new Set(["admin", "vice_president"]);
 
@@ -36,6 +39,10 @@ export function canAdvanceLegislation(roleKeys: string[]): boolean {
 
 export function canActAsPresident(roleKeys: string[]): boolean {
   return roleKeys.some((k) => PRESIDENT_OFFICE.has(k));
+}
+
+export function canActAsMayor(roleKeys: string[]): boolean {
+  return roleKeys.some((k) => MAYOR_OFFICE.has(k));
 }
 
 export function canCastSenateTiebreaker(roleKeys: string[]): boolean {

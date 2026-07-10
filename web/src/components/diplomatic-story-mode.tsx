@@ -36,7 +36,7 @@ function DialogueCard({
           <ProfileImageWithFallback
             src={portraitUrl}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-full w-full items-center justify-center text-xl font-semibold text-[var(--psc-muted)]"
           />
         </div>

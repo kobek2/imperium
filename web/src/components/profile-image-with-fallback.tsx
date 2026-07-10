@@ -3,16 +3,37 @@
 import { useCallback, useState } from "react";
 
 function initialsFromName(name: string) {
-  const raw = (name ?? "").trim();
+  const raw = (name ?? "")
+    .trim()
+    .replace(/\s*\([^)]*\)\s*$/g, "")
+    .trim();
   if (!raw) return "?";
   const parts = raw.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
+export type ProfileImageVariant = "default" | "portrait";
+
+const IMAGE_CLASS: Record<ProfileImageVariant, string> = {
+  default: "h-full w-full object-cover object-center",
+  portrait: "h-full w-full object-cover object-top",
+};
+
+/** Fixed-aspect frame for headshots — pair with `ProfileImageWithFallback variant="portrait"`. */
+export function portraitFrameClassName(
+  aspect: "square" | "3/4" | "4/3" = "3/4",
+  extra?: string,
+): string {
+  const aspectClass =
+    aspect === "square" ? "aspect-square" : aspect === "4/3" ? "aspect-[4/3]" : "aspect-[3/4]";
+  return ["w-full overflow-hidden bg-[var(--psc-canvas)]", aspectClass, extra].filter(Boolean).join(" ");
+}
+
 type ProfileImageBodyProps = {
   src: string;
   name: string;
+  variant?: ProfileImageVariant;
   className?: string;
   initialClassName?: string;
 };
@@ -21,7 +42,8 @@ type ProfileImageBodyProps = {
 function ProfileImageBody({
   src,
   name,
-  className = "h-full w-full object-cover",
+  variant = "default",
+  className,
   initialClassName = "flex h-full w-full items-center justify-center text-3xl font-semibold tracking-wide text-[var(--psc-muted)]",
 }: ProfileImageBodyProps) {
   const [failed, setFailed] = useState(false);
@@ -41,7 +63,7 @@ function ProfileImageBody({
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      className={className}
+      className={className ?? IMAGE_CLASS[variant]}
       onError={onError}
     />
   );
@@ -50,6 +72,8 @@ function ProfileImageBody({
 type ProfileImageWithFallbackProps = {
   src: string | null;
   name: string;
+  /** `portrait` anchors faces at the top — use for NPC/directory headshots. */
+  variant?: ProfileImageVariant;
   className?: string;
   initialClassName?: string;
 };
@@ -61,6 +85,7 @@ type ProfileImageWithFallbackProps = {
 export function ProfileImageWithFallback({
   src,
   name,
+  variant = "default",
   className,
   initialClassName,
 }: ProfileImageWithFallbackProps) {
@@ -83,6 +108,7 @@ export function ProfileImageWithFallback({
       key={trimmed}
       src={trimmed}
       name={name}
+      variant={variant}
       className={className}
       initialClassName={initialClassName}
     />

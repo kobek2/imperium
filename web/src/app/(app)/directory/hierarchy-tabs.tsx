@@ -17,16 +17,24 @@ type RoleRow = {
 export type LawEntry = {
   id: string;
   title: string;
-  originating_chamber: "house" | "senate";
   signed_at: string | null;
   created_at: string;
-  author_id: string;
-  author_name: string | null;
-  author_party: string | null;
-  house_yea: number;
-  house_nay: number;
-  senate_yea: number;
-  senate_nay: number;
+  source: "bill" | "ordinance";
+  /** Legacy federal-style bills routed through the bills table. */
+  originating_chamber?: "house" | "senate";
+  author_id?: string;
+  author_name?: string | null;
+  author_party?: string | null;
+  house_yea?: number;
+  house_nay?: number;
+  senate_yea?: number;
+  senate_nay?: number;
+  /** City ordinance proposals signed by the mayor. */
+  category?: string;
+  stance_label?: string;
+  council_yea?: number;
+  council_nay?: number;
+  sponsor_name?: string | null;
 };
 
 export type DirectoryTab = {
@@ -56,9 +64,7 @@ function seatLabel(h: DirectoryHolder) {
 }
 
 /**
- * The hero banner at the top of each tab — dark navy gradient styled to read as a federal
- * masthead. Kept presentational (no external image asset) so we don't have to wire up
- * remote-image allowlists in next.config.
+ * The hero banner at the top of each tab — dark navy gradient styled as a city hall masthead.
  */
 function DirectoryHero({ title, kicker }: { title: string; kicker?: string }) {
   return (
@@ -80,7 +86,7 @@ function DirectoryHero({ title, kicker }: { title: string; kicker?: string }) {
 
 /**
  * Big horizontal "leader" card — large portrait on the left, role title and bio on the right.
- * Used for the headline holder(s) of a branch (e.g. President, Speaker, Chief Justice).
+ * Used for the headline holder(s) of a branch (e.g. Mayor, Council Spokesperson).
  */
 function FeaturedHolder({
   holder,
@@ -117,7 +123,7 @@ function FeaturedHolder({
           <ProfileImageWithFallback
             src={photo}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]"
           />
         </Link>
@@ -126,7 +132,7 @@ function FeaturedHolder({
           <ProfileImageWithFallback
             src={photo}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-full w-full items-center justify-center text-5xl font-semibold tracking-wide text-[var(--psc-muted)]"
           />
         </div>
@@ -318,8 +324,7 @@ export function HierarchyTabs({ tabs }: { tabs: DirectoryTab[] }) {
             } else {
               // Leadership roles: still show a vacant slot so people know the post exists.
               // Rank-and-file buckets (Members) with zero holders collapse quietly instead.
-              const isRankAndFile =
-                role.role_key === "representative" || role.role_key === "senator";
+              const isRankAndFile = role.role_key === "council_member";
               if (!isRankAndFile) tiles.push({ role, holder: null });
             }
           }
@@ -378,7 +383,7 @@ function EnactedLawsSection({ title, laws }: { title: string; laws: LawEntry[] }
           {title}
         </h3>
         <p className="rounded border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)]/60 p-6 text-sm italic text-[var(--psc-muted)]">
-          No bills have been signed into law yet.
+          No local laws have been enacted yet.
         </p>
       </section>
     );
@@ -392,62 +397,107 @@ function EnactedLawsSection({ title, laws }: { title: string; laws: LawEntry[] }
         </span>
       </h3>
       <ul className="divide-y divide-[var(--psc-border)] rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]">
-        {laws.map((law) => {
-          const party = partyLabel(law.author_party);
-          const authorHref = profilePath(law.author_id);
-          const originatingLabel =
-            law.originating_chamber === "house" ? "House" : "Senate";
-          return (
-            <li key={law.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-[var(--psc-ink)]">
-                  <Link href={`/bill/${law.id}`} className="hover:underline">
-                    {law.title}
-                  </Link>
-                </p>
-                <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
-                  Authored by{" "}
-                  {authorHref ? (
-                    <Link
-                      href={authorHref}
-                      className={`font-semibold hover:underline ${party ? party.color : "text-[var(--psc-ink)]"}`}
-                    >
-                      {law.author_name ?? "Unknown"}
-                    </Link>
-                  ) : (
-                    <span className="font-semibold text-[var(--psc-ink)]">
-                      {law.author_name ?? "Unknown"}
-                    </span>
-                  )}
-                  {" · "}
-                  Originated in the {originatingLabel}
-                </p>
-                <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[var(--psc-muted)]">
-                  House {law.house_yea}–{law.house_nay} · Senate {law.senate_yea}–{law.senate_nay}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-900">
-                  Signed
-                </p>
-                {law.signed_at ? (
-                  <p className="mt-1 text-[10px] text-[var(--psc-muted)]">
-                    {new Date(law.signed_at).toLocaleDateString()}
-                  </p>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
+        {laws.map((law) =>
+          law.source === "ordinance" ? (
+            <OrdinanceLawRow key={law.id} law={law} />
+          ) : (
+            <BillLawRow key={law.id} law={law} />
+          ),
+        )}
       </ul>
     </section>
+  );
+}
+
+function BillLawRow({ law }: { law: LawEntry }) {
+  const party = partyLabel(law.author_party);
+  const authorHref = law.author_id ? profilePath(law.author_id) : null;
+  const originatingLabel =
+    law.originating_chamber === "house" ? "City Council" : "Mayor's office";
+  return (
+    <li className="flex flex-wrap items-start gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-[var(--psc-ink)]">
+          <Link href={`/bill/${law.id}`} className="hover:underline">
+            {law.title}
+          </Link>
+        </p>
+        <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+          Authored by{" "}
+          {authorHref ? (
+            <Link
+              href={authorHref}
+              className={`font-semibold hover:underline ${party ? party.color : "text-[var(--psc-ink)]"}`}
+            >
+              {law.author_name ?? "Unknown"}
+            </Link>
+          ) : (
+            <span className="font-semibold text-[var(--psc-ink)]">
+              {law.author_name ?? "Unknown"}
+            </span>
+          )}
+          {" · "}
+          Originated in the {originatingLabel}
+        </p>
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[var(--psc-muted)]">
+          Council {law.house_yea ?? 0}–{law.house_nay ?? 0} · Mayor {law.senate_yea ?? 0}–
+          {law.senate_nay ?? 0}
+        </p>
+      </div>
+      <div className="text-right">
+        <p className="rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-900">
+          Signed
+        </p>
+        {law.signed_at ? (
+          <p className="mt-1 text-[10px] text-[var(--psc-muted)]">
+            {new Date(law.signed_at).toLocaleDateString()}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function OrdinanceLawRow({ law }: { law: LawEntry }) {
+  return (
+    <li className="flex flex-wrap items-start gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-[var(--psc-ink)]">{law.title}</p>
+        <p className="mt-0.5 text-xs text-[var(--psc-muted)]">
+          {law.category ? <span className="font-semibold text-[var(--psc-ink)]">{law.category}</span> : null}
+          {law.category && law.stance_label ? " · " : null}
+          {law.stance_label ? <span>{law.stance_label}</span> : null}
+          {law.sponsor_name ? (
+            <>
+              {" · "}
+              Sponsored by <span className="font-semibold text-[var(--psc-ink)]">{law.sponsor_name}</span>
+            </>
+          ) : null}
+        </p>
+        {law.council_yea != null && law.council_nay != null ? (
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[var(--psc-muted)]">
+            Council roll call {law.council_yea}–{law.council_nay}
+          </p>
+        ) : null}
+      </div>
+      <div className="text-right">
+        <p className="rounded-full border border-green-300 bg-green-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-900">
+          Enacted
+        </p>
+        {law.signed_at ? (
+          <p className="mt-1 text-[10px] text-[var(--psc-muted)]">
+            {new Date(law.signed_at).toLocaleDateString()}
+          </p>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
 function VacantTile({ roleLabel }: { roleLabel: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-lg border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)]/50">
-      <div className="flex aspect-[4/3] w-full items-center justify-center bg-[var(--psc-canvas)] text-xs uppercase tracking-wide text-[var(--psc-muted)]">
+      <div className="flex aspect-[3/4] w-full items-center justify-center bg-[var(--psc-canvas)] text-xs uppercase tracking-wide text-[var(--psc-muted)]">
         Vacant
       </div>
       <div className="flex flex-1 flex-col gap-1 p-4">

@@ -22,16 +22,23 @@ function officeTitle(politician: {
   district_code: string | null;
   state_code: string | null;
   senate_class: number | null;
+  ward_code?: string | null;
 }) {
+  if (politician.office === "council" && politician.ward_code) {
+    return `Council Member, ${politician.ward_code}`;
+  }
+  if (politician.office === "mayor") {
+    return "Mayor of New York City";
+  }
   if (politician.office === "house" && politician.district_code) {
-    return `Representative, ${politician.district_code}`;
+    return `Representative, ${politician.district_code} (archived)`;
   }
   if (politician.office === "senate" && politician.state_code) {
     const region = simRegionByCode(politician.state_code)?.name ?? politician.state_code;
     const cls = politician.senate_class != null ? ` (Class ${politician.senate_class})` : "";
-    return `Senator, ${region}${cls}`;
+    return `Senator, ${region}${cls} (archived)`;
   }
-  return "Member of Congress";
+  return "City official";
 }
 
 export default async function SimPoliticianProfilePage({
@@ -65,7 +72,7 @@ export default async function SimPoliticianProfilePage({
           <ProfileImageWithFallback
             src={photo}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-full w-full items-center justify-center text-6xl font-semibold tracking-wide text-[var(--psc-muted)]"
           />
         </div>

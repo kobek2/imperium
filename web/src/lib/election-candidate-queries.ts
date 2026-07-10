@@ -11,10 +11,11 @@ export type ElectionCandidateListRow = {
   is_npc?: boolean | null;
   npc_name?: string | null;
   npc_synthetic_votes?: number | null;
+  sim_politician_id?: string | null;
 };
 
 const BASE =
-  "id, party, campaign_points_total, user_id, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes" as const;
+  "id, party, campaign_points_total, user_id, primary_winner, created_at, is_npc, npc_name, npc_synthetic_votes, sim_politician_id" as const;
 const WITH_MATE = `${BASE}, running_mate_user_id` as const;
 
 /** True when PostgREST/Postgres is complaining about `running_mate_user_id` (migration not applied). */

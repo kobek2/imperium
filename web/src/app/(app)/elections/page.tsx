@@ -20,6 +20,7 @@ import {
   ElectionsDashboard,
   type DashboardElection,
 } from "./elections-dashboard";
+import { isCityElectionOffice } from "@/lib/city";
 
 /** Avoid stale election rows / counts from RSC caching between navigations. */
 export const dynamic = "force-dynamic";
@@ -47,15 +48,11 @@ export default async function ElectionsPage({
 
   const primaryElectionId = await loadPrimaryActiveElectionId(supabase, user.id);
 
-  if (!showAllElections && primaryElectionId) {
-    redirect(`/elections/${primaryElectionId}`);
-  }
-
   const [{ data: elections }, { data: profile }, simSettingsRes] = await Promise.all([
     supabase
       .from("elections")
       .select(
-        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, state, senate_class, leadership_role, restricted_party, filing_window_started_at",
+        "id, office, phase, filing_opens_at, filing_closes_at, primary_closes_at, general_closes_at, district_code, ward_code, state, senate_class, leadership_role, restricted_party, filing_window_started_at",
       )
       .order("filing_opens_at", { ascending: false }),
     supabase
@@ -65,6 +62,14 @@ export default async function ElectionsPage({
       .maybeSingle(),
     supabase.from("simulation_settings").select("*").eq("id", 1).maybeSingle(),
   ]);
+
+  const cityPrimaryActive = (elections ?? []).some(
+    (e) => isCityElectionOffice(e.office) && e.phase === "primary",
+  );
+
+  if (!showAllElections && primaryElectionId && !cityPrimaryActive) {
+    redirect(`/elections/${primaryElectionId}`);
+  }
 
   const isAdmin = await getStaffMayAccessElectionsConsole();
 
@@ -79,8 +84,9 @@ export default async function ElectionsPage({
   const all = (elections ?? []) as Array<
     Omit<DashboardElection, "candidate_count">
   >;
-  /** Chamber-wide leadership (Speaker, SML, etc.) lives under Congress, not this page. */
+  /** City-only races shown on the elections hub (federal races hidden). */
   const active = all.filter((e) => {
+    if (!isCityElectionOffice(e.office)) return false;
     if (e.leadership_role) return false;
     if (e.phase === "closed") return false;
     if (
@@ -125,7 +131,7 @@ export default async function ElectionsPage({
   const onStep1 = inTour && (prof?.orientation_step ?? 1) === 1;
   // Candidacy must match any non-closed seat/president race — not leadership (Congress page).
   const nonClosedIds = all
-    .filter((e) => e.phase !== "closed" && !e.leadership_role)
+    .filter((e) => e.phase !== "closed" && !e.leadership_role && isCityElectionOffice(e.office))
     .map((e) => e.id);
   let electionsTourCanAdvance = nonClosedIds.length === 0;
   if (onStep1 && !electionsTourCanAdvance) {
@@ -179,34 +185,21 @@ export default async function ElectionsPage({
           <div>
             <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Elections</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--psc-muted)]">
-              No active races right now.
-            </p>
+            No active mayor or council races right now.
+          </p>
           </div>
           {rpDateLabel ? <RpDatePill label={rpDateLabel} /> : null}
         </header>
         <section className="border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
           <p className="text-sm text-[var(--psc-muted)]">
-            Chamber leadership races (Speaker, Senate Majority Leader, etc.) are listed on{" "}
-            <Link href="/congress" className="font-semibold text-[var(--psc-accent)] underline">
-              Congress
+            Admins can boot NYC city elections from{" "}
+            <Link
+              href="/admin/elections"
+              className="font-semibold text-[var(--psc-accent)] underline"
+            >
+              Admin → Elections
             </Link>
             .
-          </p>
-          <p className="mt-3 text-sm text-[var(--psc-muted)]">
-            {isAdmin ? (
-              <>
-                Past results are under{" "}
-                <Link
-                  href="/admin/elections?tab=archive"
-                  className="font-semibold text-[var(--psc-accent)] underline"
-                >
-                  Admin → Elections → Archive
-                </Link>
-                .
-              </>
-            ) : (
-              <>Check back when the next filing window opens.</>
-            )}
           </p>
         </section>
       </div>

@@ -8,19 +8,18 @@ import { SECTOR_BILL_MEASURES } from "@/lib/legislation-stock";
 
 function revalidateEconomy() {
   revalidatePath("/economy");
-  revalidatePath("/economy/pac");
   revalidatePath("/economy/stocks");
   revalidatePath("/economy/stocks/create");
   revalidatePath("/economy/stocks/portfolio");
   revalidatePath("/economy/stocks/trades");
   revalidatePath("/economy/stocks/market-events");
   revalidatePath("/economy/stocks/sectors");
-  revalidatePath("/congress");
-  revalidatePath("/congress/house");
-  revalidatePath("/congress/senate");
   revalidatePath("/economy/leaderboard");
   revalidatePath("/parties");
 }
+
+const PAC_DISABLED_MESSAGE =
+  "PAC fundraising is disabled this season. Use your wallet, party treasury, and campaign ads on election pages instead.";
 
 function assertPartyTreasuryKey(party: string): string | null {
   if (party === "democrat" || party === "republican") return party;
@@ -258,107 +257,16 @@ export async function applyCampaignAdFromInventory(formData: FormData): Promise<
   return applyCampaignAd(formData);
 }
 
-export async function registerPac(formData: FormData): Promise<{ ok: boolean; message: string }> {
-  const supabase = await createClient();
-  const name = String(formData.get("pac_name") ?? "").trim();
-  if (name.length < 3) return { ok: false, message: "PAC name must be at least 3 characters." };
-  const { error } = await supabase.rpc("economy_register_pac", { p_name: name, p_dark: false });
-  if (error) return { ok: false, message: error.message };
-  revalidateEconomy();
-  return { ok: true, message: `PAC "${name}" registered.` };
+export async function registerPac(_formData: FormData): Promise<{ ok: boolean; message: string }> {
+  return { ok: false, message: PAC_DISABLED_MESSAGE };
 }
 
-export async function fundPacTreasury(formData: FormData): Promise<{ ok: boolean; message: string }> {
-  const supabase = await createClient();
-  const amt = Number(String(formData.get("amount") ?? "").trim());
-  if (!Number.isFinite(amt) || amt <= 0) return { ok: false, message: "Enter a valid amount." };
-  const { data, error } = await supabase.rpc("pac_fund_treasury", { p_amount: amt });
-  if (error) return { ok: false, message: error.message };
-  const treasury = Number((data as { treasury_balance?: number })?.treasury_balance ?? 0);
-  revalidateEconomy();
-  return { ok: true, message: `Treasury now $${treasury.toLocaleString()}.` };
+export async function fundPacTreasury(_formData: FormData): Promise<{ ok: boolean; message: string }> {
+  return { ok: false, message: PAC_DISABLED_MESSAGE };
 }
 
-export async function contributePacToCandidate(formData: FormData): Promise<{ ok: boolean; message: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, message: "Not signed in." };
-
-  const combined = String(formData.get("candidacy") ?? "").trim();
-  const amt = Number(String(formData.get("amount") ?? "").trim());
-  if (!combined.includes("__")) return { ok: false, message: "Select a candidate." };
-  const [electionId, candidateId] = combined.split("__");
-  if (!electionId || !candidateId) return { ok: false, message: "Select a candidate." };
-  if (!Number.isFinite(amt) || amt < 100_000) return { ok: false, message: "Minimum contribution is $100,000." };
-
-  const { data: cmStatus } = await supabase.rpc("campaign_manager_status");
-  const cm = (cmStatus ?? {}) as { active?: boolean; election_window?: boolean; is_human_strategist?: boolean };
-  if (cm.active && cm.is_human_strategist && !cm.election_window) {
-    return {
-      ok: false,
-      message: "PAC spending is locked during the Congress cycle (noon–midnight CST). Use the War Room elections window.",
-    };
-  }
-
-  const { data: election } = await supabase
-    .from("elections")
-    .select("phase, general_closes_at, leadership_role, office")
-    .eq("id", electionId)
-    .maybeSingle();
-  if (!election) return { ok: false, message: "Election not found." };
-  if (election.leadership_role) return { ok: false, message: "PAC contributions don't apply to leadership races." };
-  if (election.phase !== "general") return { ok: false, message: "Contributions only work during the general election." };
-  if (new Date() > new Date(election.general_closes_at)) return { ok: false, message: "General election is closed." };
-
-  const targetStateRaw = String(formData.get("target_state") ?? "").trim().toUpperCase();
-  const isPresident = election.office === "president";
-  if (isPresident && !/^[A-Z]{2}$/.test(targetStateRaw)) {
-    return { ok: false, message: "Select a state for presidential PAC spending." };
-  }
-  if (!isPresident && targetStateRaw) {
-    return { ok: false, message: "State targeting applies only to presidential races." };
-  }
-
-  const { data: candidate } = await supabase
-    .from("election_candidates")
-    .select("id, user_id")
-    .eq("id", candidateId)
-    .eq("election_id", electionId)
-    .maybeSingle();
-  if (!candidate) return { ok: false, message: "Candidate not found in this race." };
-  if (candidate.user_id === user.id) return { ok: false, message: "You can't contribute to your own candidacy." };
-
-  const { data, error } = await supabase.rpc("pac_contribute_to_candidate", {
-    p_election: electionId,
-    p_candidate: candidateId,
-    p_amount: amt,
-    p_dark: false,
-    p_target_state: isPresident ? targetStateRaw : null,
-  });
-  if (error) return { ok: false, message: error.message };
-  const payload = data as {
-    campaign_points?: number;
-    target_state?: string | null;
-    disclosed_remaining?: number;
-  };
-  const pts = Number(payload.campaign_points ?? 0);
-  void supabase.rpc("rival_strategist_react_to_human").then(() => undefined);
-  revalidateEconomy();
-  revalidatePath("/elections");
-  revalidatePath("/economy/pac");
-  revalidatePath("/campaign");
-  if (electionId) revalidatePath(`/elections/${electionId}`);
-  const stateNote = isPresident && payload.target_state ? ` in ${payload.target_state}` : "";
-  const remaining =
-    typeof payload.disclosed_remaining === "number"
-      ? ` ${formatMoney(payload.disclosed_remaining)} remaining for this candidate.`
-      : "";
-  return {
-    ok: true,
-    message: `Disclosed: $${amt.toLocaleString()} → +${pts} campaign points${stateNote}.${remaining}`,
-  };
+export async function contributePacToCandidate(_formData: FormData): Promise<{ ok: boolean; message: string }> {
+  return { ok: false, message: PAC_DISABLED_MESSAGE };
 }
 
 function formatMoney(n: number): string {

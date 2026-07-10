@@ -42,14 +42,14 @@ const OVERVIEW_CARDS: OverviewCardDef[] = [
     href: "/admin/elections",
     category: "Elections",
     title: "Elections console",
-    body: "Manual race lifecycle and congress appointments.",
+    body: "Manual race lifecycle and city role appointments.",
     anyOf: ["elections", "simulation"],
   },
   {
     href: "/admin/leadership-elections",
     category: "Elections",
     title: "Leadership elections",
-    body: "Open Congress and party leadership elections from one admin module.",
+    body: "Open city council caucus and party leadership elections from one admin module.",
     anyOf: ["elections", "simulation", "parties"],
   },
   {

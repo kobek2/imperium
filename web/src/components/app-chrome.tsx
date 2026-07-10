@@ -4,7 +4,6 @@ import { ProfileQuickDock } from "./profile-quick-dock";
 import { SignOut } from "@/components/sign-out";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
 import { getStaffAccess } from "@/lib/staff-access";
-import { getCongressAttentionSnapshotForRequest } from "@/lib/congress-viewer-attention";
 import { getServerAuth } from "@/lib/supabase/server";
 
 export async function AppChrome({ children }: { children: React.ReactNode }) {
@@ -14,7 +13,6 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
   let showStaffLink = false;
   let canUseAppTabs = false;
   let needsCharacterSetup = false;
-  let congressAttention: Awaited<ReturnType<typeof getCongressAttentionSnapshotForRequest>> = null;
 
   if (supabase && user) {
     const { data: profileRow } = await supabase
@@ -39,21 +37,15 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
     showStaffLink = staffAccess?.canAccessPanel ?? false;
   }
 
-  if (supabase && user && canUseAppTabs) {
-    congressAttention = await getCongressAttentionSnapshotForRequest(supabase, user.id);
-  }
-
   const links = canUseAppTabs
     ? [
         { href: "/", label: "Home" },
-        { href: "/campaign", label: "War Room" },
         { href: "/character", label: "Character" },
         { href: "/economy", label: "Economy" },
         { href: partyNavHref, label: "Party" },
         { href: "/elections", label: "Elections" },
-        { href: "/congress", label: "Congress" },
-        { href: "/oval", label: "Oval Office" },
-        { href: "/events", label: "Newsroom" },
+        { href: "/mayor", label: "Mayor's Office" },
+        { href: "/council", label: "City Council" },
         { href: "/directory", label: "Directory" },
       ]
     : [{ href: "/imperium", label: "Imperium" }];
@@ -68,33 +60,15 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
           <nav className="flex flex-wrap gap-4 text-sm font-medium">
-            {links.map((l) => {
-              const isCongress = l.href === "/congress";
-              const voteStage = congressAttention?.congressPrimaryBadge ?? 0;
-              const showCongressBadge = isCongress && voteStage > 0;
-              return (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  className="text-[var(--psc-muted)] underline-offset-4 hover:text-[var(--psc-ink)] hover:underline"
-                >
-                  {showCongressBadge ? (
-                    <span className="relative inline-block pr-2.5">
-                      {l.label}
-                      <span
-                        title="Open floor votes — cast your ballot or close the roll (leadership)"
-                        aria-label={`Floor votes awaiting you: ${voteStage > 99 ? "99+" : voteStage}`}
-                        className="absolute -right-0.5 -top-2 z-10 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow-sm ring-1 ring-white/90"
-                      >
-                        {voteStage > 99 ? "99+" : voteStage}
-                      </span>
-                    </span>
-                  ) : (
-                    l.label
-                  )}
-                </Link>
-              );
-            })}
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="text-[var(--psc-muted)] underline-offset-4 hover:text-[var(--psc-ink)] hover:underline"
+              >
+                {l.label}
+              </Link>
+            ))}
             {showStaffLink ? (
               <Link
                 href="/admin"

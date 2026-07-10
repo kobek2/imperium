@@ -2,6 +2,13 @@
  * Display copy for the economy UI. Authoritative payout rules live in Postgres.
  */
 export const ECONOMY_CITIZEN_HOURLY = 5_000;
+/** NYC city council member hourly (display). */
+export const ECONOMY_COUNCIL_MEMBER_HOURLY = 45_000;
+/** NYC mayor hourly (display). */
+export const ECONOMY_MAYOR_HOURLY = 95_000;
+/** Council Spokesperson stipend add-on. */
+export const ECONOMY_COUNCIL_SPOKESPERSON_ADDON_HOURLY = 12_000;
+/** @deprecated Federal sim */
 export const ECONOMY_REPRESENTATIVE_HOURLY = 142_000;
 export const ECONOMY_SPEAKER_ADDON_HOURLY = 90_000;
 export const ECONOMY_SENATOR_HOURLY = 165_000;

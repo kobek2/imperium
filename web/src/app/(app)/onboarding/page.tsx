@@ -48,10 +48,10 @@ export default async function OnboardingPage() {
           Create your character
         </h1>
         <p className="max-w-2xl text-sm text-[var(--psc-muted)]">
-          Before you can use the home page, Congress, elections, or the directory, finish this
-          record with your <strong>name</strong>, <strong>date of birth</strong>, <strong>party</strong>,{" "}
-          <strong>home state</strong>, and <strong>congressional district</strong>. Biography fields
-          are optional and you can edit everything later under Character.
+          Before you can use the home page, elections, or the directory, finish this record with your{" "}
+          <strong>name</strong>, <strong>date of birth</strong>, <strong>party</strong>,{" "}
+          <strong>home borough region</strong>, and <strong>council district (W01–W07)</strong>.
+          Biography fields are optional and you can edit everything later under Character.
         </p>
       </header>
       <CharacterForm profile={profile} variant="onboarding" />

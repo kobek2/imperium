@@ -1,4 +1,5 @@
 import { ProfileCard, ProfileCardBadge, profilePath } from "@/components/profile-card";
+import { simPoliticianDirectoryId } from "@/lib/sim-politicians-roster";
 import { SubmitButton } from "@/components/submit-button";
 import {
   castGeneralVote,
@@ -23,6 +24,8 @@ import {
   formatCampaignAdSpendUsd,
 } from "@/lib/campaign-ad-stats";
 import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
+import { isCityElectionOffice, electionSeatSubhead } from "@/lib/city";
+import { electionOfficeLabel, electionSeatLabel } from "@/lib/election-seat-label";
 import { CampaignAdForm } from "./campaign-ad-form";
 import { WithdrawFilingForm } from "./withdraw-filing-form";
 import { ElectionPacFilings } from "@/components/election-pac-filings";
@@ -33,6 +36,7 @@ type ElectionRow = {
   office: string;
   state: string | null;
   district_code: string | null;
+  ward_code?: string | null;
   senate_class?: number | null;
   phase: string;
   filing_opens_at: string;
@@ -65,6 +69,7 @@ type CandRow = {
   is_npc?: boolean | null;
   npc_name?: string | null;
   npc_synthetic_votes?: number | null;
+  sim_politician_id?: string | null;
 };
 
 type CandidateCardFields = {
@@ -137,13 +142,28 @@ function displayName(
   card: CandidateCardFields | undefined,
   nameBy: Record<string, string>,
 ) {
-  if (cand.is_npc && cand.npc_name?.trim()) {
-    return `${cand.npc_name.trim()} (NPC)`;
+  if (cand.is_npc) {
+    return card?.character_name?.trim() || cand.npc_name?.trim() || "NPC";
   }
   const userId = cand.user_id;
   if (!userId) return "NPC";
   const n = card?.character_name?.trim() || nameBy[userId]?.trim();
   return n || userId.slice(0, 8);
+}
+
+function candidateCardFor(
+  cand: CandRow,
+  byUserId: Record<string, CandidateCardFields>,
+  byCandidateId: Record<string, CandidateCardFields>,
+): CandidateCardFields | undefined {
+  if (cand.user_id) return byUserId[cand.user_id];
+  return byCandidateId[cand.id];
+}
+
+function candidateProfileId(cand: CandRow): string | null {
+  if (cand.user_id) return cand.user_id;
+  if (cand.sim_politician_id) return simPoliticianDirectoryId(cand.sim_politician_id);
+  return null;
 }
 
 function AdSpendFeedSection({
@@ -324,10 +344,12 @@ function CandidateCard({
     </div>
   );
 
+  const profileId = candidateProfileId(cand);
+
   return (
     <ProfileCard
       profile={{
-        id: cand.user_id,
+        id: profileId,
         character_name: name,
         face_claim_url: card?.face_claim_url ?? null,
         party: cand.party,
@@ -338,9 +360,14 @@ function CandidateCard({
       emphasizeParty={emphasizeParty}
       selected={selected}
       winner={isWinner}
-      badges={badges}
+      badges={
+        <>
+          {badges}
+          {cand.is_npc ? <ProfileCardBadge tone="leading">NPC</ProfileCardBadge> : null}
+        </>
+      }
       footer={footer}
-      href={profilePath(cand.user_id) ?? undefined}
+      href={profilePath(profileId) ?? undefined}
     />
   );
 }
@@ -447,7 +474,7 @@ function SpreadBar({
           Projected vote
         </h3>
         <span className="text-[10px] text-[var(--psc-muted)]">
-          Point share from campaign totals
+          Point share (activity + ward lean)
         </span>
       </div>
       <div className="flex h-7 w-full overflow-hidden rounded-full border border-[var(--psc-border)] bg-[var(--psc-canvas)]">
@@ -518,6 +545,8 @@ function CampaignPanel({
       : myCandidate.party === "republican"
         ? districtLeanBonus(partisanLean, "republican")
         : 0;
+  const activityPts = Number(myCandidate.campaign_points_total ?? 0);
+  const projectedPts = Math.max(0, activityPts + leanForMe);
 
   return (
     <section className="space-y-4 border-2 border-[var(--psc-accent)]/40 bg-[var(--psc-panel)] p-5 shadow-sm">
@@ -545,7 +574,7 @@ function CampaignPanel({
             {leanForMe ? (
               <>
                 {" "}
-                · Starting lean {leanForMe > 0 ? "+" : ""}
+                · Ward lean {leanForMe > 0 ? "+" : ""}
                 {leanForMe.toFixed(1)} pts
               </>
             ) : null}
@@ -559,10 +588,12 @@ function CampaignPanel({
             Rallies: <strong className="text-[var(--psc-ink)]">{rallyCount}</strong>
           </span>
           <span>
-            Total points:{" "}
-            <strong className="text-[var(--psc-ink)]">
-              {Number(myCandidate.campaign_points_total ?? 0).toFixed(1)}
-            </strong>
+            Activity pts:{" "}
+            <strong className="text-[var(--psc-ink)]">{activityPts.toFixed(1)}</strong>
+          </span>
+          <span>
+            Projected:{" "}
+            <strong className="text-[var(--psc-ink)]">{projectedPts.toFixed(1)}</strong>
           </span>
         </div>
       </div>
@@ -607,9 +638,11 @@ type ShareMode = "none" | "primary" | "general";
 function PartyGroupedCandidates({
   candidates,
   electionOffice,
-  card,
+  candidateCardByUserId,
+  candidateCardByCandidateId,
   nameBy,
   winnerUserId,
+  winnerCandidateId,
   userId,
   primaryTally,
   generalShareById,
@@ -630,9 +663,11 @@ function PartyGroupedCandidates({
 }: {
   candidates: CandRow[];
   electionOffice: string;
-  card: Record<string, CandidateCardFields>;
+  candidateCardByUserId: Record<string, CandidateCardFields>;
+  candidateCardByCandidateId: Record<string, CandidateCardFields>;
   nameBy: Record<string, string>;
   winnerUserId: string | null;
+  winnerCandidateId: string | null;
   userId: string;
   primaryTally: Record<string, number>;
   generalShareById: Record<string, number>;
@@ -759,14 +794,19 @@ function PartyGroupedCandidates({
                 const effectiveLeaderId =
                   shareMode === "primary" ? primaryLeaderId : leaderCandidateId;
 
+                const fields = candidateCardFor(c, candidateCardByUserId, candidateCardByCandidateId);
+
                 return (
                   <li key={c.id}>
                     <CandidateCard
                       cand={c}
-                      card={c.user_id ? card[c.user_id] : undefined}
-                      name={displayName(c, c.user_id ? card[c.user_id] : undefined, nameBy)}
+                      card={fields}
+                      name={displayName(c, fields, nameBy)}
                       isYou={c.user_id === userId}
-                      isWinner={winnerUserId === c.user_id}
+                      isWinner={
+                        (c.user_id !== null && winnerUserId === c.user_id) ||
+                        winnerCandidateId === c.id
+                      }
                       isLeader={effectiveLeaderId === c.id}
                       share={share}
                       shareLabel={shareLabel}
@@ -796,6 +836,7 @@ export function ElectionDetail({
   candidates,
   nameBy,
   candidateCardByUserId,
+  candidateCardByCandidateId,
   primaryTally,
   generalTally,
   myPrimaryCandidateId,
@@ -830,6 +871,7 @@ export function ElectionDetail({
   candidates: CandRow[];
   nameBy: Record<string, string>;
   candidateCardByUserId: Record<string, CandidateCardFields>;
+  candidateCardByCandidateId: Record<string, CandidateCardFields>;
   primaryTally: Record<string, number>;
   generalTally: Record<string, number>;
   myPrimaryCandidateId: string | null;
@@ -917,7 +959,10 @@ export function ElectionDetail({
     }));
 
   const primaryPartyRestricted =
-    election.primary_party_wide === false && election.office !== "president";
+    election.primary_party_wide === false &&
+    election.office !== "president" &&
+    !isCityElectionOffice(election.office);
+  const isCityRace = isCityElectionOffice(election.office);
   const primaryOpenForPartyOnly = profileParty ?? null;
 
   // Leadership races: plain plurality share (no PVI, no campaign points). Seat/pres races: point-share only
@@ -949,7 +994,24 @@ export function ElectionDetail({
 
   const seatLabel = isLeadership
     ? leadershipMeta!.label
-    : (election.district_code ?? election.state ?? "United States");
+    : electionSeatLabel({
+        office: election.office,
+        state: election.state,
+        district_code: election.district_code,
+        ward_code: election.ward_code ?? null,
+        senate_class: election.senate_class,
+        leadership_role: election.leadership_role,
+        restricted_party: election.restricted_party,
+      });
+
+  const seatSubhead = isLeadership
+    ? null
+    : isCityElectionOffice(election.office)
+      ? electionSeatSubhead({
+          office: election.office,
+          ward_code: election.ward_code ?? null,
+        })
+      : null;
 
   const meta = partyMeta(profileParty ?? "");
   const candidateById = new Map(candidates.map((c) => [c.id, c]));
@@ -964,8 +1026,8 @@ export function ElectionDetail({
           </span>
           <span className="text-xs text-[var(--psc-muted)]">
             {isLeadership
-              ? `${election.office.toUpperCase()} · LEADERSHIP`
-              : election.office.toUpperCase()}
+              ? `${electionOfficeLabel(election.office)} · Leadership`
+              : electionOfficeLabel(election.office)}
           </span>
           {isLeadership && leadershipMeta?.restricted_party ? (
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${partyMeta(leadershipMeta.restricted_party).pill}`}>
@@ -979,6 +1041,7 @@ export function ElectionDetail({
           ) : null}
         </div>
         <h1 className="text-2xl font-semibold">{seatLabel}</h1>
+        {seatSubhead ? <p className="text-sm text-[var(--psc-muted)]">{seatSubhead}</p> : null}
         {viewerIsIncumbentForThisSenateSeat ? (
           <div className="rounded-lg border-2 border-amber-600/60 bg-amber-50 px-4 py-3 text-amber-950">
             <p className="text-sm font-semibold">Run for re-election</p>
@@ -1118,9 +1181,11 @@ export function ElectionDetail({
             <PartyGroupedCandidates
               candidates={candidates}
               electionOffice={election.office}
-              card={candidateCardByUserId}
+              candidateCardByUserId={candidateCardByUserId}
+              candidateCardByCandidateId={candidateCardByCandidateId}
               nameBy={nameBy}
               winnerUserId={election.winner_user_id}
+              winnerCandidateId={election.winner_candidate_id ?? null}
               userId={userId}
               primaryTally={primaryTally}
               generalShareById={generalShareById}
@@ -1151,12 +1216,24 @@ export function ElectionDetail({
             <p className="mt-1 text-sm text-[var(--psc-muted)]">
               Your party is{" "}
               <strong>{partyMeta(profileParty ?? "").label}</strong>. Party members vote for
-              their nominee. Win the primary to replace your party&apos;s NPC placeholder on
-              the general ballot — the other party&apos;s NPC always runs in November.
-              {primaryPartyRestricted ? (
-                <> This primary is limited to players whose Character record matches this seat.</>
+              their nominee.
+              {isCityRace ? (
+                <>
+                  {" "}
+                  All NYC players vote in every council primary — open each district race from the{" "}
+                  <strong>Elections</strong> hub. NPC incumbents only file when nobody else does.
+                </>
               ) : (
-                <> This primary is open party-wide.</>
+                <>
+                  {" "}
+                  Win the primary to replace your party&apos;s NPC placeholder on the general
+                  ballot.
+                  {primaryPartyRestricted ? (
+                    <> This primary is limited to players whose Character record matches this seat.</>
+                  ) : (
+                    <> This primary is open party-wide.</>
+                  )}
+                </>
               )}
             </p>
           </div>
@@ -1179,7 +1256,11 @@ export function ElectionDetail({
                       {partyMeta(npc.party).label}
                     </span>
                     <span className="ml-2 font-medium text-[var(--psc-ink)]">
-                      {displayName(npc, candidateCardByUserId[npc.user_id ?? ""], nameBy)}
+                      {displayName(
+                        npc,
+                        candidateCardFor(npc, candidateCardByUserId, candidateCardByCandidateId),
+                        nameBy,
+                      )}
                     </span>
                     <span className="ml-2 text-xs text-[var(--psc-muted)]">
                       {Math.round(Number(npc.campaign_points_total ?? 0))} pts baseline
@@ -1192,9 +1273,11 @@ export function ElectionDetail({
           <PartyGroupedCandidates
             candidates={primaryPlayerCandidates}
             electionOffice={election.office}
-            card={candidateCardByUserId}
+            candidateCardByUserId={candidateCardByUserId}
+            candidateCardByCandidateId={candidateCardByCandidateId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}
+            winnerCandidateId={election.winner_candidate_id ?? null}
             userId={userId}
             primaryTally={primaryTally}
             generalShareById={generalShareById}
@@ -1265,9 +1348,11 @@ export function ElectionDetail({
           <PartyGroupedCandidates
             candidates={generalCandidates}
             electionOffice={election.office}
-            card={candidateCardByUserId}
+            candidateCardByUserId={candidateCardByUserId}
+            candidateCardByCandidateId={candidateCardByCandidateId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}
+            winnerCandidateId={election.winner_candidate_id ?? null}
             userId={userId}
             primaryTally={primaryTally}
             generalShareById={generalShareById}
@@ -1386,9 +1471,11 @@ export function ElectionDetail({
           <PartyGroupedCandidates
             candidates={candidates}
             electionOffice={election.office}
-            card={candidateCardByUserId}
+            candidateCardByUserId={candidateCardByUserId}
+            candidateCardByCandidateId={candidateCardByCandidateId}
             nameBy={nameBy}
             winnerUserId={election.winner_user_id}
+            winnerCandidateId={election.winner_candidate_id ?? null}
             userId={userId}
             primaryTally={primaryTally}
             generalShareById={generalShareById}

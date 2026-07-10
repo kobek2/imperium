@@ -29,7 +29,7 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-900/70">Career recognition</p>
-            <h2 className="mt-1 text-xl font-bold tracking-tight text-[var(--psc-ink)] md:text-2xl">Your Washington receipt</h2>
+            <h2 className="mt-1 text-xl font-bold tracking-tight text-[var(--psc-ink)] md:text-2xl">Your city hall receipt</h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--psc-muted)]">
               A compact award slip for what you have earned in the sim—office, purse, political capital, races, and bills
               shipped into law.
@@ -114,8 +114,8 @@ export function HomeCareerStats({ stats }: { stats: HomeCareerStats }) {
             vetoed
           </p>
           <div className="mt-4">
-            <NavRouteButton href="/congress" className="px-2 py-1.5 text-xs">
-              Congress
+            <NavRouteButton href="/mayor" className="px-2 py-1.5 text-xs">
+              Mayor&apos;s Office
             </NavRouteButton>
           </div>
         </div>

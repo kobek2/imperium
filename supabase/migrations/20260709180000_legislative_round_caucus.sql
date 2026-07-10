@@ -136,7 +136,7 @@ security definer
 set search_path = public
 as $$
 begin
-  delete from public.campaign_caucus_members;
+  delete from public.campaign_caucus_members where true;
 
   insert into public.campaign_caucus_members (sim_politician_id, chamber, party, seat_label, sort_order)
   select sp.id, 'house', sp.party, sub.code, sub.rn::smallint
@@ -325,32 +325,32 @@ declare
   sim public.simulation_settings;
   rnd record;
   mem record;
-  role_key text := lower(trim(coalesce(p_role, '')));
+  v_role_key text := lower(trim(coalesce(p_role, '')));
   cst date := public._campaign_cst_today();
 begin
   sim := public._require_human_strategist();
   select * into rnd from public.legislative_rounds
   where cst_date = cst and phase = 'leadership' order by created_at desc limit 1;
   if rnd.id is null then raise exception 'No round in leadership phase'; end if;
-  if role_key not in ('speaker', 'house_majority_leader', 'house_minority_leader') then
+  if v_role_key not in ('speaker', 'house_majority_leader', 'house_minority_leader') then
     raise exception 'Invalid leadership role';
   end if;
   select * into mem from public.campaign_caucus_members
   where sim_politician_id = p_sim_politician_id and chamber = 'house';
   if mem.sim_politician_id is null then raise exception 'Not a house caucus member'; end if;
   if mem.party <> sim.human_strategist_party then raise exception 'Nominee must be from your party'; end if;
-  if role_key = 'house_majority_leader' and rnd.house_majority_party is distinct from sim.human_strategist_party then
+  if v_role_key = 'house_majority_leader' and rnd.house_majority_party is distinct from sim.human_strategist_party then
     raise exception 'Your party is not the House majority';
   end if;
-  if role_key = 'house_minority_leader' and rnd.house_majority_party = sim.human_strategist_party then
+  if v_role_key = 'house_minority_leader' and rnd.house_majority_party = sim.human_strategist_party then
     raise exception 'Your party is not the House minority';
   end if;
 
-  delete from public.legislative_round_leadership
-  where round_id = rnd.id and role_key = role_key and party = sim.human_strategist_party;
+  delete from public.legislative_round_leadership lr
+  where lr.round_id = rnd.id and lr.role_key = v_role_key and lr.party = sim.human_strategist_party;
   insert into public.legislative_round_leadership (round_id, role_key, sim_politician_id, party)
-  values (rnd.id, role_key, p_sim_politician_id, sim.human_strategist_party);
-  return jsonb_build_object('ok', true, 'role', role_key);
+  values (rnd.id, v_role_key, p_sim_politician_id, sim.human_strategist_party);
+  return jsonb_build_object('ok', true, 'role', v_role_key);
 end;
 $$;
 

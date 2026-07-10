@@ -38,7 +38,7 @@ export async function completeWelcomeTour(): Promise<void> {
 
   revalidatePath("/elections");
   revalidatePath("/economy");
-  revalidatePath("/congress");
+  revalidatePath("/mayor");
   revalidatePath("/");
   redirect("/");
 }
@@ -54,7 +54,7 @@ export async function advanceFromElectionStep(): Promise<void> {
   if (state?.orientation_completed_at) redirect("/");
   const step = state?.orientation_step ?? 1;
   if (step !== 1) {
-    redirect(step === 2 ? "/economy" : step === 3 ? "/congress" : "/elections");
+    redirect(step === 2 ? "/economy" : step === 3 ? "/mayor" : "/elections");
   }
 
   const { data: elections } = await supabase
@@ -100,7 +100,7 @@ export async function advanceFromEconomyStep(): Promise<void> {
   if (state?.orientation_completed_at) redirect("/");
   const st = state?.orientation_step ?? 1;
   if (st !== 2) {
-    redirect(st === 1 ? "/elections" : st === 3 ? "/congress" : "/elections");
+    redirect(st === 1 ? "/elections" : st === 3 ? "/mayor" : "/elections");
   }
 
   const { count } = await supabase
@@ -118,11 +118,11 @@ export async function advanceFromEconomyStep(): Promise<void> {
   if (error) throw new Error(error.message);
 
   revalidatePath("/economy");
-  revalidatePath("/congress");
-  redirect("/congress");
+  revalidatePath("/mayor");
+  redirect("/mayor");
 }
 
-export async function finishOrientationFromCongress(): Promise<void> {
+export async function finishOrientationFromCityHall(): Promise<void> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -146,7 +146,12 @@ export async function finishOrientationFromCongress(): Promise<void> {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/congress");
+  revalidatePath("/mayor");
   revalidatePath("/");
   redirect("/");
+}
+
+/** @deprecated Use finishOrientationFromCityHall */
+export async function finishOrientationFromCongress(): Promise<void> {
+  return finishOrientationFromCityHall();
 }

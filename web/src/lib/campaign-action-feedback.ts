@@ -29,12 +29,12 @@ export function emptyCampaignActionResult(): CampaignActionResult {
 
 export function formatCampaignActionResult(result: CampaignActionResult): string {
   const parts: string[] = [
-    `${result.action_label} (+${formatPts(result.action_points_awarded)} pts).`,
+    `${result.action_label} (+${formatPts(result.action_points_awarded)} activity pts).`,
   ];
 
   const net = result.player_points_delta;
   parts.push(
-    `Net for you: ${net >= 0 ? "+" : ""}${formatPts(net)} pts` +
+    `Campaign total ${net >= 0 ? "+" : ""}${formatPts(net)} pts` +
       (result.opponent_points_delta !== 0
         ? ` · Opponent ${result.opponent_points_delta >= 0 ? "+" : ""}${formatPts(result.opponent_points_delta)} pts`
         : ""),

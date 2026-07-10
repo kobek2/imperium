@@ -30,9 +30,14 @@ function roleLabel(key: string | null | undefined): string | null {
     .join(" ");
 }
 
+import { councilDistrictByCode } from "@/lib/city";
+
 function seatLine(profile: { home_district_code: string | null; residence_state: string | null }) {
-  const d = (profile.home_district_code ?? "").trim();
-  if (d) return `House district ${d}`;
+  const d = (profile.home_district_code ?? "").trim().toUpperCase();
+  if (/^W\d{2}$/.test(d)) {
+    const ward = councilDistrictByCode(d);
+    return ward ? `Council district ${d} · ${ward.name}` : `Council district ${d}`;
+  }
   const s = (profile.residence_state ?? "").trim().toUpperCase();
   if (s) return `Residence ${s}`;
   return null;
@@ -153,7 +158,7 @@ export default async function ProfilePage({
           <ProfileImageWithFallback
             src={photo}
             name={name}
-            className="h-full w-full object-cover"
+            variant="portrait"
             initialClassName="flex h-full w-full items-center justify-center text-6xl font-semibold tracking-wide text-[var(--psc-muted)]"
           />
         </div>

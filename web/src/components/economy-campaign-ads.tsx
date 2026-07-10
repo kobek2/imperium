@@ -103,7 +103,6 @@ export function EconomyCampaignAds({
       </ul>
 
       <div className="flex flex-wrap gap-2">
-        <NavRouteButton href="/economy/pac">PAC</NavRouteButton>
         <NavRouteButton href="/elections">Elections</NavRouteButton>
       </div>
     </section>

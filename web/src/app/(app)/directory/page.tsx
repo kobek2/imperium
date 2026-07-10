@@ -1,18 +1,16 @@
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { POLITICAL_ROLE_LABELS } from "@/config/political-roles";
-import { CABINET_APPOINTMENT_ROLE_KEYS } from "@/config/cabinet-appointment-roles";
+import { POLITICAL_ROLE_LABELS, CITY_ROLE_KEYS } from "@/config/political-roles";
 import { getServerAuth } from "@/lib/supabase/server";
-import { getPlaceholderForRole, mergeAssociateJusticeHolders } from "@/lib/directory-placeholders";
+import { getPlaceholderForRole } from "@/lib/directory-placeholders";
 import type { DirectoryHolder } from "@/lib/directory-types";
 import {
-  loadSeatedHousePoliticians,
-  loadSeatedSenatePoliticians,
+  loadDepartmentHeadHolders,
+  loadSeatedCouncilPoliticians,
   loadSimLeadershipHolders,
-  mergeSenateDirectory,
+  mergeCouncilDirectory,
 } from "@/lib/sim-politicians";
-import { mergeHouseDirectory } from "@/lib/congress-composition";
-import { RegionsDistrictsMap } from "@/components/regions-districts-map";
+import { loadEnactedOrdinancesForDirectory } from "@/lib/city-office-data";
 import {
   HierarchyTabs,
   type DirectoryTab,
@@ -86,11 +84,8 @@ async function loadDirectoryGrantsAndProfiles(supabase: SupabaseClient): Promise
 export const dynamic = "force-dynamic";
 
 /**
- * Each tab is a branch/chamber of government. Sections inside a tab render either as a
- * "featured" big-card block (for principal roles like President, Speaker, Pres Pro Tempore,
- * Chief Justice) or as a "grid" of smaller portrait cards (for leadership and rank-and-file).
- *
- * Keep role_key lists in this file and the presentation in hierarchy-tabs.tsx.
+ * NYC city government tabs. Sections render as featured big-cards (Mayor, Council Spokesperson)
+ * or grid portrait cards (council districts, department heads).
  */
 type DirectoryTabConfig = {
   id: string;
@@ -105,74 +100,44 @@ type DirectoryTabSection =
   | { kind: "grid"; title: string; roleKeys: string[]; maxSlots?: number }
   | { kind: "enacted_laws"; title: string };
 
+const DEPT_ROLE_KEYS = CITY_ROLE_KEYS.filter((k) => k.startsWith("dept_"));
+
 const TABS: DirectoryTabConfig[] = [
   {
-    id: "white-house",
-    label: "White House",
-    heroTitle: "White House",
+    id: "city-hall",
+    label: "City Hall",
+    heroTitle: "City Hall",
     heroKicker: "Executive Branch",
     sections: [
-      { kind: "featured", roleKeys: ["president", "vice_president"] },
-      {
-        kind: "grid",
-        title: "Cabinet",
-        roleKeys: [...CABINET_APPOINTMENT_ROLE_KEYS],
-      },
-      { kind: "enacted_laws", title: "Bills signed into law" },
+      { kind: "featured", roleKeys: ["mayor"] },
+      { kind: "enacted_laws", title: "Local laws enacted" },
     ],
   },
   {
-    id: "house",
-    label: "House",
-    heroTitle: "House of Representatives",
+    id: "city-council",
+    label: "City Council",
+    heroTitle: "New York City Council",
     heroKicker: "Legislative Branch",
     sections: [
-      { kind: "featured", roleKeys: ["speaker"] },
+      { kind: "featured", roleKeys: ["council_spokesperson"] },
       {
         kind: "grid",
-        title: "Leadership",
-        roleKeys: [
-          "house_majority_leader",
-          "house_majority_whip",
-          "house_minority_leader",
-          "house_minority_whip",
-        ],
+        title: "Council members (W01–W07)",
+        roleKeys: ["council_member"],
+        maxSlots: 7,
       },
-      { kind: "grid", title: "Members", roleKeys: ["representative"] },
     ],
   },
   {
-    id: "senate",
-    label: "Senate",
-    heroTitle: "United States Senate",
-    heroKicker: "Legislative Branch",
+    id: "city-departments",
+    label: "City Departments",
+    heroTitle: "City Departments",
+    heroKicker: "Agency Leadership",
     sections: [
-      { kind: "featured", roleKeys: ["president_pro_tempore"] },
       {
         kind: "grid",
-        title: "Leadership",
-        roleKeys: [
-          "senate_majority_leader",
-          "senate_majority_whip",
-          "senate_minority_leader",
-          "senate_minority_whip",
-        ],
-      },
-      { kind: "grid", title: "Members", roleKeys: ["senator"] },
-    ],
-  },
-  {
-    id: "scotus",
-    label: "SCOTUS",
-    heroTitle: "Supreme Court",
-    heroKicker: "Judicial Branch",
-    sections: [
-      { kind: "featured", roleKeys: ["chief_justice"] },
-      {
-        kind: "grid",
-        title: "Associate Justices",
-        roleKeys: ["associate_justice"],
-        maxSlots: 8,
+        title: "Department heads",
+        roleKeys: [...DEPT_ROLE_KEYS],
       },
     ],
   },
@@ -190,18 +155,19 @@ export default async function DirectoryPage() {
 
   if (!user) redirect("/login");
 
-  const [{ grants, profiles }, { data: lawBills }, seatedHouse, seatedSenate, simLeadership] =
+  const [{ grants, profiles }, { data: lawBills }, seatedCouncil, simLeadership, departmentHeads, enactedOrdinances] =
     await Promise.all([
-    loadDirectoryGrantsAndProfiles(supabase),
-    supabase
-      .from("bills")
-      .select("id, title, originating_chamber, created_at, signed_at, author_id")
-      .eq("status", "law")
-      .order("signed_at", { ascending: false, nullsFirst: false }),
-    loadSeatedHousePoliticians(supabase),
-    loadSeatedSenatePoliticians(supabase),
-    loadSimLeadershipHolders(supabase),
-  ]);
+      loadDirectoryGrantsAndProfiles(supabase),
+      supabase
+        .from("bills")
+        .select("id, title, originating_chamber, created_at, signed_at, author_id")
+        .eq("status", "law")
+        .order("signed_at", { ascending: false, nullsFirst: false }),
+      loadSeatedCouncilPoliticians(supabase),
+      loadSimLeadershipHolders(supabase),
+      loadDepartmentHeadHolders(supabase),
+      loadEnactedOrdinancesForDirectory(supabase),
+    ]);
 
   const lawBillRows = (lawBills ?? []) as Array<{
     id: string;
@@ -212,7 +178,6 @@ export default async function DirectoryPage() {
     author_id: string;
   }>;
 
-  // Only go fetch vote tallies if there are actually enacted laws to annotate.
   const lawTallies = new Map<
     string,
     { house_yea: number; house_nay: number; senate_yea: number; senate_nay: number }
@@ -281,6 +246,11 @@ export default async function DirectoryPage() {
   for (const p of profiles) {
     if (p.office_role) addHolder(p.office_role, p.id);
   }
+  for (const [roleKey, holder] of departmentHeads) {
+    const bucket = holdersByRole.get(roleKey) ?? new Map<string, DirectoryHolder>();
+    bucket.set(holder.id, holder);
+    holdersByRole.set(roleKey, bucket);
+  }
 
   const getRealHolders = (roleKey: string) =>
     [...(holdersByRole.get(roleKey)?.values() ?? [])].sort((a, b) =>
@@ -291,42 +261,55 @@ export default async function DirectoryPage() {
 
   function holdersForDirectory(roleKey: string, maxSlots?: number): DirectoryHolder[] {
     const real = getRealHolders(roleKey);
-    if (roleKey === "representative") {
-      const merged = mergeHouseDirectory(real, seatedHouse);
-      return merged.length > 0 ? merged : real;
-    }
-    if (roleKey === "senator") {
-      const merged = mergeSenateDirectory(real, seatedSenate);
-      return merged.length > 0 ? merged : real;
+    if (roleKey === "council_member") {
+      const merged = mergeCouncilDirectory(real, seatedCouncil);
+      if (merged.length > 0) return merged;
+      return real;
     }
     if (real.length > 0) return real;
     const simHolder = simLeadership.get(roleKey);
     if (simHolder) return [simHolder];
-    if (roleKey === "associate_justice" && maxSlots != null && maxSlots > 0) {
-      return mergeAssociateJusticeHolders(real, maxSlots);
-    }
     const ph = getPlaceholderForRole(roleKey);
     return ph ? [ph] : [];
   }
 
-  const laws: LawEntry[] = lawBillRows.map((b) => {
-    const tally = lawTallies.get(b.id);
-    const author = profileById.get(b.author_id);
-    return {
-      id: b.id,
-      title: b.title,
-      originating_chamber: b.originating_chamber,
-      signed_at: b.signed_at,
-      created_at: b.created_at,
-      author_id: b.author_id,
-      author_name:
-        author?.character_name?.trim() || author?.discord_username?.trim() || null,
-      author_party: author?.party ?? null,
-      house_yea: tally?.house_yea ?? 0,
-      house_nay: tally?.house_nay ?? 0,
-      senate_yea: tally?.senate_yea ?? 0,
-      senate_nay: tally?.senate_nay ?? 0,
-    };
+  const laws: LawEntry[] = [
+    ...lawBillRows.map((b) => {
+      const tally = lawTallies.get(b.id);
+      const author = profileById.get(b.author_id);
+      return {
+        id: b.id,
+        title: b.title,
+        source: "bill" as const,
+        originating_chamber: b.originating_chamber,
+        signed_at: b.signed_at,
+        created_at: b.created_at,
+        author_id: b.author_id,
+        author_name:
+          author?.character_name?.trim() || author?.discord_username?.trim() || null,
+        author_party: author?.party ?? null,
+        house_yea: tally?.house_yea ?? 0,
+        house_nay: tally?.house_nay ?? 0,
+        senate_yea: tally?.senate_yea ?? 0,
+        senate_nay: tally?.senate_nay ?? 0,
+      };
+    }),
+    ...enactedOrdinances.map((o) => ({
+      id: o.id,
+      title: o.title,
+      source: "ordinance" as const,
+      signed_at: o.enactedAt,
+      created_at: o.createdAt,
+      category: o.categoryLabel,
+      stance_label: o.stanceLabel,
+      council_yea: o.councilYeas,
+      council_nay: o.councilNays,
+      sponsor_name: o.sponsorName,
+    })),
+  ].sort((a, b) => {
+    const aTime = new Date(a.signed_at ?? a.created_at).getTime();
+    const bTime = new Date(b.signed_at ?? b.created_at).getTime();
+    return bTime - aTime;
   });
 
   const tabs: DirectoryTab[] = TABS.map((tab) => ({
@@ -368,7 +351,6 @@ export default async function DirectoryPage() {
   return (
     <div className="space-y-10">
       <DirectoryHashScroll />
-      <RegionsDistrictsMap title="National regions and House districts" />
       <HierarchyTabs tabs={tabs} />
     </div>
   );

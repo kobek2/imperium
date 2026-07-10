@@ -9,19 +9,19 @@ as $$
 declare
   sim record;
   rnd record;
-  role_key text;
+  v_role_key text;
   pick uuid;
 begin
   select * into sim from public.simulation_settings where id = 1;
   select * into rnd from public.legislative_rounds where id = p_round;
 
-  foreach role_key in array array['speaker', 'house_majority_leader', 'house_minority_leader'] loop
+  foreach v_role_key in array array['speaker', 'house_majority_leader', 'house_minority_leader'] loop
     if exists (
       select 1 from public.legislative_round_leadership lr
-      where lr.round_id = p_round and lr.role_key = role_key and lr.party = sim.rival_strategist_party
+      where lr.round_id = p_round and lr.role_key = v_role_key and lr.party = sim.rival_strategist_party
     ) then continue; end if;
-    if role_key = 'house_majority_leader' and rnd.house_majority_party is distinct from sim.rival_strategist_party then continue; end if;
-    if role_key = 'house_minority_leader' and rnd.house_majority_party = sim.rival_strategist_party then continue; end if;
+    if v_role_key = 'house_majority_leader' and rnd.house_majority_party is distinct from sim.rival_strategist_party then continue; end if;
+    if v_role_key = 'house_minority_leader' and rnd.house_majority_party = sim.rival_strategist_party then continue; end if;
 
     select cm.sim_politician_id into pick
     from public.campaign_caucus_members cm
@@ -31,7 +31,7 @@ begin
 
     if pick is not null then
       insert into public.legislative_round_leadership (round_id, role_key, sim_politician_id, party)
-      values (p_round, role_key, pick, sim.rival_strategist_party);
+      values (p_round, v_role_key, pick, sim.rival_strategist_party);
     end if;
   end loop;
 end;
@@ -45,38 +45,38 @@ set search_path = public
 as $$
 declare
   sim record;
-  role_key text;
+  v_role_key text;
   winner uuid;
   win_party text;
 begin
   select * into sim from public.simulation_settings where id = 1;
   perform public._rival_nominate_leadership(p_round);
 
-  foreach role_key in array array['speaker', 'house_majority_leader', 'house_minority_leader'] loop
+  foreach v_role_key in array array['speaker', 'house_majority_leader', 'house_minority_leader'] loop
     winner := null;
     select lr.sim_politician_id, lr.party into winner, win_party
     from public.legislative_round_leadership lr
     join public.sim_politicians sp on sp.id = lr.sim_politician_id
-    where lr.round_id = p_round and lr.role_key = role_key
+    where lr.round_id = p_round and lr.role_key = v_role_key
     order by sp.political_capital desc, random() limit 1;
 
     if winner is null then continue; end if;
 
-    update public.legislative_round_leadership set won = false
-    where round_id = p_round and role_key = role_key;
-    update public.legislative_round_leadership set won = true
-    where round_id = p_round and role_key = role_key and sim_politician_id = winner;
+    update public.legislative_round_leadership lr set won = false
+    where lr.round_id = p_round and lr.role_key = v_role_key;
+    update public.legislative_round_leadership lr set won = true
+    where lr.round_id = p_round and lr.role_key = v_role_key and lr.sim_politician_id = winner;
 
     perform public._apply_sim_politician_capital(winner, 5, 'Leadership win');
-    delete from public.sim_government_role_grants where role_key = role_key;
+    delete from public.sim_government_role_grants g where g.role_key = v_role_key;
     insert into public.sim_government_role_grants (sim_politician_id, role_key)
-    values (winner, role_key)
+    values (winner, v_role_key)
     on conflict (role_key) do update set sim_politician_id = excluded.sim_politician_id;
 
     if win_party = sim.human_strategist_party and sim.human_strategist_user_id is not null then
       perform public.apply_political_capital_once(
         sim.human_strategist_user_id, 3, 'Caucus leadership win',
-        'leadership_round', p_round::text || ':' || role_key
+        'leadership_round', p_round::text || ':' || v_role_key
       );
     elsif win_party = sim.rival_strategist_party then
       update public.simulation_settings
@@ -150,7 +150,7 @@ declare
   sim public.simulation_settings;
   rnd record;
   mem record;
-  bill_id uuid;
+  v_bill_id uuid;
   title text := trim(coalesce(p_title, ''));
   body text := trim(coalesce(p_summary, ''));
   cst date := public._campaign_cst_today();
@@ -171,16 +171,16 @@ begin
   insert into public.legislative_round_bills (
     round_id, party, sponsor_sim_politician_id, title, summary, originating_chamber
   ) values (rnd.id, sim.human_strategist_party, p_sponsor_sim, title, body, 'house')
-  returning id into bill_id;
+  returning id into v_bill_id;
 
   update public.legislative_rounds
-  set human_proposal_submitted = true, active_bill_id = bill_id, last_phase_at = now()
+  set human_proposal_submitted = true, active_bill_id = v_bill_id, last_phase_at = now()
   where id = rnd.id;
 
   perform public._apply_sim_politician_capital(p_sponsor_sim, 2, 'Filed round bill');
   perform public._rival_propose_round_bill(rnd.id);
 
-  return jsonb_build_object('ok', true, 'bill_id', bill_id);
+  return jsonb_build_object('ok', true, 'bill_id', v_bill_id);
 end;
 $$;
 
@@ -448,7 +448,7 @@ as $$
 declare
   sim public.simulation_settings;
   rnd record;
-  bill_id uuid;
+  v_bill_id uuid;
   res jsonb;
   pres_party text;
   bill record;
@@ -459,7 +459,7 @@ begin
   where cst_date = cst and phase <> 'completed' order by created_at desc limit 1;
   if rnd.id is null then raise exception 'No active legislative round'; end if;
 
-  bill_id := rnd.active_bill_id;
+  v_bill_id := rnd.active_bill_id;
 
   if rnd.phase = 'leadership' then
     perform public._resolve_legislative_leadership(rnd.id);
@@ -468,25 +468,27 @@ begin
   elsif rnd.phase = 'proposals' then
     if not rnd.human_proposal_submitted then raise exception 'Propose your bill first'; end if;
     if not rnd.rival_proposal_submitted then perform public._rival_propose_round_bill(rnd.id); end if;
-    if bill_id is null then raise exception 'Select an active bill'; end if;
-    delete from public.legislative_round_vote_overrides where round_id = rnd.id and bill_id = bill_id;
-    perform public._rival_whip_caucus(rnd.id, bill_id, 'house');
+    if v_bill_id is null then raise exception 'Select an active bill'; end if;
+    delete from public.legislative_round_vote_overrides vo
+    where vo.round_id = rnd.id and vo.bill_id = v_bill_id;
+    perform public._rival_whip_caucus(rnd.id, v_bill_id, 'house');
     update public.legislative_rounds set phase = 'house_vote', last_phase_at = now() where id = rnd.id;
     return jsonb_build_object('ok', true, 'phase', 'house_vote');
 
   elsif rnd.phase = 'house_vote' then
-    res := public._resolve_chamber_votes(rnd.id, bill_id, 'house');
+    res := public._resolve_chamber_votes(rnd.id, v_bill_id, 'house');
     if not (res->>'passed')::boolean then
       update public.legislative_rounds set phase = 'completed', completed_at = now() where id = rnd.id;
       return jsonb_build_object('ok', true, 'phase', 'completed', 'result', 'failed_house', 'tally', res);
     end if;
-    delete from public.legislative_round_vote_overrides where round_id = rnd.id and bill_id = bill_id;
-    perform public._rival_whip_caucus(rnd.id, bill_id, 'senate');
+    delete from public.legislative_round_vote_overrides vo
+    where vo.round_id = rnd.id and vo.bill_id = v_bill_id;
+    perform public._rival_whip_caucus(rnd.id, v_bill_id, 'senate');
     update public.legislative_rounds set phase = 'senate_vote', last_phase_at = now() where id = rnd.id;
     return jsonb_build_object('ok', true, 'phase', 'senate_vote', 'house', res);
 
   elsif rnd.phase = 'senate_vote' then
-    res := public._resolve_chamber_votes(rnd.id, bill_id, 'senate');
+    res := public._resolve_chamber_votes(rnd.id, v_bill_id, 'senate');
     if not (res->>'passed')::boolean then
       update public.legislative_rounds set phase = 'completed', completed_at = now() where id = rnd.id;
       return jsonb_build_object('ok', true, 'phase', 'completed', 'result', 'failed_senate', 'tally', res);
@@ -495,23 +497,23 @@ begin
     return jsonb_build_object('ok', true, 'phase', 'presidential', 'senate', res);
 
   elsif rnd.phase = 'presidential' then
-    select * into bill from public.legislative_round_bills where id = bill_id;
+    select * into bill from public.legislative_round_bills where id = v_bill_id;
     pres_party := public._president_control_party();
     if pres_party = bill.party then
-      update public.legislative_round_bills set signed = true where id = bill_id;
+      update public.legislative_round_bills set signed = true where id = v_bill_id;
       perform public._apply_sim_politician_capital(bill.sponsor_sim_politician_id, 8, 'Law enacted');
       if bill.party = sim.human_strategist_party then
         perform public.apply_political_capital_once(
           sim.human_strategist_user_id, 10, 'Enacted ' || bill.title,
-          'round_law', bill_id::text
+          'round_law', v_bill_id::text
         );
       else
         update public.simulation_settings set rival_strategist_political_capital = rival_strategist_political_capital + 10 where id = 1;
       end if;
-      perform public._rival_strategist_log('law_signed', format('"%s" signed into law.', bill.title), jsonb_build_object('bill_id', bill_id));
+      perform public._rival_strategist_log('law_signed', format('"%s" signed into law.', bill.title), jsonb_build_object('bill_id', v_bill_id));
     else
-      update public.legislative_round_bills set vetoed = true where id = bill_id;
-      perform public._rival_strategist_log('law_vetoed', format('"%s" vetoed.', bill.title), jsonb_build_object('bill_id', bill_id));
+      update public.legislative_round_bills set vetoed = true where id = v_bill_id;
+      perform public._rival_strategist_log('law_vetoed', format('"%s" vetoed.', bill.title), jsonb_build_object('bill_id', v_bill_id));
     end if;
     update public.legislative_rounds set phase = 'completed', completed_at = now() where id = rnd.id;
     return jsonb_build_object('ok', true, 'phase', 'completed', 'president_party', pres_party, 'signed', pres_party = bill.party);

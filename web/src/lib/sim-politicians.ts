@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { NYC_COUNCIL_DISTRICT_CODES } from "@/lib/city";
 import type { DirectoryHolder } from "@/lib/directory-types";
 import {
   simPoliticianDirectoryId,
@@ -6,6 +7,9 @@ import {
 } from "@/lib/sim-politicians-roster";
 
 export type { SimPoliticianRow };
+
+const SIM_POLITICIAN_SELECT =
+  "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class, ward_code" as const;
 
 function toDirectoryHolder(p: SimPoliticianRow): DirectoryHolder {
   return {
@@ -15,8 +19,8 @@ function toDirectoryHolder(p: SimPoliticianRow): DirectoryHolder {
     party: p.party,
     bio: p.bio,
     face_claim_url: p.face_claim_url,
-    residence_state: p.state_code,
-    home_district_code: p.district_code,
+    residence_state: p.office === "mayor" || p.office === "department_head" ? "MB" : p.state_code,
+    home_district_code: p.ward_code ?? p.district_code,
     isPlaceholder: false,
   };
 }
@@ -26,9 +30,7 @@ export async function loadSimPoliticians(
 ): Promise<SimPoliticianRow[]> {
   const { data, error } = await supabase
     .from("sim_politicians")
-    .select(
-      "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class",
-    )
+    .select(SIM_POLITICIAN_SELECT)
     .order("office", { ascending: true })
     .order("district_code", { ascending: true, nullsFirst: false })
     .order("state_code", { ascending: true, nullsFirst: false })
@@ -48,9 +50,7 @@ export async function loadSimPoliticianById(
 ): Promise<SimPoliticianRow | null> {
   const { data, error } = await supabase
     .from("sim_politicians")
-    .select(
-      "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class",
-    )
+    .select(SIM_POLITICIAN_SELECT)
     .eq("id", id)
     .maybeSingle();
 
@@ -87,9 +87,7 @@ export async function loadSeatedHousePoliticians(
 
   const { data: politicians, error: pErr } = await supabase
     .from("sim_politicians")
-    .select(
-      "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class",
-    )
+    .select(SIM_POLITICIAN_SELECT)
     .in("id", ids);
 
   if (pErr) {
@@ -136,9 +134,7 @@ export async function loadSeatedSenatePoliticians(
 
   const { data: politicians, error: pErr } = await supabase
     .from("sim_politicians")
-    .select(
-      "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class",
-    )
+    .select(SIM_POLITICIAN_SELECT)
     .in("id", ids);
 
   if (pErr) {
@@ -163,6 +159,108 @@ export async function loadSeatedSenatePoliticians(
       residence_state: row.state_code,
       senate_class: row.senate_class,
     } as DirectoryHolder & { senate_class?: number });
+  }
+  return out;
+}
+
+/** Seated council members from ward roster links (W01–W07). */
+export async function loadSeatedCouncilPoliticians(
+  supabase: SupabaseClient,
+): Promise<DirectoryHolder[]> {
+  const { data: wards, error: wErr } = await supabase
+    .from("wards")
+    .select("code, incumbent_politician_id")
+    .not("incumbent_politician_id", "is", null)
+    .order("code");
+
+  if (wErr) {
+    console.warn("[sim-politicians] seated council wards:", wErr.message);
+    return [];
+  }
+
+  const ids = [
+    ...new Set(
+      (wards ?? [])
+        .map((w) => (w as { incumbent_politician_id: string | null }).incumbent_politician_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (!ids.length) return [];
+
+  const { data: politicians, error: pErr } = await supabase
+    .from("sim_politicians")
+    .select(SIM_POLITICIAN_SELECT)
+    .in("id", ids);
+
+  if (pErr) {
+    console.warn("[sim-politicians] seated council politicians:", pErr.message);
+    return [];
+  }
+
+  const byId = new Map(
+    ((politicians ?? []) as SimPoliticianRow[]).map((p) => [p.id, toDirectoryHolder(p)]),
+  );
+  const out: DirectoryHolder[] = [];
+  for (const ward of wards ?? []) {
+    const row = ward as { code: string; incumbent_politician_id: string };
+    const holder = byId.get(row.incumbent_politician_id);
+    if (!holder) continue;
+    out.push({
+      ...holder,
+      home_district_code: row.code,
+    });
+  }
+  return out;
+}
+
+export function councilWardKey(h: { home_district_code: string | null }): string {
+  return (h.home_district_code ?? "").trim().toUpperCase();
+}
+
+/** Player-held wards override roster incumbents; output is sorted W01–W07. */
+export function mergeCouncilDirectory(
+  playerHolders: DirectoryHolder[],
+  rosterHolders: DirectoryHolder[],
+): DirectoryHolder[] {
+  const byWard = new Map<string, DirectoryHolder>();
+  for (const h of rosterHolders) {
+    const w = councilWardKey(h);
+    if (w) byWard.set(w, h);
+  }
+  for (const h of playerHolders) {
+    const w = councilWardKey(h);
+    if (w) byWard.set(w, h);
+  }
+  return NYC_COUNCIL_DISTRICT_CODES.map((code) => byWard.get(code)).filter(
+    (h): h is DirectoryHolder => Boolean(h),
+  );
+}
+
+const DEPT_KEYS = ["finance", "police", "public_works", "parks", "planning"] as const;
+
+/** NPC department heads appointed by the mayor (city_department_heads). */
+export async function loadDepartmentHeadHolders(
+  supabase: SupabaseClient,
+): Promise<Map<string, DirectoryHolder>> {
+  const { data, error } = await supabase
+    .from("city_department_heads")
+    .select(
+      "department_key, sim_politician_id, sim_politicians(id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class, ward_code)",
+    )
+    .in("department_key", [...DEPT_KEYS]);
+
+  if (error) {
+    console.warn("[sim-politicians] department heads:", error.message);
+    return new Map();
+  }
+
+  const out = new Map<string, DirectoryHolder>();
+  for (const row of data ?? []) {
+    const deptKey = (row as { department_key: string }).department_key;
+    const raw = (row as { sim_politicians: SimPoliticianRow | SimPoliticianRow[] | null }).sim_politicians;
+    const sp = (Array.isArray(raw) ? raw[0] : raw) as SimPoliticianRow | null | undefined;
+    if (!sp) continue;
+    out.set(`dept_${deptKey}`, toDirectoryHolder(sp));
   }
   return out;
 }
@@ -231,9 +329,7 @@ export async function loadSimLeadershipHolders(
 
   const { data: politicians, error: pErr } = await supabase
     .from("sim_politicians")
-    .select(
-      "id, slug, character_name, party, bio, face_claim_url, office, district_code, state_code, senate_class",
-    )
+    .select(SIM_POLITICIAN_SELECT)
     .in("id", ids);
 
   if (pErr) {

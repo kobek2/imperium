@@ -59,7 +59,7 @@ export default async function LeaderboardPage() {
               <th className="px-4 py-2">#</th>
               <th className="px-4 py-2">Member</th>
               <th className="px-4 py-2">Party</th>
-              <th className="px-4 py-2">Seat</th>
+              <th className="px-4 py-2">District</th>
               <th className="px-4 py-2">Approval</th>
               <th className="px-4 py-2">Recent</th>
             </tr>
@@ -68,7 +68,8 @@ export default async function LeaderboardPage() {
             {list.map((r, idx) => {
               const hist = (Array.isArray(r.approval_history) ? r.approval_history : []) as Hist;
               const last5 = hist.slice(-5);
-              const chamber = r.home_district_code ? "House" : "Senate";
+              const ward = (r.home_district_code ?? "").trim().toUpperCase();
+              const seat = /^W\d{2}$/.test(ward) ? ward : r.home_district_code ? ward : "Citywide";
               const rating = Math.round(Number(r.approval_rating ?? 50));
               return (
                 <tr key={r.id} className="border-b border-[var(--psc-border)]">
@@ -79,7 +80,7 @@ export default async function LeaderboardPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2 capitalize text-[var(--psc-muted)]">{r.party ?? "—"}</td>
-                  <td className="px-4 py-2 text-xs text-[var(--psc-muted)]">{chamber}</td>
+                  <td className="px-4 py-2 text-xs text-[var(--psc-muted)]">{seat}</td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-24 overflow-hidden rounded-full bg-[var(--psc-border)]">

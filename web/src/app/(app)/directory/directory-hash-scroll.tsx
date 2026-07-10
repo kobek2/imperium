@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
-/** Legacy `/directory#national-metrics` opens the dedicated national metrics page. */
+/** Legacy `/directory#national-metrics` redirects to the economy page. */
 export function DirectoryHashScroll() {
   const pathname = usePathname();
 
@@ -13,7 +13,7 @@ export function DirectoryHashScroll() {
     const handleHash = () => {
       const raw = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
       if (raw === "national-metrics") {
-        window.location.replace("/national-metrics");
+        window.location.replace("/economy");
         return;
       }
       if (!raw) return;

@@ -38,7 +38,7 @@ export default async function HomePage() {
         (profile as { orientation_step?: number | null }).orientation_step ?? null,
       );
       if (st === 2) redirect("/economy");
-      if (st === 3) redirect("/congress");
+      if (st === 3) redirect("/mayor");
       redirect("/elections");
     }
     const [m, s] = await Promise.all([

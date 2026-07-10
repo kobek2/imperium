@@ -19,8 +19,10 @@ export async function getIsAdmin(officeProfile?: StaffProfileOfficeRow | null): 
     profile = data ?? null;
   }
 
+  if (profile?.office_role === "admin") return true;
+
   const keys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  return keys.includes("admin");
+  return keys.includes("admin") || keys.includes("staff_super");
 }
 
 export async function requireAdmin() {

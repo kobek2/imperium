@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { throwIfPostgrestError } from "@/lib/supabase-error";
 
-/** Seed Democrat + Republican NPC placeholders for a seat race. */
+/** Seed NPC placeholders — dual-party opponents; skips parties that already have a player filed. */
 export async function seedElectionNpcOpponents(
   supabase: SupabaseClient,
   electionId: string,

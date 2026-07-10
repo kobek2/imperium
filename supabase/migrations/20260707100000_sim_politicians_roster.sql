@@ -59,7 +59,7 @@ insert into public.sim_politicians (slug, character_name, party, bio, face_claim
    'County prosecutor turned congressional challenger. Emphasizes fiscal restraint and rural broadband expansion.',
    'https://upload.wikimedia.org/wikipedia/commons/7/79/Katherine_Clark%2C_official_portrait%2C_118th_Congress_%28tight_crop%29.jpg',
    'house', 'NE-01', null, null),
-  ('ne-02-dem', 'Rep. Elena Vasquez', 'democrat',
+  ('ne-02-dem', 'Rep. Carmen Reyes', 'democrat',
    'Second-term representative focused on healthcare access and clean-energy tax credits for factory towns.',
    'https://upload.wikimedia.org/wikipedia/commons/4/4f/Patty_Murray%2C_official_portrait%2C_113th_Congress.jpg',
    'house', 'NE-02', null, null),

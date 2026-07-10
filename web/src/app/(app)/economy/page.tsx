@@ -22,10 +22,10 @@ export default async function EconomyPage() {
   const [
     { data: wallet },
     { data: meProf },
-    { data: adInventoryRows },
     { data: activeFy },
     { data: taxRpcData },
     { data: taxLedger },
+    { data: inventoryRows },
     recentLedger,
   ] = await Promise.all([
     supabase.from("economy_wallets").select("balance, last_collected_at").eq("user_id", user.id).maybeSingle(),
@@ -34,20 +34,12 @@ export default async function EconomyPage() {
       .select("party, character_name, orientation_completed_at, orientation_step")
       .eq("id", user.id)
       .maybeSingle(),
-    supabase
-      .from("economy_inventory")
-      .select("sku, quantity")
-      .eq("user_id", user.id)
-      .in("sku", ["campaign_ad_persuasion", "campaign_ad_attack", "campaign_ad"]),
     supabase.from("rp_fiscal_years").select("economy_activity_frozen").eq("status", "active").maybeSingle(),
     supabase.rpc("fiscal_estimate_ytd_income_tax"),
     supabase.rpc("fiscal_my_tax_ledger_account"),
+    supabase.from("economy_inventory").select("sku, quantity").eq("user_id", user.id),
     fetchEconomyLedgerWithDisplayNames(supabase, 40, user.id),
   ]);
-
-  const campaignAdInventory = sumCampaignAdInventory(
-    (adInventoryRows ?? []) as Array<{ sku: string; quantity: number | null }>,
-  );
 
   const economyFrozen = Boolean((activeFy as { economy_activity_frozen?: boolean } | null)?.economy_activity_frozen);
 
@@ -89,6 +81,7 @@ export default async function EconomyPage() {
 
   const inTour = !me?.orientation_completed_at;
   const onStep2 = inTour && (me?.orientation_step ?? 1) === 2;
+  const adsInventory = sumCampaignAdInventory(inventoryRows ?? []);
 
   return (
     <div className="space-y-8">
@@ -97,11 +90,10 @@ export default async function EconomyPage() {
         <div>
           <h1 className="text-2xl font-semibold text-[var(--psc-ink)]">Economy</h1>
           <p className="mt-1 text-sm text-[var(--psc-muted)]">
-            Salary, party treasury, PAC contributions, and the stock market.
+            Hourly salary, party treasury, stocks, campaign ads, and city income.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <NavRouteButton href="/economy/pac">PAC</NavRouteButton>
           <NavRouteButton href="/economy/stocks">Stocks</NavRouteButton>
           <NavRouteButton href="/economy/leaderboard">Leaderboard</NavRouteButton>
         </div>
@@ -115,7 +107,7 @@ export default async function EconomyPage() {
         federalEstimatedTax={federalEstimatedTax}
         taxAccount={taxAccount}
         showFederalBudgetLink={false}
-        campaignAdInventory={campaignAdInventory}
+        adsInventory={adsInventory}
       />
     </div>
   );

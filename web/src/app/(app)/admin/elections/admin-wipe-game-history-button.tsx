@@ -13,9 +13,10 @@ export function AdminWipeGameHistoryButton() {
     <section className="rounded border-2 border-rose-800 bg-rose-950/10 p-4">
       <h3 className="text-sm font-semibold text-rose-950">Wipe entire game history</h3>
       <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[var(--psc-muted)]">
-        Deletes all elections, votes, bills, role grants, economy ledger, PACs, businesses, stock market activity,
-        fiscal years, inbox, world chat, cabinet/diplomacy/court records, and resets every character to citizen with $0
-        and 50% approval. Player accounts and character sheets (name, region, district, party) are kept.
+        Full server reset: elections, votes, bills, role grants, economy ledger, PACs, businesses, NYC city budgets,
+        ordinances, council seating, and fiscal years are cleared; every character returns to citizen with $0 and 50%
+        approval. City sim returns to Year 1 / sign-ups open with wave-1 mayor + Class A council races, and the RP
+        calendar re-anchors to January 2032 (active). Player accounts and character sheets are kept.
       </p>
       {msg ? (
         <p className="mt-3 rounded border border-[var(--psc-border)] bg-white/90 px-2 py-1.5 text-[11px] text-[var(--psc-ink)]">

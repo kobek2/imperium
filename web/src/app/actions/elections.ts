@@ -1,6 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { NYC_CITY_CODE, isCityElectionOffice } from "@/lib/city";
+import {
+  cityElectionFilingBlockedMessage,
+} from "@/lib/city-sim-week";
+import { loadCitySimWeekStatus } from "@/lib/city-sim-week-data";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/is-admin";
@@ -60,9 +65,10 @@ export async function createElection(formData: FormData): Promise<void> {
     ? leadership_role_raw
     : null;
 
-  const office = String(formData.get("office") ?? "").trim() as "house" | "senate" | "president";
-  const state = String(formData.get("state") ?? "").trim().toUpperCase() || null;
+  const office = String(formData.get("office") ?? "").trim();
+  const stateRaw = String(formData.get("state") ?? "").trim().toUpperCase() || null;
   const district_code = String(formData.get("district_code") ?? "").trim() || null;
+  const ward_code_raw = String(formData.get("ward_code") ?? "").trim().toUpperCase() || null;
   const senate_class_raw = String(formData.get("senate_class") ?? "").trim();
   const senate_class = senate_class_raw ? Number(senate_class_raw) : null;
 
@@ -128,7 +134,16 @@ export async function createElection(formData: FormData): Promise<void> {
   if (general_closes_at < primary_closes_at) throw new Error("General must end after primary.");
 
   let senateSeatClass: number | null = null;
-  if (office === "house") {
+  let state = stateRaw;
+  let ward_code: string | null = null;
+
+  if (office === "mayor") {
+    state = "MB";
+  } else if (office === "council_ward") {
+    if (!ward_code_raw) throw new Error("Council ward races need a ward code (e.g. W01).");
+    ward_code = ward_code_raw;
+    state = "MB";
+  } else if (office === "house") {
     if (!state || !["NE", "SO", "WE"].includes(state)) {
       throw new Error("House races need a region code: NE, SO, or WE.");
     }
@@ -167,13 +182,11 @@ export async function createElection(formData: FormData): Promise<void> {
   // the old "leadership race" concept and we've moved to public.leadership_sessions instead.
   // Omitting them also keeps createElection forward-compatible with databases that were set
   // up before the 20260427 migration and don't have the columns at all.
-  const districtNormalized =
-    office === "house" && district_code ? String(district_code).trim().toUpperCase() : null;
-
   const row = {
     office,
     state: office === "president" ? null : state,
-    district_code: districtNormalized,
+    district_code: office === "house" && district_code ? String(district_code).trim().toUpperCase() : null,
+    ward_code: office === "council_ward" ? ward_code : null,
     senate_class: office === "senate" ? senateSeatClass : null,
     phase: "filing" as ElectionPhase,
     filing_opens_at,
@@ -278,10 +291,17 @@ export async function setElectionPhase(formData: FormData): Promise<void> {
       office: current.office,
       state: current.state,
       district_code: current.district_code,
+      ward_code: (current as { ward_code?: string | null }).ward_code ?? null,
       leadership_role: current.leadership_role,
     });
     Object.assign(updates, electionWinnerUpdateFields(winner));
-  } else if (isForward && phase === "primary" && prevPhase === "filing" && !current.leadership_role) {
+  } else if (
+    isForward &&
+    phase === "primary" &&
+    prevPhase === "filing" &&
+    !current.leadership_role &&
+    !(isCityElectionOffice(current.office) && current.state === NYC_CITY_CODE)
+  ) {
     await seedElectionNpcOpponents(supabase, id);
   } else if (isForward && phase === "general") {
     // Ensure primary winners are flagged before moving out of filing/primary. Leadership
@@ -320,6 +340,7 @@ async function closeSeatElectionRows(supabase: SupabaseClient, rows: ElectionClo
         office: row.office,
         state: row.state,
         district_code: row.district_code,
+        ward_code: row.ward_code ?? null,
         leadership_role: row.leadership_role,
       });
       const upd: Record<string, unknown> = { phase: "closed", ...electionWinnerUpdateFields(winner) };
@@ -356,6 +377,7 @@ function asCloseRows(
     office: string;
     state: string | null;
     district_code: string | null;
+    ward_code?: string | null;
     leadership_role: string | null;
   }> | null,
 ): ElectionCloseRow[] {
@@ -365,6 +387,7 @@ function asCloseRows(
     office: r.office,
     state: r.state,
     district_code: r.district_code,
+    ward_code: r.ward_code ?? null,
     leadership_role: r.leadership_role,
   }));
 }
@@ -382,7 +405,7 @@ export async function bulkEndElections(formData: FormData): Promise<void> {
 
   const { data: rows, error: qErr } = await supabase
     .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
+    .select("id, phase, office, state, district_code, ward_code, leadership_role")
     .neq("phase", "closed")
     .is("leadership_role", null);
 
@@ -402,7 +425,7 @@ export async function closeHouseSeatElections(): Promise<void> {
   const { supabase } = await requireAdmin();
   const { data: rows, error: qErr } = await supabase
     .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
+    .select("id, phase, office, state, district_code, ward_code, leadership_role")
     .eq("office", "house")
     .neq("phase", "closed")
     .is("leadership_role", null);
@@ -414,7 +437,7 @@ export async function closeSenateClassSeatElections(senateClass: 1 | 2 | 3): Pro
   const { supabase } = await requireAdmin();
   const { data: rows, error: qErr } = await supabase
     .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
+    .select("id, phase, office, state, district_code, ward_code, leadership_role")
     .eq("office", "senate")
     .eq("senate_class", senateClass)
     .neq("phase", "closed")
@@ -427,7 +450,7 @@ export async function closePresidentSeatElections(): Promise<void> {
   const { supabase } = await requireAdmin();
   const { data: rows, error: qErr } = await supabase
     .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
+    .select("id, phase, office, state, district_code, ward_code, leadership_role")
     .eq("office", "president")
     .neq("phase", "closed")
     .is("leadership_role", null);
@@ -456,7 +479,7 @@ export async function endSelectedElections(formData: FormData): Promise<void> {
 
   const { data: rows, error: qErr } = await supabase
     .from("elections")
-    .select("id, phase, office, state, district_code, leadership_role")
+    .select("id, phase, office, state, district_code, ward_code, leadership_role")
     .in("id", ids)
     .is("leadership_role", null)
     .neq("phase", "closed");
@@ -482,6 +505,7 @@ export async function endSelectedElections(formData: FormData): Promise<void> {
         office: row.office,
         state: row.state,
         district_code: row.district_code,
+        ward_code: row.ward_code ?? null,
         leadership_role: row.leadership_role,
       });
       const upd: Record<string, unknown> = { phase: "closed", ...electionWinnerUpdateFields(winner) };
@@ -692,6 +716,64 @@ export async function recertifyPresidentElectoralWinner(formData: FormData): Pro
   revalidatePath(`/elections/${election_id}`);
 }
 
+const SEAT_POINT_RACE_OFFICES = new Set(["house", "senate", "council_ward", "mayor"]);
+
+/** Recompute House/Senate/city winner from campaign points + lean (no hidden NPC synthetic votes). */
+export async function recertifySeatElectionWinner(formData: FormData): Promise<void> {
+  const { supabase } = await requireAdmin();
+  const election_id = String(formData.get("election_id") ?? "").trim();
+  if (!election_id) throw new Error("Missing election id.");
+
+  const { data: election } = await supabase
+    .from("elections")
+    .select(
+      "phase, office, state, district_code, ward_code, leadership_role",
+    )
+    .eq("id", election_id)
+    .maybeSingle();
+  if (!election) throw new Error("Election not found.");
+  if (!SEAT_POINT_RACE_OFFICES.has(election.office)) {
+    throw new Error("Recertify from scores only applies to House, Senate, and city seat races.");
+  }
+  if (election.phase !== "general" && election.phase !== "closed") {
+    throw new Error(`Recertify only applies in general or closed phase (current: ${election.phase}).`);
+  }
+
+  const winner = await resolveGeneralElectionWinner(supabase, election_id, {
+    office: election.office,
+    district_code: election.district_code,
+    state: election.state,
+    ward_code: (election as { ward_code?: string | null }).ward_code ?? null,
+    leadership_role: election.leadership_role,
+  });
+  if (!winner.winner_candidate_id) {
+    throw new Error("Could not determine a winner from campaign points.");
+  }
+
+  const updates: Record<string, unknown> = {
+    ...electionWinnerUpdateFields(winner),
+  };
+  if (election.phase === "general") updates.phase = "closed";
+
+  const { error } = await supabase.from("elections").update(updates).eq("id", election_id);
+  throwIfPostgrestError(error);
+
+  const { error: roleErr } = await supabase.rpc("apply_election_role_transitions", {
+    e_election: election_id,
+  });
+  if (roleErr) {
+    console.warn("[recertifySeatElectionWinner] role transition warning:", roleErr.message);
+  }
+
+  revalidatePath("/admin/elections");
+  revalidatePath(`/admin/elections/${election_id}`);
+  revalidatePath("/elections");
+  revalidatePath(`/elections/${election_id}`);
+  revalidatePath("/directory");
+  revalidatePath("/council");
+  revalidatePath("/mayor");
+}
+
 /** Re-run SQL role transitions for a closed president race (e.g. after VP grant migration). */
 export async function reapplyPresidentRoleTransitions(formData: FormData): Promise<void> {
   const { supabase } = await requireAdmin();
@@ -806,7 +888,7 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
   const { data: election } = await supabase
     .from("elections")
     .select(
-      "phase, filing_opens_at, filing_closes_at, filing_window_started_at, office, state, district_code, leadership_role, restricted_party",
+      "phase, filing_opens_at, filing_closes_at, filing_window_started_at, office, state, district_code, ward_code, leadership_role, restricted_party",
     )
     .eq("id", election_id)
     .single();
@@ -865,11 +947,25 @@ export async function fileCandidacy(formData: FormData): Promise<void> {
     const activeSlots = await loadActiveCandidacySlots(supabase, user.id);
     const block = getFilingEligibilityMessage(
       election.office,
-      { state: election.state, district_code: election.district_code },
+      {
+        state: election.state,
+        district_code: election.district_code,
+        ward_code: (election as { ward_code?: string | null }).ward_code ?? null,
+      },
       profile ?? null,
       activeSlots,
     );
     if (block) throw new Error(block);
+
+    if (isCityElectionOffice(election.office) && election.state === NYC_CITY_CODE) {
+      const simStatus = await loadCitySimWeekStatus(supabase);
+      const cityBlock = cityElectionFilingBlockedMessage(
+        election.office,
+        election.ward_code,
+        simStatus,
+      );
+      if (cityBlock) throw new Error(cityBlock);
+    }
   }
 
   if (election.office === "president") {
@@ -977,7 +1073,7 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
   const { data: election } = await supabase
     .from("elections")
     .select(
-      "phase, primary_closes_at, office, state, district_code, primary_party_wide, leadership_role",
+      "phase, primary_closes_at, office, state, district_code, ward_code, primary_party_wide, leadership_role",
     )
     .eq("id", election_id)
     .maybeSingle();
@@ -1025,7 +1121,10 @@ export async function castPrimaryVote(formData: FormData): Promise<void> {
   const primaryPartyWide = election.primary_party_wide ?? true;
 
   const restrictPrimary =
-    primaryPartyWide === false && election.office !== "president" && !selfVote;
+    primaryPartyWide === false &&
+    election.office !== "president" &&
+    !isCityElectionOffice(election.office) &&
+    !selfVote;
 
   if (restrictPrimary) {
     if (election.office === "house") {
@@ -1078,6 +1177,18 @@ const RALLY_WINDOW_MS = 3 * 60 * 60 * 1000;
 const RALLY_LIMIT_PER_WINDOW = 10;
 
 type RacePointTotals = { playerPts: number; opponentPts: number };
+
+async function capCityNpcAdvantageIfNeeded(
+  supabase: SupabaseClient,
+  election: { office: string; state: string | null },
+  electionId: string,
+): Promise<void> {
+  if (!isCityElectionOffice(election.office) || election.state !== NYC_CITY_CODE) return;
+  const { error } = await supabase.rpc("_cap_city_npc_campaign_advantage", {
+    p_election_id: electionId,
+  });
+  if (error) console.warn("[elections] cap city npc advantage failed:", error.message);
+}
 
 async function readRacePointTotals(
   supabase: SupabaseClient,
@@ -1389,6 +1500,7 @@ export async function submitCampaignSpeech(formData: FormData): Promise<Campaign
   if (pulseError) throwIfPostgrestError(pulseError);
 
   const afterPts = await readRacePointTotals(supabase, election_id, candidate.id);
+  await capCityNpcAdvantageIfNeeded(supabase, election, election_id);
 
   revalidatePath(`/elections/${election_id}`);
   revalidatePath(`/admin/elections/${election_id}`);
@@ -1538,6 +1650,7 @@ export async function submitCampaignRally(formData: FormData): Promise<CampaignN
   if (pulseError) throwIfPostgrestError(pulseError);
 
   const afterPts = await readRacePointTotals(supabase, election_id, candidate.id);
+  await capCityNpcAdvantageIfNeeded(supabase, election, election_id);
   const rallyPointsAwarded = qty * RALLY_POINTS;
 
   revalidatePath(`/elections/${election_id}`);

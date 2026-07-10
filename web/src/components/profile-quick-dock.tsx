@@ -3,7 +3,6 @@ import { SignOut } from "@/components/sign-out";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import { formatPrimaryGovernmentTitle } from "@/lib/government-role-display";
 import { getServerAuth } from "@/lib/supabase/server";
-import { fetchUserSenateClassHeld } from "@/lib/senate-seat-class";
 
 function usd(n: number) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -16,7 +15,7 @@ export async function ProfileQuickDock() {
   const [{ data: profile }, { data: wallet }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("character_name, discord_username, office_role, approval_rating, political_capital")
+      .select("character_name, discord_username, office_role, approval_rating, political_capital, home_district_code")
       .eq("id", user.id)
       .maybeSingle(),
     supabase.from("economy_wallets").select("balance").eq("user_id", user.id).maybeSingle(),
@@ -31,14 +30,10 @@ export async function ProfileQuickDock() {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("") || "M";
   const roleKeys = await fetchEffectiveRoleKeys(supabase, user.id, profile);
-  const senateClassHeld = roleKeys.includes("senator")
-    ? await fetchUserSenateClassHeld(supabase, user.id)
-    : null;
+  const councilWard = (profile as { home_district_code?: string | null }).home_district_code?.trim().toUpperCase() ?? "";
+  const showWardBadge = roleKeys.includes("council_member") && /^W\d{2}$/.test(councilWard);
   const baseTitle = formatPrimaryGovernmentTitle(roleKeys);
-  const title =
-    roleKeys.includes("senator") && senateClassHeld != null
-      ? `${baseTitle} · Class ${senateClassHeld}`
-      : baseTitle;
+  const title = showWardBadge ? `${baseTitle} · ${councilWard}` : baseTitle;
   const balance = Number((wallet as { balance?: number } | null)?.balance ?? 0);
   const approval = Math.max(0, Math.min(100, Math.round(Number((profile as { approval_rating?: number }).approval_rating ?? 50))));
   const politicalCapital = Math.max(0, Math.round(Number((profile as { political_capital?: number }).political_capital ?? 0)));
@@ -50,12 +45,12 @@ export async function ProfileQuickDock() {
         title={`${displayName} · ${approval}% approval · open quick menu`}
       >
         {initials}
-        {senateClassHeld != null ? (
+        {showWardBadge ? (
           <span
             className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full border border-indigo-700 bg-indigo-100 px-1 text-[9px] font-bold leading-none text-indigo-950 shadow-sm"
-            aria-label={`Senate class ${senateClassHeld}`}
+            aria-label={`Council district ${councilWard}`}
           >
-            C{senateClassHeld}
+            {councilWard}
           </span>
         ) : null}
       </summary>

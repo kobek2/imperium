@@ -22,9 +22,11 @@ export function OpenDormantSeatFilingsSelector({ candidates }: { candidates: Dor
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   const byOffice = useMemo(() => {
+    const mayor = candidates.filter((c) => c.office === "mayor");
+    const council = candidates.filter((c) => c.office === "council_ward");
     const house = candidates.filter((c) => c.office === "house");
     const senate = candidates.filter((c) => c.office === "senate");
-    return { house, senate };
+    return { mayor, council, house, senate };
   }, [candidates]);
 
   function toggle(id: string, next: boolean) {
@@ -57,9 +59,8 @@ export function OpenDormantSeatFilingsSelector({ candidates }: { candidates: Dor
       <section className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
         <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Open dormant seat filings</h3>
         <p className="mt-1 text-xs text-[var(--psc-muted)]">
-          No dormant House or Senate races right now with at least one player whose profile lists that district or
-          state. Create dormant races from <span className="font-semibold">New race</span> (optional “dormant filing”),
-          or wait for templates to exist.
+          No dormant city or congressional races with at least one resident player. Create dormant races from{" "}
+          <span className="font-semibold">New race</span>, or boot templates via Campaign Manager.
         </p>
       </section>
     );
@@ -68,12 +69,11 @@ export function OpenDormantSeatFilingsSelector({ candidates }: { candidates: Dor
   return (
     <section className="space-y-3 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 shadow-sm">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Open dormant congressional filings</h3>
+        <h3 className="text-sm font-semibold text-[var(--psc-ink)]">Open dormant seat filings</h3>
         <p className="mt-1 max-w-3xl text-xs text-[var(--psc-muted)]">
-          Only House and Senate: each row has at least one player whose <strong>home district</strong> (House) or{" "}
-          <strong>residence state</strong> (Senate) matches the seat — typical re-election / incumbent geography. Pick
-          one or many — each opens filing → primary → general as three 24-hour windows from confirm (same as a single
-          race page).
+          City council wards match <strong>home district</strong> (W01–W07); mayor matches any NYC resident. Federal
+          rows use home district (House) or residence state (Senate). Each opens filing → primary → general as three
+          24-hour windows from confirm.
         </p>
       </div>
 
@@ -103,6 +103,22 @@ export function OpenDormantSeatFilingsSelector({ candidates }: { candidates: Dor
           </button>
         </div>
 
+        {renderGroup(
+          "Mayor",
+          byOffice.mayor,
+          selected,
+          toggle,
+          (ids) => selectGroup(ids),
+          (ids) => clearGroup(ids),
+        )}
+        {renderGroup(
+          "City Council (by ward)",
+          byOffice.council,
+          selected,
+          toggle,
+          (ids) => selectGroup(ids),
+          (ids) => clearGroup(ids),
+        )}
         {renderGroup(
           "House (by district)",
           byOffice.house,

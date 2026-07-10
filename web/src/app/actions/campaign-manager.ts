@@ -1,10 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  beginAllCongressionalSeatFilings,
-  beginPresidentDormantSeatFilings,
-} from "@/app/actions/simulation";
 import { getIsAdmin } from "@/lib/is-admin";
 import {
   CAMPAIGN_MANAGER_RIVAL_STARTER_TREASURY,
@@ -17,7 +13,25 @@ import { throwIfPostgrestError } from "@/lib/supabase-error";
 export type CampaignActionResult = { ok: boolean; message: string };
 
 function revalidateCampaignPaths() {
-  for (const p of ["/campaign", "/congress", "/"]) revalidatePath(p);
+  for (const p of ["/campaign", "/council", "/mayor", "/congress", "/"]) revalidatePath(p);
+}
+
+export async function advanceCampaignTurn(): Promise<CampaignActionResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("campaign_advance_turn");
+  if (error) return { ok: false, message: error.message };
+  const row = data as { phase?: string; turn?: number; cycle?: number } | null;
+
+  if (row?.phase !== "elections") {
+    const { advanceCityMetricsTickAction } = await import("@/app/actions/city-metrics");
+    await advanceCityMetricsTickAction(1);
+  }
+
+  revalidateCampaignPaths();
+  return {
+    ok: true,
+    message: `Turn ${row?.turn ?? "?"} (cycle ${row?.cycle ?? "?"}): ${row?.phase === "elections" ? "Elections" : "Council session"} phase.`,
+  };
 }
 
 export async function startLegislativeRound(): Promise<CampaignActionResult> {
@@ -25,7 +39,11 @@ export async function startLegislativeRound(): Promise<CampaignActionResult> {
   const { data, error } = await supabase.rpc("campaign_start_legislative_round");
   if (error) return { ok: false, message: error.message };
   revalidateCampaignPaths();
-  return { ok: true, message: "Legislative round started — nominate caucus leadership." };
+  const row = data as { phase?: string; leadership_required?: boolean } | null;
+  if (row?.leadership_required === false) {
+    return { ok: true, message: "Legislative round started — file your caucus bill." };
+  }
+  return { ok: true, message: "New council session — nominate Council Spokesperson." };
 }
 
 export async function nominateLeadership(simId: string, role: string): Promise<CampaignActionResult> {
@@ -43,16 +61,22 @@ export async function proposeRoundBill(input: {
   sponsorSimId: string;
   title: string;
   summary: string;
+  issueKey?: string;
+  stanceKey?: string;
+  policyValue?: number;
 }): Promise<CampaignActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("campaign_propose_round_bill", {
     p_sponsor_sim: input.sponsorSimId,
     p_title: input.title.trim(),
     p_summary: input.summary.trim(),
+    p_issue_key: input.issueKey ?? null,
+    p_stance_key: input.stanceKey ?? null,
+    p_policy_value: input.policyValue ?? null,
   });
   if (error) return { ok: false, message: error.message };
   revalidateCampaignPaths();
-  return { ok: true, message: "Bill proposed. Rival filed a counter-measure. Advance when ready." };
+  return { ok: true, message: "Bill filed. Rival counter-measure incoming — both bills will hit the floor." };
 }
 
 export async function setActiveRoundBill(billId: string): Promise<CampaignActionResult> {
@@ -63,6 +87,14 @@ export async function setActiveRoundBill(billId: string): Promise<CampaignAction
   return { ok: true, message: "Active bill updated." };
 }
 
+export async function assignAllCaucus(vote: "yea" | "nay"): Promise<CampaignActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("campaign_assign_all_caucus", { p_vote: vote });
+  if (error) return { ok: false, message: error.message };
+  revalidateCampaignPaths();
+  return { ok: true, message: `Caucus locked to ${vote.toUpperCase()}.` };
+}
+
 export async function whipNpc(simId: string, vote: "yea" | "nay"): Promise<CampaignActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("campaign_whip_npc", {
@@ -71,7 +103,7 @@ export async function whipNpc(simId: string, vote: "yea" | "nay"): Promise<Campa
   });
   if (error) return { ok: false, message: error.message };
   revalidateCampaignPaths();
-  return { ok: true, message: `Whipped vote: ${vote.toUpperCase()}.` };
+  return { ok: true, message: `Caucus vote set: ${vote.toUpperCase()}.` };
 }
 
 export async function bribeNpc(
@@ -88,23 +120,41 @@ export async function bribeNpc(
   if (error) return { ok: false, message: error.message };
   revalidateCampaignPaths();
   revalidatePath("/economy/pac");
-  return { ok: true, message: `Bribe filed — ${vote.toUpperCase()} (PAC −$${amount.toLocaleString()}).` };
+  return { ok: true, message: `PAC payment secured ${vote.toUpperCase()} vote (−$${amount.toLocaleString()}).` };
+}
+
+export async function lobbyMayor(capital = 8): Promise<CampaignActionResult> {
+  return lobbyPresident(capital);
+}
+
+export async function lobbyPresident(capital = 8): Promise<CampaignActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("campaign_lobby_president", { p_capital: capital });
+  if (error) return { ok: false, message: error.message };
+  revalidateCampaignPaths();
+  return { ok: true, message: "Mayor's Office pressure applied — advance for sign/veto." };
 }
 
 export async function advanceLegislativeRound(): Promise<CampaignActionResult> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("campaign_advance_legislative_round");
   if (error) return { ok: false, message: error.message };
-  const row = data as { phase?: string; result?: string; signed?: boolean } | null;
+  const row = data as { phase?: string; result?: string; signed?: boolean; turn?: { turn_advanced?: boolean; turn?: number; phase?: string } } | null;
   revalidateCampaignPaths();
   const phase = row?.phase ?? "unknown";
+  const turnAdvanced = row?.turn?.turn_advanced === true;
   if (row?.result?.startsWith("failed")) {
     return { ok: true, message: `Bill failed (${row.result.replace(/_/g, " ")}). Round complete.` };
   }
   if (phase === "completed") {
+    const turnMsg = turnAdvanced
+      ? ` Turn advanced to ${row?.turn?.turn ?? "?"} (${row?.turn?.phase ?? "next phase"}).`
+      : "";
     return {
       ok: true,
-      message: row?.signed ? "Law signed! You gained political capital." : "Bill vetoed. Round complete.",
+      message: row?.signed
+        ? `Law signed! +10 political capital.${turnMsg}`
+        : `Round complete.${turnMsg}`,
     };
   }
   return { ok: true, message: `Advanced to: ${phase.replace(/_/g, " ")}.` };
@@ -164,8 +214,8 @@ export async function bootCampaignManagerSeason(
   void data;
 
   try {
-    await beginAllCongressionalSeatFilings();
-    await beginPresidentDormantSeatFilings();
+    const { error: openErr } = await supabase.rpc("open_millbrook_election_filings");
+    if (openErr) throw new Error(openErr.message);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
@@ -180,7 +230,7 @@ export async function bootCampaignManagerSeason(
   return {
     ok: true,
     message:
-      "Campaign Manager season booted: President + compact House/Senate races opened. Enroll on the War Room page to claim Democratic strategist and receive your starter PAC grant.",
+      "Campaign Manager season booted: Millbrook mayor + 7 ward races opened. Enroll on the War Room page to claim Democratic strategist and receive your starter PAC grant.",
   };
 }
 

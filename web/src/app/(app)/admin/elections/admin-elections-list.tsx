@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { leadershipRoleLabel, type LeadershipRole } from "@/lib/leadership";
+import { electionSeatLabel, electionSeatSearchBlob } from "@/lib/election-seat-label";
 
 export type AdminElectionRow = {
   id: string;
-  office: "house" | "senate" | "president" | string;
+  office: "mayor" | "council_ward" | "house" | "senate" | "president" | string;
   phase: "filing" | "primary" | "general" | "closed" | string;
   state: string | null;
   district_code: string | null;
+  ward_code?: string | null;
   senate_class: number | null;
   filing_opens_at: string;
   filing_closes_at: string;
@@ -22,12 +23,16 @@ export type AdminElectionRow = {
 };
 
 const PHASES = ["filing", "primary", "general", "closed"] as const;
-const OFFICES = ["house", "senate", "president", "leadership"] as const;
+const CITY_OFFICES = ["mayor", "council_ward"] as const;
+const FEDERAL_OFFICES = ["house", "senate", "president", "leadership"] as const;
+const OFFICES = [...CITY_OFFICES, ...FEDERAL_OFFICES] as const;
 
 type Phase = (typeof PHASES)[number];
 type Office = (typeof OFFICES)[number];
 
 const OFFICE_LABEL: Record<Office, string> = {
+  mayor: "Mayor",
+  council_ward: "City Council",
   house: "House",
   senate: "Senate",
   president: "President",
@@ -36,7 +41,9 @@ const OFFICE_LABEL: Record<Office, string> = {
 
 function bucketFor(r: AdminElectionRow): Office | null {
   if (r.leadership_role) return "leadership";
-  if ((OFFICES as readonly string[]).includes(r.office)) return r.office as Office;
+  if (r.office === "mayor") return "mayor";
+  if (r.office === "council_ward") return "council_ward";
+  if ((FEDERAL_OFFICES as readonly string[]).includes(r.office)) return r.office as Office;
   return null;
 }
 
@@ -92,40 +99,28 @@ function countdown(r: AdminElectionRow) {
 }
 
 function seatLabel(r: AdminElectionRow): string {
-  if (r.leadership_role) {
-    const label = leadershipRoleLabel(r.leadership_role as LeadershipRole);
-    return r.restricted_party ? `${label} · ${r.restricted_party}` : label;
-  }
-  if (r.office === "president") return "Nationwide";
-  if (r.office === "senate") {
-    const cls = r.senate_class ? ` · C${r.senate_class}` : "";
-    return `${r.state ?? "—"}${cls}`;
-  }
-  return r.district_code ?? r.state ?? "—";
+  return electionSeatLabel({
+    office: r.office,
+    state: r.state,
+    district_code: r.district_code,
+    ward_code: r.ward_code,
+    senate_class: r.senate_class,
+    leadership_role: r.leadership_role,
+    restricted_party: r.restricted_party,
+  });
 }
 
 function stateFor(r: AdminElectionRow): string | null {
   if (r.leadership_role) return null;
   if (r.office === "president") return null;
+  if (r.office === "mayor" || r.office === "council_ward") return "NYC";
   if (r.state) return r.state;
   if (r.district_code) return r.district_code.slice(0, 2);
   return null;
 }
 
 function searchBlob(r: AdminElectionRow): string {
-  return [
-    r.office,
-    r.phase,
-    r.district_code ?? "",
-    r.state ?? "",
-    r.senate_class ? `class ${r.senate_class}` : "",
-    r.leadership_role ?? "",
-    r.restricted_party ?? "",
-    r.leadership_role
-      ? leadershipRoleLabel(r.leadership_role as LeadershipRole)
-      : "",
-    OFFICE_LABEL[r.office as Office] ?? r.office,
-  ]
+  return [electionSeatSearchBlob(r), r.phase, OFFICE_LABEL[r.office as Office] ?? r.office]
     .join(" ")
     .toLowerCase();
 }
@@ -258,6 +253,8 @@ export function AdminElectionsList({
     closed: 0,
   };
   const officeCounts: Record<Office, number> = {
+    mayor: 0,
+    council_ward: 0,
     house: 0,
     senate: 0,
     president: 0,
@@ -353,7 +350,7 @@ export function AdminElectionsList({
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="search"
-                placeholder="Search state, district (e.g. CA-12)…"
+                placeholder="Search ward (W01), office, state…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="min-w-0 flex-1 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] px-3 py-2 text-sm outline-none focus:border-[var(--psc-accent)] sm:min-w-[20rem] sm:flex-initial"
@@ -408,7 +405,7 @@ export function AdminElectionsList({
               {!archiveOnly && !showClosed ? (
                 <p className="text-[10px] leading-snug text-[var(--psc-muted)]">
                   Chamber counts are <strong className="text-[var(--psc-ink)]">non-closed</strong> races only (same as
-                  the list below). <strong className="text-[var(--psc-ink)]">Dormant</strong> House/Senate/President rows
+                  the list below). <strong className="text-[var(--psc-ink)]">Dormant</strong> city and federal seat rows
                   (filing phase, filing window not started) stay in the database as templates — they are hidden here by
                   default; use “Show dormant seat templates” if you need them. Old cycles also remain as closed rows —
                   enable “Show closed” to include those in counts and filters.
@@ -422,6 +419,8 @@ export function AdminElectionsList({
                   active={officeFilter === "all"}
                   onClick={() => setOfficeFilter("all")}
                   count={
+                    officeCounts.mayor +
+                    officeCounts.council_ward +
                     officeCounts.house +
                     officeCounts.senate +
                     officeCounts.president +
@@ -460,7 +459,7 @@ export function AdminElectionsList({
                 const list = grouped.get(office);
                 if (!list?.length) return null;
 
-                if (office === "president" || office === "leadership") {
+                if (office === "mayor" || office === "president" || office === "leadership") {
                   return (
                     <details
                       key={office}
@@ -478,6 +477,57 @@ export function AdminElectionsList({
                       <div className="flex flex-wrap gap-1.5 border-t border-[var(--psc-border)] p-4">
                         {list.map((r) => (
                           <OperateChip key={r.id} r={r} />
+                        ))}
+                      </div>
+                    </details>
+                  );
+                }
+
+                if (office === "council_ward") {
+                  const byWard = new Map<string, AdminElectionRow[]>();
+                  for (const r of list) {
+                    const ward = (r.ward_code ?? "??").toUpperCase();
+                    const arr = byWard.get(ward) ?? [];
+                    arr.push(r);
+                    byWard.set(ward, arr);
+                  }
+                  const sortedWards = [...byWard.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+                  return (
+                    <details
+                      key={office}
+                      open
+                      className="rounded border border-[var(--psc-border)] bg-[var(--psc-panel)]"
+                    >
+                      <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
+                        <span className="text-base font-semibold text-[var(--psc-ink)]">
+                          {OFFICE_LABEL[office]}
+                        </span>
+                        <span className="font-mono text-xs text-[var(--psc-muted)]">
+                          {list.length} · {sortedWards.length} ward
+                          {sortedWards.length === 1 ? "" : "s"}
+                        </span>
+                      </summary>
+                      <div className="divide-y divide-[var(--psc-border)]/60 border-t border-[var(--psc-border)]">
+                        {sortedWards.map(([ward, races]) => (
+                          <div
+                            key={ward}
+                            className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 px-4 py-2"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded bg-[var(--psc-canvas)] px-2 font-mono text-xs font-bold uppercase tracking-wide text-[var(--psc-ink)]">
+                                {ward}
+                              </span>
+                              <span className="font-mono text-[10px] text-[var(--psc-muted)]">
+                                {races.length}
+                              </span>
+                            </div>
+                            <div className="flex min-w-0 flex-wrap gap-1.5">
+                              {races.map((r) => (
+                                <OperateChip key={r.id} r={r} />
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </details>
@@ -527,8 +577,8 @@ export function AdminElectionsList({
                           <div className="flex min-w-0 flex-wrap gap-1.5">
                             {[...races]
                               .sort((a, b) => {
-                                const ac = a.district_code ?? a.state ?? "";
-                                const bc = b.district_code ?? b.state ?? "";
+                                const ac = a.ward_code ?? a.district_code ?? a.state ?? "";
+                                const bc = b.ward_code ?? b.district_code ?? b.state ?? "";
                                 return ac.localeCompare(bc);
                               })
                               .map((r) => (

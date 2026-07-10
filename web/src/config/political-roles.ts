@@ -1,39 +1,44 @@
 /**
- * Canonical keys aligned with typical Discord polsim role names.
- * Store these in `government_role_grants.role_key` (synced from Discord by the bot).
- * Legacy `profiles.office_role` still works for a single role (e.g. `admin`, `speaker`).
+ * Canonical keys aligned with Discord polsim role names.
+ * NYC city roles are primary; federal keys remain for legacy routes.
  */
 
 export const POLITICAL_ROLE_LABELS: Record<string, string> = {
-  // Executive & judicial (image 1)
-  president: "President of the United States",
-  vice_president: "Vice President of the United States",
+  // New York City government
+  mayor: "Mayor of New York City",
+  council_member: "New York City Council",
+  council_spokesperson: "Council Spokesperson",
+  dept_finance: "Commissioner of Finance",
+  dept_police: "Police Commissioner",
+  dept_public_works: "Commissioner of Public Works",
+  dept_parks: "Commissioner of Parks & Recreation",
+  dept_planning: "Director of City Planning",
+  caucus_council_democrats: "Council Democrats",
+  caucus_council_republicans: "Council Republicans",
+  // Legacy federal (archived — not shown in primary NYC directory)
+  president: "President of the United States (archived)",
+  vice_president: "Vice President of the United States (archived)",
   cabinet: "Cabinet",
   chief_justice: "Chief Justice of the Supreme Court of the United States",
   associate_justice: "Associate Justice of the Supreme Court of the United States",
-  // House / Senate leadership (image 1)
   speaker: "Speaker of the House",
   president_pro_tempore: "President Pro Tempore",
   senate_majority_leader: "Senate Majority Leader",
   senate_majority_whip: "Senate Majority Whip",
   senate_minority_leader: "Senate Minority Leader",
   senate_minority_whip: "Senate Minority Whip",
-  // Rotating: most economy collects among Senators (excludes Majority Leader).
   senate_deputy: "Senate Deputy (floor & hopper backup)",
   house_majority_leader: "House Majority Leader",
   house_majority_whip: "House Majority Whip",
   house_minority_leader: "House Minority Leader",
   house_minority_whip: "House Minority Whip",
-  // Rotating: most economy collects among House members (excludes Speaker).
   house_deputy: "House Deputy (floor & hopper backup)",
-  // Membership & party (image 2)
   governor: "Governor",
   senator: "Senator",
   representative: "Representative",
   party_democrat: "Democrat",
   party_republican: "Republican",
   citizen: "Citizen",
-  // Cabinet portfolios (images 2–3)
   secretary_of_state: "Secretary of State",
   secretary_of_education: "Secretary of Education",
   secretary_of_defense: "Secretary of Defense",
@@ -49,16 +54,12 @@ export const POLITICAL_ROLE_LABELS: Record<string, string> = {
   secretary_of_treasury: "Secretary of Treasury",
   attorney_general: "Attorney General",
   chief_of_staff: "Chief of Staff",
-  // Caucuses (image 3–4)
   caucus_senate_democrats: "Senate Democrats",
   caucus_senate_republicans: "Senate Republicans",
   caucus_house_democrats: "House Democrats",
   caucus_house_republicans: "House Republicans",
-  // Site operator bypass (not a Discord role)
   admin: "Imperium Admin",
-  /** Full staff DB access (same RLS as admin); optional alternative to `admin`. */
   staff_super: "Staff (full)",
-  /** Granular staff panel — app-enforced; combine with admin or staff_super for DB mutations. */
   staff_accounts: "Staff · Accounts",
   staff_roles: "Staff · Roles",
   staff_economy: "Staff · Economy",
@@ -69,3 +70,15 @@ export const POLITICAL_ROLE_LABELS: Record<string, string> = {
 
 /** Keys we accept from Discord / DB (excluding admin which is manual). */
 export const KNOWN_POLITICAL_ROLE_KEYS = new Set(Object.keys(POLITICAL_ROLE_LABELS));
+
+/** Active NYC city gameplay roles. */
+export const CITY_ROLE_KEYS = [
+  "mayor",
+  "council_member",
+  "council_spokesperson",
+  "dept_finance",
+  "dept_police",
+  "dept_public_works",
+  "dept_parks",
+  "dept_planning",
+] as const;

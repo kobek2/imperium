@@ -107,6 +107,7 @@ export async function resolveGeneralElectionWinner(
     office: string;
     district_code: string | null;
     state: string | null;
+    ward_code?: string | null;
     leadership_role?: string | null;
   },
 ): Promise<ElectionWinnerResult> {
@@ -168,58 +169,66 @@ export async function resolveGeneralElectionWinner(
     };
   }
 
-  if (meta.office !== "house" && meta.office !== "senate") {
-    const { data: gv } = await supabase
-      .from("general_votes")
-      .select("candidate_id")
-      .eq("election_id", election_id);
-    for (const v of gv ?? []) {
-      tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
+  const pointRaceOffices = new Set(["house", "senate", "council_ward", "mayor"]);
+  if (pointRaceOffices.has(meta.office)) {
+    let partisanLean = 0;
+    if (meta.office === "council_ward" && meta.ward_code) {
+      const { data: w } = await supabase
+        .from("wards")
+        .select("pvi")
+        .eq("code", meta.ward_code)
+        .maybeSingle();
+      partisanLean = Number(w?.pvi ?? 0);
+    } else if (meta.office === "house" && meta.district_code) {
+      const { data: d } = await supabase
+        .from("districts")
+        .select("pvi")
+        .eq("code", meta.district_code)
+        .maybeSingle();
+      partisanLean = Number(d?.pvi ?? 0);
+    } else if (meta.office === "senate" && meta.state) {
+      const { data: s } = await supabase
+        .from("states")
+        .select("pvi")
+        .eq("code", meta.state)
+        .maybeSingle();
+      partisanLean = Number(s?.pvi ?? 0);
     }
-    const sorted = sortByVotesThenFilingOrder(active, tally);
-    const top = sorted[0]!;
-    return { winner_user_id: top.user_id, winner_candidate_id: top.id };
+
+    function leanFor(party: string) {
+      if (party === "democrat") return districtLeanBonus(partisanLean, "democrat");
+      if (party === "republican") return districtLeanBonus(partisanLean, "republican");
+      return 0;
+    }
+
+    const inputs = active.map((c) => ({
+      id: c.id,
+      party: c.party as Party,
+      campaignPoints:
+        Math.max(0, Number(c.campaign_points_total ?? 0)) +
+        Math.max(0, endorsementTotals[c.id] ?? 0) +
+        leanFor(c.party),
+    }));
+
+    const scores = scoreGeneralElection(inputs, {});
+    const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, partisanLean);
+    const top = ranked[0]!;
+    return {
+      winner_user_id: top.is_npc ? null : top.user_id,
+      winner_candidate_id: top.id,
+    };
   }
 
-  let partisanLean = 0;
-  if (meta.office === "house" && meta.district_code) {
-    const { data: d } = await supabase
-      .from("districts")
-      .select("pvi")
-      .eq("code", meta.district_code)
-      .maybeSingle();
-    partisanLean = Number(d?.pvi ?? 0);
-  } else if (meta.office === "senate" && meta.state) {
-    const { data: s } = await supabase
-      .from("states")
-      .select("pvi")
-      .eq("code", meta.state)
-      .maybeSingle();
-    partisanLean = Number(s?.pvi ?? 0);
+  const { data: gv } = await supabase
+    .from("general_votes")
+    .select("candidate_id")
+    .eq("election_id", election_id);
+  for (const v of gv ?? []) {
+    tally[v.candidate_id] = (tally[v.candidate_id] ?? 0) + 1;
   }
-
-  function leanFor(party: string) {
-    if (party === "democrat") return districtLeanBonus(partisanLean, "democrat");
-    if (party === "republican") return districtLeanBonus(partisanLean, "republican");
-    return 0;
-  }
-
-  const inputs = active.map((c) => ({
-    id: c.id,
-    party: c.party as Party,
-    campaignPoints:
-      Math.max(0, Number(c.campaign_points_total ?? 0)) +
-      Math.max(0, endorsementTotals[c.id] ?? 0) +
-      leanFor(c.party),
-  }));
-
-  const scores = scoreGeneralElection(inputs, {});
-  const ranked = sortByBlendedScoreThenLeanThenFiling(active, scores, partisanLean);
-  const top = ranked[0]!;
-  return {
-    winner_user_id: top.is_npc ? null : top.user_id,
-    winner_candidate_id: top.id,
-  };
+  const sorted = sortByVotesThenFilingOrder(active, tally);
+  const top = sorted[0]!;
+  return { winner_user_id: top.user_id, winner_candidate_id: top.id };
 }
 
 /**
@@ -245,6 +254,7 @@ export type ElectionCloseRow = {
   office: string;
   state: string | null;
   district_code: string | null;
+  ward_code?: string | null;
   leadership_role: string | null;
 };
 
@@ -275,6 +285,7 @@ export async function finalizeElectionToClosed(
     office: current.office,
     district_code: current.district_code,
     state: current.state,
+    ward_code: current.ward_code ?? null,
     leadership_role: current.leadership_role,
   });
 }

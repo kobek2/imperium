@@ -57,7 +57,7 @@ export function WarRoomPacPanel({
 
   const selectedTarget = contribTarget ? targetByKey.get(contribTarget) : undefined;
   const selectedFunding = contribTarget ? fundingByKey.get(contribTarget) : undefined;
-  const isPresident = selectedTarget?.office === "president";
+  const isMayorRace = selectedTarget?.office === "mayor" || selectedTarget?.office === "president";
   const parsedContrib = Number(contribAmount);
   const previewPts = pacCampaignPointsFromAmount(Number.isFinite(parsedContrib) ? parsedContrib : 0);
 
@@ -99,8 +99,8 @@ export function WarRoomPacPanel({
 
       {!electionsWindow ? (
         <p className="rounded border border-dashed border-[var(--psc-border)] px-3 py-2 text-sm text-[var(--psc-muted)]">
-          PAC contributions unlock during the <strong>election cycle</strong> (midnight–noon CST). Use the congress
-          cycle for legislation.
+          PAC contributions unlock during <strong>election turns</strong> (turns 6–15 each cycle). Use council session
+          turns for ordinances.
         </p>
       ) : null}
 
@@ -151,7 +151,7 @@ export function WarRoomPacPanel({
               ))}
             </select>
           </label>
-          {isPresident ? (
+          {isMayorRace ? (
             <label className="block text-xs text-[var(--psc-muted)]">
               Target state
               <select
@@ -194,7 +194,7 @@ export function WarRoomPacPanel({
             const fd = new FormData();
             fd.set("candidacy", contribTarget);
             fd.set("amount", contribAmount);
-            if (isPresident && contribState) fd.set("target_state", contribState);
+            if (isMayorRace && contribState) fd.set("target_state", contribState);
             run(() => contributePacToCandidate(fd));
           }}
           className="mt-3 rounded bg-[var(--psc-seal)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"

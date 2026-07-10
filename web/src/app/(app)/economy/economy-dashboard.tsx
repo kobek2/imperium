@@ -9,17 +9,17 @@ import {
 } from "@/app/actions/economy";
 import { payFiscalTax } from "@/app/actions/fiscal";
 import { NavRouteButton } from "@/components/nav-route-button";
-import { EconomyCampaignAds } from "@/components/economy-campaign-ads";
-import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { ProfileTypeaheadInput } from "@/components/profile-typeahead-input";
 import { EconomyBlackjack } from "./economy-blackjack";
 import { EconomyPublicLedgerList } from "@/components/economy-public-ledger-list";
+import { EconomyCampaignAds } from "@/components/economy-campaign-ads";
+import type { CampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import type { EconomyLedgerDisplayRow } from "@/lib/economy-ledger-view";
 
 type WalletRow = { balance: number; last_collected_at: string };
 type InvRow = { sku: string; quantity: number } | null;
 type LedgerRow = EconomyLedgerDisplayRow;
-type FlashSection = "balance" | "ads" | "payments" | "tax";
+type FlashSection = "balance" | "payments" | "tax" | "campaign";
 type FlashDetail = { label: string; value: string; tone?: "positive" | "negative" | "neutral" };
 
 const INCOME_COOLDOWN_MS = 60 * 60 * 1000;
@@ -117,7 +117,7 @@ export function FinancesDashboard({
   federalEstimatedTax,
   taxAccount,
   showFederalBudgetLink,
-  campaignAdInventory = { persuasion: 0, attack: 0 },
+  adsInventory,
 }: {
   wallet: WalletRow | null;
   inventory?: InvRow;
@@ -134,7 +134,7 @@ export function FinancesDashboard({
     status?: string;
   } | null;
   showFederalBudgetLink: boolean;
-  campaignAdInventory?: CampaignAdInventory;
+  adsInventory: CampaignAdInventory;
 }) {
   const router = useRouter();
   const [flash, setFlash] = useState<{
@@ -159,7 +159,7 @@ export function FinancesDashboard({
       setFlash(null);
       const r = await fn();
       setFlash({ message: r.message, ok: r.ok, section, details: r.details });
-      if (r.ok && (label === "collect" || label === "tax" || section === "ads")) router.refresh();
+      if (r.ok && (label === "collect" || label === "tax")) router.refresh();
     });
   }
 
@@ -228,8 +228,9 @@ export function FinancesDashboard({
         <div className="rounded border border-rose-400/80 bg-rose-50 p-4 text-sm text-rose-950">
           <p className="font-semibold">Government shutdown</p>
           <p className="mt-2 leading-relaxed">
-            Staff have frozen economic activity for this simulation (manual shutdown). Collects, purchases, gambling, PACs,
-            and party treasury actions stay blocked until administrators clear the freeze on the active fiscal year.
+            Staff have frozen economic activity for this simulation (manual shutdown). Collects, purchases,
+            gambling, and party treasury actions stay blocked until administrators clear the freeze on the active
+            fiscal year.
             The appropriations countdown is a staff-started reminder only; shutdown is staff-controlled.{" "}
             {showFederalBudgetLink ? (
               <NavRouteButton
@@ -270,15 +271,16 @@ export function FinancesDashboard({
         </div>
       </section>
 
+      <div className="space-y-3">
+        {sectionFlash(flash, "campaign")}
+        <EconomyCampaignAds
+          inventory={adsInventory}
+          economyFrozen={freezeDisabled}
+          onFlash={(message, ok) => setFlash({ message, ok, section: "campaign" })}
+        />
+      </div>
+
       <EconomyBlackjack economyFrozen={freezeDisabled} />
-
-      {flash?.section === "ads" ? sectionFlash(flash, "ads") : null}
-
-      <EconomyCampaignAds
-        inventory={campaignAdInventory}
-        economyFrozen={freezeDisabled}
-        onFlash={(message, ok) => setFlash({ message, ok, section: "ads" })}
-      />
 
       <section
         className={`grid gap-8 rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 ${treasuryPartyKey ? "md:grid-cols-2 md:items-stretch md:gap-0" : ""}`}

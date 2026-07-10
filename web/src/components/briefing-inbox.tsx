@@ -36,7 +36,7 @@ function kindEyebrow(kind: BriefingMoment["kind"]) {
     case "court_case_filed":
       return "Court docket";
     case "court_directive_issued":
-      return "Oval directive";
+      return "City Hall directive";
     case "court_ruling":
       return "Ruling";
     default:

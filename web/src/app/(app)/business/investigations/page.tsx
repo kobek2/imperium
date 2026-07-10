@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function BusinessInvestigationsRedirect() {
-  redirect("/economy/pac");
+  redirect("/economy");
 }

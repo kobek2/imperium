@@ -1,6 +1,6 @@
-/** Shared types for roster politicians (DB-backed NPC members of Congress). */
+/** Shared types for roster politicians (DB-backed NPC officeholders). */
 
-export type SimPoliticianOffice = "house" | "senate";
+export type SimPoliticianOffice = "house" | "senate" | "council" | "mayor" | "department_head";
 
 export type SimPoliticianRow = {
   id: string;
@@ -13,6 +13,7 @@ export type SimPoliticianRow = {
   district_code: string | null;
   state_code: string | null;
   senate_class: number | null;
+  ward_code: string | null;
 };
 
 /** Prefix for directory / profile links to sim politicians. */

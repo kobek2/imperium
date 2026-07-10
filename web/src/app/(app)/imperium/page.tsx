@@ -73,7 +73,7 @@ export default async function ImperiumLandingPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://images.unsplash.com/photo-1579965342575-16428a7c8881?auto=format&fit=crop&w=1800&q=80"
-            alt="United States Capitol building"
+            alt="New York City skyline"
             className="h-64 w-full object-cover object-center sm:h-80"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-transparent" />
@@ -83,11 +83,11 @@ export default async function ImperiumLandingPage() {
               Imperium
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-              Shape the future of the republic.
+              Shape the future of New York City.
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-white/90 sm:text-base">
-              Campaign for office, negotiate in Congress, pass landmark legislation, and navigate
-              federal budgets in a live political roleplay simulation.
+              Campaign for mayor or city council, negotiate the budget, pass local legislation, and
+              build your political career in a live NYC roleplay simulation.
             </p>
             <div className="mt-6 flex justify-center">
               <Link
@@ -112,23 +112,23 @@ export default async function ImperiumLandingPage() {
 
       <section className="grid gap-4 md:grid-cols-3">
         <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Become President</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Run for Mayor</h2>
           <p className="mt-3 text-sm text-[var(--psc-muted)]">
-            Build a national campaign, win the general election, and sign bills into law from the
-            Oval Office.
+            Build a citywide campaign, win the general election, and propose budgets from City Hall.
           </p>
         </article>
         <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Join Congress</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Join the City Council</h2>
           <p className="mt-3 text-sm text-[var(--psc-muted)]">
-            Run for House or Senate, lead your caucus, and influence every major vote on the floor.
+            Run in one of seven council districts (W01–W07), caucus with your party, and vote on city
+            business.
           </p>
         </article>
         <article className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-5">
-          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Write Major Bills</h2>
+          <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Write Local Legislation</h2>
           <p className="mt-3 text-sm text-[var(--psc-muted)]">
-            Draft legislation, negotiate amendments, and move proposals through both chambers to
-            the President&apos;s desk.
+            Draft bills, negotiate amendments, and move proposals through the council to the
+            mayor&apos;s desk.
           </p>
         </article>
       </section>
@@ -152,8 +152,8 @@ export default async function ImperiumLandingPage() {
       <section className="rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 text-center">
         <h2 className="text-lg font-semibold text-[var(--psc-ink)]">Hall of Fame</h2>
         <p className="mx-auto mt-2 max-w-3xl text-sm text-[var(--psc-muted)]">
-          Explore presidential legacies, term timelines, and defining achievements from Imperium&apos;s
-          most influential leaders.
+          Explore mayoral legacies, term timelines, and defining achievements from Imperium&apos;s
+          most influential city leaders.
         </p>
         <div className="mt-4 flex justify-center">
           <Link

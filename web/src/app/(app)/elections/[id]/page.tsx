@@ -4,6 +4,9 @@ import {
   getFilingEligibilityMessage,
   loadActiveCandidacySlots,
 } from "@/lib/election-filing";
+import { isCityElectionOffice, NYC_CITY_CODE } from "@/lib/city";
+import { cityElectionFilingBlockedMessage } from "@/lib/city-sim-week";
+import { loadCitySimWeekStatus } from "@/lib/city-sim-week-data";
 import { endorsementPointsForRoles } from "@/lib/fec";
 import { fetchEffectiveRoleKeys } from "@/lib/profile-roles";
 import {
@@ -22,6 +25,7 @@ import { ElectionDetail } from "./election-detail";
 import { fetchElectionCandidatesForListing } from "@/lib/election-candidate-queries";
 import { sumCampaignAdInventory } from "@/lib/campaign-ad-inventory";
 import { seedElectionNpcOpponents } from "@/lib/election-npc-opponents";
+import { ensureCityElectionSeating } from "@/lib/city-election-seating";
 import {
   campaignAdCountFromPoints,
   campaignAdSpendUsd,
@@ -32,7 +36,6 @@ import {
   fetchAllCampaignSpeechesForElection,
   toCampaignSpeechArchiveItems,
 } from "@/lib/campaign-speeches";
-import { loadElectionPacFilings } from "@/lib/pac-filings";
 import type { CampaignSpeechArchiveItem } from "@/components/campaign-speech-archive";
 import { navRouteButtonClass } from "@/components/nav-route-button";
 
@@ -83,7 +86,12 @@ export default async function ElectionDetailPage({
   const { data: election } = await supabase.from("elections").select("*").eq("id", id).maybeSingle();
   if (!election) notFound();
 
-  if (election.phase === "primary" && !election.leadership_role) {
+  const isCityRace =
+    isCityElectionOffice(election.office) && election.state === NYC_CITY_CODE;
+  const shouldSeedNpcOpponents =
+    !election.leadership_role &&
+    (election.phase === "primary" || (isCityRace && election.phase === "general"));
+  if (shouldSeedNpcOpponents) {
     try {
       await seedElectionNpcOpponents(supabase, id);
     } catch (err) {
@@ -93,6 +101,13 @@ export default async function ElectionDetailPage({
 
   if (election.phase === "general") {
     await supabase.rpc("tick_npc_campaigns", { p_election_id: id });
+    if (isCityRace) {
+      await supabase.rpc("_cap_city_npc_campaign_advantage", { p_election_id: id });
+    }
+  }
+
+  if (isCityRace && election.phase === "closed") {
+    await ensureCityElectionSeating(supabase, election, user.id);
   }
 
   const candList = await fetchElectionCandidatesForListing(supabase, id);
@@ -158,6 +173,14 @@ export default async function ElectionDetailPage({
     getStatesCached(supabase),
     getStaffMayAccessElectionsConsole(),
     (async () => {
+      if (election.office === "council_ward" && election.ward_code) {
+        const { data } = await supabase
+          .from("wards")
+          .select("pvi")
+          .eq("code", election.ward_code)
+          .maybeSingle();
+        return Number(data?.pvi ?? 0);
+      }
       if (election.office === "house" && election.district_code) {
         const { data } = await supabase
           .from("districts")
@@ -246,7 +269,11 @@ export default async function ElectionDetailPage({
   } else {
     filingBlockReason = getFilingEligibilityMessage(
       election.office,
-      { state: election.state, district_code: election.district_code },
+      {
+        state: election.state,
+        district_code: election.district_code,
+        ward_code: (election as { ward_code?: string | null }).ward_code ?? null,
+      },
       myProfile
         ? {
             party: myProfile.party,
@@ -256,6 +283,18 @@ export default async function ElectionDetailPage({
         : null,
       activeSlots,
     );
+    if (
+      !filingBlockReason &&
+      isCityElectionOffice(election.office) &&
+      election.state === NYC_CITY_CODE
+    ) {
+      const simStatus = await loadCitySimWeekStatus(supabase);
+      filingBlockReason = cityElectionFilingBlockedMessage(
+        election.office,
+        (election as { ward_code?: string | null }).ward_code ?? null,
+        simStatus,
+      );
+    }
   }
 
   const leadershipMeta = isLeadershipRole(election.leadership_role)
@@ -323,6 +362,45 @@ export default async function ElectionDetailPage({
       },
     ]),
   );
+
+  const npcSimIds = [
+    ...new Set(
+      candList
+        .map((c) => (c as { sim_politician_id?: string | null }).sim_politician_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const candidateCardByCandidateId: Record<
+    string,
+    {
+      character_name: string | null;
+      face_claim_url: string | null;
+      residence_state: string | null;
+      home_district_code: string | null;
+      bio: string | null;
+    }
+  > = {};
+
+  if (npcSimIds.length) {
+    const { data: simPoliticians } = await supabase
+      .from("sim_politicians")
+      .select("id, character_name, face_claim_url, bio, ward_code")
+      .in("id", npcSimIds);
+    const simById = new Map((simPoliticians ?? []).map((row) => [row.id as string, row]));
+    for (const c of candList) {
+      const simId = (c as { sim_politician_id?: string | null }).sim_politician_id;
+      if (!simId) continue;
+      const sp = simById.get(simId);
+      if (!sp) continue;
+      candidateCardByCandidateId[c.id] = {
+        character_name: (sp.character_name as string | null) ?? c.npc_name ?? null,
+        face_claim_url: (sp.face_claim_url as string | null) ?? null,
+        residence_state: "MB",
+        home_district_code: (sp.ward_code as string | null) ?? null,
+        bio: (sp.bio as string | null) ?? null,
+      };
+    }
+  }
 
   const primaryTally: Record<string, number> = {};
   for (const row of primaryVoteRows ?? []) {
@@ -501,21 +579,6 @@ export default async function ElectionDetailPage({
   const totalCampaignAdSpendUsd = campaignAdSpendUsd(totalCampaignAdPoints);
   const totalCampaignAdsPlaced = campaignAdCountFromPoints(totalCampaignAdPoints);
 
-  const pacFilings =
-    election.leadership_role || (election.phase !== "general" && election.phase !== "closed")
-      ? null
-      : await loadElectionPacFilings(
-          supabase,
-          id,
-          candList.map((c) => ({
-            id: c.id,
-            user_id: c.user_id,
-            is_npc: c.is_npc,
-            npc_name: c.npc_name,
-          })),
-          nameBy,
-        );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -539,6 +602,7 @@ export default async function ElectionDetailPage({
         })}
         nameBy={nameBy}
         candidateCardByUserId={candidateCardByUserId}
+        candidateCardByCandidateId={candidateCardByCandidateId}
         primaryTally={primaryTally}
         generalTally={generalTally}
         myPrimaryCandidateId={myPrimaryVote?.candidate_id ?? null}
@@ -574,7 +638,6 @@ export default async function ElectionDetailPage({
           message: string;
           created_at: string;
         }>}
-        pacFilings={pacFilings}
       />
       {isAdmin ? (
         <details className="border border-dashed border-[var(--psc-border)] bg-[var(--psc-panel)] p-4 text-sm">

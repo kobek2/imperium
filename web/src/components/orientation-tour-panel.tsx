@@ -2,7 +2,7 @@ import {
   advanceFromEconomyStep,
   advanceFromElectionStep,
   completeWelcomeTour,
-  finishOrientationFromCongress,
+  finishOrientationFromCityHall,
 } from "@/app/actions/orientation";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -60,13 +60,13 @@ export function OrientationTourPanelEconomy({ canAdvance }: { canAdvance: boolea
       </h2>
       <p className="text-sm text-[var(--psc-muted)]">
         Open <strong>Finances</strong> and use <strong>Collect income</strong> when the timer allows (you need accrual
-        time for a payout), or place a <strong>Blackjack</strong> bet — either creates a ledger entry. PACs and
-        PACs and the stock market live under <strong>Economy</strong>. Then continue to Congress.
+        time for a payout), or place a <strong>Blackjack</strong> bet — either creates a ledger entry.
+        PACs and the stock market live under <strong>Economy</strong>. Then continue to the Mayor&apos;s Office.
       </p>
       <div className="flex flex-wrap gap-2 pt-1">
         <form action={advanceFromEconomyStep}>
           <SubmitButton disabled={!canAdvance} className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:opacity-90">
-            I collected — continue to Congress
+            I collected — continue to Mayor&apos;s Office
           </SubmitButton>
         </form>
         <form action={completeWelcomeTour}>
@@ -82,24 +82,24 @@ export function OrientationTourPanelEconomy({ canAdvance }: { canAdvance: boolea
   );
 }
 
-export function OrientationTourPanelCongress() {
+export function OrientationTourPanelCityHall() {
   return (
-    <section className={`${shell} space-y-3`} aria-labelledby="orientation-congress-title">
+    <section className={`${shell} space-y-3`} aria-labelledby="orientation-city-hall-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--psc-muted)]">
           Guided setup · Step 3 of 3
         </p>
-        <span className="text-xs font-semibold text-[var(--psc-ink)]">Congress</span>
+        <span className="text-xs font-semibold text-[var(--psc-ink)]">Mayor&apos;s Office</span>
       </div>
-      <h2 id="orientation-congress-title" className="text-lg font-semibold text-[var(--psc-ink)]">
-        See the hopper and who sits where
+      <h2 id="orientation-city-hall-title" className="text-lg font-semibold text-[var(--psc-ink)]">
+        See city hall and the council roster
       </h2>
       <p className="text-sm text-[var(--psc-muted)]">
-        Browse bills in review and on the docket, open chamber pages, and skim the rosters. When you
-        are ready, finish and unlock the full site.
+        Browse department appointments, city budget tools, and the public directory. When you are
+        ready, finish and unlock the full site.
       </p>
       <div className="flex flex-wrap gap-2 pt-1">
-        <form action={finishOrientationFromCongress}>
+        <form action={finishOrientationFromCityHall}>
           <SubmitButton className="rounded border border-[var(--psc-ink)] bg-[var(--psc-ink)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:opacity-90">
             Finish — go to Home
           </SubmitButton>
@@ -115,4 +115,9 @@ export function OrientationTourPanelCongress() {
       </div>
     </section>
   );
+}
+
+/** @deprecated Use OrientationTourPanelCityHall */
+export function OrientationTourPanelCongress() {
+  return <OrientationTourPanelCityHall />;
 }

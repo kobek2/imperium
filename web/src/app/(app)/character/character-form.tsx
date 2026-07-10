@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useRef, Fragment } from "react";
 import { saveCharacter } from "@/app/actions/profile";
 import { ProfileImageWithFallback } from "@/components/profile-image-with-fallback";
-import { RegionsDistrictsMap } from "@/components/regions-districts-map";
+import { NycCouncilDistrictsPanel } from "@/components/nyc-council-districts-panel";
 import { SIM_REGIONS, normalizeSimRegionCode } from "@/lib/regions";
 import { hasGeographicHomeChange } from "@/lib/geographic-move";
 
@@ -23,6 +23,7 @@ type Profile = {
 type DistrictRow = {
   code: string;
   district_number: number;
+  name?: string;
   pvi: number;
   incumbent_party: string;
   incumbent_npc_name: string;
@@ -56,7 +57,7 @@ export function CharacterForm({
   const [state, setState] = useState(initialRegion);
   const [homeDistrict, setHomeDistrict] = useState(() => {
     const d = (profile?.home_district_code ?? "").trim().toUpperCase();
-    return /^(NE|SO|WE)-\d{2}$/.test(d) ? d : "";
+    return /^W\d{2}$/.test(d) ? d : "";
   });
   const [districts, setDistricts] = useState<DistrictRow[]>([]);
   const [districtsLoading, setDistrictsLoading] = useState(true);
@@ -241,7 +242,7 @@ export function CharacterForm({
         <p className="mt-2 text-sm text-[var(--psc-muted)]">
           {isOnboarding
             ? "All fields in this section are required. Optional narrative fields are below."
-            : "Submit to save. Pick the state and congressional district that match your character's home — multiple players can share the same district for competitive House races."}
+            : "Submit to save. Pick your NYC council district — it must match any ward race you file for."}
         </p>
       </div>
 
@@ -282,10 +283,12 @@ export function CharacterForm({
       </label>
 
       <div className="grid gap-2 text-sm font-semibold">
-        <span>Home region &amp; congressional district</span>
-        <RegionsDistrictsMap
-          title={isOnboarding ? "Pick your region and district" : "Current region and district map"}
+        <span>Home city &amp; council district</span>
+        <NycCouncilDistrictsPanel
+          title={isOnboarding ? "Pick your council district" : "NYC council districts"}
           compact
+          selectedCode={homeDistrict || null}
+          onSelect={setHomeDistrict}
         />
         <div className="grid gap-3 md:grid-cols-2">
           <select
@@ -311,7 +314,7 @@ export function CharacterForm({
             onChange={(e) => setHomeDistrict(e.target.value)}
             required
             disabled={districtsLoading || districts.length === 0}
-            aria-label="Home congressional district"
+            aria-label="Home council district"
             className="border border-[var(--psc-border)] bg-white px-3 py-2 font-normal disabled:opacity-60"
           >
             <option value="" disabled>
@@ -319,13 +322,15 @@ export function CharacterForm({
             </option>
             {districts.map((d) => (
               <option key={d.code} value={d.code}>
-                District {d.district_number} ({d.code})
+                {d.name
+                  ? `${d.name} (${d.code})`
+                  : `District ${d.district_number} (${d.code})`}
               </option>
             ))}
           </select>
         </div>
         <p className="text-xs font-normal text-[var(--psc-muted)]">
-          Ten House seats nationwide. District picks are gameplay seats and are not constrained by your region.
+          Seven NYC council districts (W01–W07). Your home district must match any council ward race you file for.
         </p>
       </div>
 
@@ -339,7 +344,7 @@ export function CharacterForm({
               <ProfileImageWithFallback
                 src={profile.face_claim_url}
                 name={profile?.character_name?.trim() || "Character"}
-                className="h-full w-full object-cover"
+                variant="portrait"
                 initialClassName="flex h-20 w-20 items-center justify-center text-lg font-semibold text-[var(--psc-muted)]"
               />
             </div>
@@ -368,7 +373,7 @@ export function CharacterForm({
               <img
                 src={portraitPreview.objectUrl}
                 alt="Portrait preview"
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover object-top"
               />
             </div>
             <div className="min-w-0 text-xs font-normal text-emerald-900">
@@ -437,23 +442,22 @@ export function CharacterForm({
         >
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 shadow-lg">
             <h3 id="geo-move-title" className="text-base font-semibold text-[var(--psc-ink)]">
-              Change home state or district?
+              Change home region or council district?
             </h3>
             <div className="mt-3 space-y-2 text-sm text-[var(--psc-ink)]">
               <p>
-                Relocating updates where you can file for House and Senate races. This action has
-                consequences for most characters:
+                Relocating updates where you can file for mayor and council ward races. This action
+                has consequences for most characters:
               </p>
               <ul className="list-disc space-y-1.5 pl-5 text-[var(--psc-muted)]">
                 <li>Your public approval rating drops by 10.</li>
                 <li>
-                  If you serve in Congress, you leave your seat and any chamber leadership office
-                  (Speaker, floor leaders, whips, President pro tempore, chamber deputies, etc.).
+                  If you serve on the City Council, you leave your seat and any council leadership
+                  office you hold.
                 </li>
               </ul>
               <p className="text-[var(--psc-muted)]">
-                Sitting Presidents, Vice Presidents, cabinet secretaries, and Supreme Court justices
-                are not affected by these rules.
+                Sitting mayors and appointed department heads are not affected by these rules.
               </p>
             </div>
             <div className="mt-6 flex flex-wrap justify-end gap-2">

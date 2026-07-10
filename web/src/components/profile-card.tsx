@@ -136,11 +136,11 @@ export function ProfileCard({
   // button would navigate to the profile instead of submitting the vote.
   const headerInner = (
     <>
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-[var(--psc-canvas)]">
+      <div className="relative aspect-[3/4] w-full overflow-hidden bg-[var(--psc-canvas)]">
         <ProfileImageWithFallback
           src={photo}
           name={name}
-          className="h-full w-full object-cover"
+          variant="portrait"
           initialClassName="flex h-full w-full items-center justify-center text-3xl font-semibold tracking-wide text-[var(--psc-muted)]"
         />
         {badges ? (

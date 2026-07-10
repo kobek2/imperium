@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PacContributionTarget } from "@/components/pac-dashboard";
-import { getCampaignDayCycle, type CampaignDayCycle } from "@/lib/campaign-day-cycle";
+import { buildCampaignTurnCycle, normalizeCampaignPhase, type CampaignTurnCycle } from "@/lib/campaign-day-cycle";
+import { wardLabel } from "@/lib/city";
 import {
   loadPacCandidateFundingSummaries,
   loadPacContributionTargets,
@@ -23,12 +24,28 @@ export type CampaignManagerStatus = {
   starterGrant: number;
   myPacTreasury: number;
   myPacName: string | null;
-  cstPhase: "elections" | "congress";
+  cstPhase: "elections" | "council";
+  /** @deprecated Use cstPhase council */
   electionWindow: boolean;
+  councilWindow: boolean;
+  /** @deprecated Use councilWindow */
   congressWindow: boolean;
+  campaignTurn: number;
+  campaignCycle: number;
+  turnInPhase: number;
+  councilTurns: number;
+  /** @deprecated Use councilTurns */
+  congressTurns: number;
+  electionTurns: number;
+  cycleTurns: number;
 };
 
 export type CampaignChamberScore = {
+  councilDem: number;
+  councilRep: number;
+  councilTotal: number;
+  mayorParty: string | null;
+  /** @deprecated Legacy federal tallies */
   houseDem: number;
   houseRep: number;
   houseTotal: number;
@@ -84,13 +101,14 @@ export type StrategistBillRow = {
 
 export type CampaignWarRoomData = {
   status: CampaignManagerStatus;
-  dayCycle: CampaignDayCycle;
+  dayCycle: CampaignTurnCycle;
   chamber: CampaignChamberScore;
   races: CampaignRaceRow[];
   recentRivalFilings: RivalPacFilingRow[];
   rivalIntel: RivalIntelRow[];
   strategistBills: StrategistBillRow[];
   presidentElectionId: string | null;
+  mayorElectionId: string | null;
   pacTargets: PacContributionTarget[];
   pacFundingSummaries: PacCandidateFundingSummary[];
   pacStates: Array<{ code: string; name: string }>;
@@ -115,13 +133,37 @@ function parseStatus(raw: unknown): CampaignManagerStatus {
     starterGrant: Number(row.starter_grant ?? 0),
     myPacTreasury: Number(row.my_pac_treasury ?? 0),
     myPacName: (row.my_pac_name as string | null) ?? null,
-    cstPhase: (row.cst_phase === "congress" ? "congress" : "elections") as "elections" | "congress",
+    cstPhase: normalizeCampaignPhase(String(row.cst_phase ?? "")),
     electionWindow: Boolean(row.election_window),
-    congressWindow: Boolean(row.congress_window),
+    councilWindow: Boolean(row.council_window ?? row.congress_window),
+    congressWindow: Boolean(row.council_window ?? row.congress_window),
+    campaignTurn: Number(row.campaign_turn ?? 1),
+    campaignCycle: Number(row.campaign_cycle ?? 1),
+    turnInPhase: Number(row.turn_in_phase ?? 1),
+    councilTurns: Number(row.council_turns ?? row.congress_turns ?? 5),
+    congressTurns: Number(row.council_turns ?? row.congress_turns ?? 5),
+    electionTurns: Number(row.election_turns ?? 10),
+    cycleTurns: Number(row.cycle_turns ?? 15),
   };
 }
 
-function seatLabel(office: string, districtCode: string | null, state: string | null): string {
+function buildDayCycleFromStatus(status: CampaignManagerStatus): CampaignTurnCycle {
+  return buildCampaignTurnCycle({
+    turn: status.campaignTurn,
+    cycle: status.campaignCycle,
+    councilTurns: status.councilTurns,
+    electionTurns: status.electionTurns,
+  });
+}
+
+function seatLabel(
+  office: string,
+  districtCode: string | null,
+  state: string | null,
+  wardCode: string | null,
+): string {
+  if (office === "mayor") return "Mayor · Millbrook";
+  if (office === "council_ward") return wardCode ? wardLabel(wardCode) : "Council ward";
   if (office === "president") return "President";
   if (office === "house") return districtCode ?? state ?? "House";
   return state ? `${state} Senate` : "Senate";
@@ -162,35 +204,39 @@ export async function loadCampaignWarRoom(
   const humanParty = status.humanParty;
   const rivalParty = status.rivalParty;
 
-  const [{ data: districts }, { data: senateSeats }] = await Promise.all([
-    supabase.from("districts").select("incumbent_party"),
-    supabase.from("senate_seats").select("incumbent_party"),
+  const [{ data: wards }, { data: mayorSeat }] = await Promise.all([
+    supabase.from("wards").select("incumbent_party").eq("city_code", "MB"),
+    supabase.from("mayor_seat").select("incumbent_party").eq("city_code", "MB").maybeSingle(),
   ]);
 
-  const houseDem = (districts ?? []).filter((d) => String(d.incumbent_party).toUpperCase() === "D").length;
-  const houseRep = (districts ?? []).filter((d) => String(d.incumbent_party).toUpperCase() === "R").length;
-  const senateDem = (senateSeats ?? []).filter((s) => String(s.incumbent_party).toUpperCase() === "D").length;
-  const senateRep = (senateSeats ?? []).filter((s) => String(s.incumbent_party).toUpperCase() === "R").length;
+  const councilDem = (wards ?? []).filter((d) => String(d.incumbent_party).toUpperCase() === "D").length;
+  const councilRep = (wards ?? []).filter((d) => String(d.incumbent_party).toUpperCase() === "R").length;
+  const mayorPartyRaw = (mayorSeat as { incumbent_party?: string } | null)?.incumbent_party;
+  const mayorParty =
+    mayorPartyRaw === "D" ? "democrat" : mayorPartyRaw === "R" ? "republican" : null;
 
   const chamber: CampaignChamberScore = {
-    houseDem,
-    houseRep,
-    houseTotal: houseDem + houseRep,
-    senateDem,
-    senateRep,
-    senateTotal: senateDem + senateRep,
+    councilDem,
+    councilRep,
+    councilTotal: councilDem + councilRep,
+    mayorParty,
+    houseDem: councilDem,
+    houseRep: councilRep,
+    houseTotal: councilDem + councilRep,
+    senateDem: 0,
+    senateRep: 0,
+    senateTotal: 0,
   };
 
   const { data: elections } = await supabase
     .from("elections")
-    .select("id, office, state, district_code, phase, general_closes_at")
+    .select("id, office, state, district_code, ward_code, phase, general_closes_at")
     .is("leadership_role", null)
-    .in("office", ["president", "house", "senate"])
+    .in("office", ["mayor", "council_ward"])
     .neq("phase", "closed")
     .not("filing_window_started_at", "is", null)
     .order("office")
-    .order("district_code")
-    .order("state");
+    .order("ward_code");
 
   const electionRows = elections ?? [];
   const electionIds = electionRows.map((e) => e.id as string);
@@ -255,11 +301,15 @@ export async function loadCampaignWarRoom(
 
   const races: CampaignRaceRow[] = [];
   let presidentElectionId: string | null = null;
+  let mayorElectionId: string | null = null;
 
   for (const el of electionRows) {
     const eid = el.id as string;
     const office = String(el.office);
-    if (office === "president") presidentElectionId = eid;
+    if (office === "mayor") {
+      mayorElectionId = eid;
+      presidentElectionId = eid;
+    }
 
     const inRace = candRows.filter((c) => c.election_id === eid && isNominee(eid, c, candRows));
     const ours = inRace.find((c) => c.party === humanParty);
@@ -270,7 +320,7 @@ export async function loadCampaignWarRoom(
     races.push({
       electionId: eid,
       office,
-      seatLabel: seatLabel(office, el.district_code as string | null, el.state as string | null),
+      seatLabel: seatLabel(office, el.district_code as string | null, el.state as string | null, el.ward_code as string | null),
       phase: String(el.phase),
       ourCandidateId: ours?.id ?? null,
       ourCandidateName: ours ? candidateName(ours, nameBy) : "—",
@@ -295,7 +345,7 @@ export async function loadCampaignWarRoom(
   const electionById = new Map(
     electionRows.map((e) => [
       e.id as string,
-      seatLabel(String(e.office), e.district_code as string | null, e.state as string | null),
+      seatLabel(String(e.office), e.district_code as string | null, e.state as string | null, e.ward_code as string | null),
     ]),
   );
 
@@ -328,13 +378,14 @@ export async function loadCampaignWarRoom(
 
   return {
     status,
-    dayCycle: getCampaignDayCycle(),
+    dayCycle: buildDayCycleFromStatus(status),
     chamber,
     races,
     recentRivalFilings,
     rivalIntel: await loadRivalIntel(supabase),
     strategistBills: await loadStrategistBills(supabase),
     presidentElectionId,
+    mayorElectionId,
     pacTargets: [],
     pacFundingSummaries: [],
     pacStates: [],
@@ -411,7 +462,7 @@ export async function loadCampaignWarRoomHub(
   const [{ data: activeFy }, { data: pacRpc }, { data: stateRows }] = await Promise.all([
     supabase.from("rp_fiscal_years").select("economy_activity_frozen").eq("status", "active").maybeSingle(),
     supabase.rpc("pac_my_status"),
-    supabase.from("states").select("code, name").order("code"),
+    supabase.from("wards").select("code, name").eq("city_code", "MB").order("code"),
   ]);
 
   const pacTargets = await loadPacContributionTargets(supabase, userId, { party: humanParty });

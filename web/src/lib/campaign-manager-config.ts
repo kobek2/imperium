@@ -2,9 +2,15 @@
 export const CAMPAIGN_MANAGER_STARTER_PAC_GRANT = 25_000_000;
 export const CAMPAIGN_MANAGER_RIVAL_STARTER_TREASURY = 25_000_000;
 
-/** CST day split: midnight–noon elections, noon–midnight congress. */
-export const CAMPAIGN_DAY_ELECTION_HOURS = "12:00 AM – 11:59 AM CST";
-export const CAMPAIGN_DAY_CONGRESS_HOURS = "12:00 PM – 11:59 PM CST";
+/** Council session turns per cycle (legacy name: congress). */
+export const CAMPAIGN_COUNCIL_TURNS = 5;
+/** @deprecated Use CAMPAIGN_COUNCIL_TURNS */
+export const CAMPAIGN_CONGRESS_TURNS = CAMPAIGN_COUNCIL_TURNS;
+
+export const CAMPAIGN_ELECTION_TURNS = 10;
+
+/** Turn-based season: 5 council turns then 10 election turns per cycle. */
+export const CAMPAIGN_CYCLE_TURNS = CAMPAIGN_COUNCIL_TURNS + CAMPAIGN_ELECTION_TURNS;
 
 export const RIVAL_DIFFICULTY_LABELS = {
   passive: "Passive — slower counters, smaller daily refill",

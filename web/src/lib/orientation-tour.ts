@@ -3,7 +3,7 @@ export function orientationStepOrDefault(step: number | null | undefined): 1 | 2
   return 1;
 }
 
-/** Any seat/president race still in play (excludes chamber leadership — those live under Congress). */
+/** Any mayor/council race still in play (excludes chamber leadership — those live under legacy admin). */
 export function nonClosedElectionIds(
   rows: Array<{ id: string; phase: string; leadership_role?: string | null }>,
 ): string[] {

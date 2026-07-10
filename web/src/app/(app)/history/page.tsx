@@ -108,12 +108,12 @@ function renderLeaderCards(cards: LeaderTermCard[], emptyText: string, simulatio
       {cards.map((card) => (
         <li key={card.key} className="rounded-lg border border-[var(--psc-border)] bg-[var(--psc-canvas)] p-4">
           <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
-            <div className="overflow-hidden rounded border border-[var(--psc-border)] bg-white">
+            <div className="aspect-[3/4] w-full overflow-hidden rounded border border-[var(--psc-border)] bg-white">
               <ProfileImageWithFallback
                 src={card.image}
                 name={card.name}
-                className="h-full w-full object-cover"
-                initialClassName="flex h-80 w-full items-center justify-center text-4xl font-semibold text-[var(--psc-muted)]"
+                variant="portrait"
+                initialClassName="flex h-full w-full items-center justify-center text-4xl font-semibold text-[var(--psc-muted)]"
               />
             </div>
             <div className="space-y-2">
@@ -186,11 +186,11 @@ export default async function HistoryPage() {
   if (!user) redirect("/login");
   const isAdmin = await getIsAdmin();
 
-  const [presElectionRes, leadershipSessionRes, hofRes, simSettingsRes] = await Promise.all([
+  const [mayorElectionRes, leadershipSessionRes, hofRes, simSettingsRes] = await Promise.all([
     supabase
       .from("elections")
       .select("id, winner_user_id, general_closes_at, created_at")
-      .eq("office", "president")
+      .eq("office", "mayor")
       .eq("phase", "closed")
       .not("winner_user_id", "is", null)
       .order("general_closes_at", { ascending: true }),
@@ -210,7 +210,7 @@ export default async function HistoryPage() {
   const simulationSettings =
     simSettingsRes.error || !simSettingsRes.data ? null : (simSettingsRes.data as SimulationSettingsRow);
 
-  const presidentialTermsRaw = (presElectionRes.data ?? []) as Array<{
+  const mayorTermsRaw = (mayorElectionRes.data ?? []) as Array<{
     id: string;
     winner_user_id: string | null;
     general_closes_at: string | null;
@@ -229,15 +229,15 @@ export default async function HistoryPage() {
     note: string | null;
   }>;
 
-  const presElectionIds = presidentialTermsRaw.map((r) => r.id);
+  const mayorElectionIds = mayorTermsRaw.map((r) => r.id);
   const leadershipSessionIds = leadershipSessions.map((s) => s.id);
 
   const [presCandidateRowsRes, leadershipCandidatesRes, leadershipVotesRes] = await Promise.all([
-    presElectionIds.length
+    mayorElectionIds.length
       ? supabase
           .from("election_candidates")
           .select("id, election_id, user_id, running_mate_user_id")
-          .in("election_id", presElectionIds)
+          .in("election_id", mayorElectionIds)
       : Promise.resolve({ data: [] as never[] }),
     leadershipSessionIds.length
       ? supabase
@@ -273,7 +273,7 @@ export default async function HistoryPage() {
   }>;
 
   const neededProfileIds = new Set<string>();
-  for (const t of presidentialTermsRaw) if (t.winner_user_id) neededProfileIds.add(t.winner_user_id);
+  for (const t of mayorTermsRaw) if (t.winner_user_id) neededProfileIds.add(t.winner_user_id);
   for (const c of presCandidateRows) if (c.running_mate_user_id) neededProfileIds.add(c.running_mate_user_id);
   for (const c of leadershipCandidates) neededProfileIds.add(c.user_id);
   for (const h of hofEntries) neededProfileIds.add(h.user_id);
@@ -319,7 +319,7 @@ export default async function HistoryPage() {
     });
   }
 
-  const presidentialTerms: LeaderTermCard[] = presidentialTermsRaw.map((row, idx, arr) => {
+  const mayorTerms: LeaderTermCard[] = mayorTermsRaw.map((row, idx, arr) => {
     const userId = String(row.winner_user_id);
     const profile = profileById.get(userId);
     const name = profile?.character_name?.trim() || profile?.discord_username?.trim() || `User ${userId.slice(0, 8)}`;
@@ -334,11 +334,11 @@ export default async function HistoryPage() {
       : null;
     const laws = lawsByAuthor.get(userId) ?? 0;
     const achievements = [`${laws} law${laws === 1 ? "" : "s"} enacted`];
-    if (roleHoldersByRole.get("president")?.has(userId)) achievements.push("Currently serving");
+    if (roleHoldersByRole.get("mayor")?.has(userId)) achievements.push("Currently serving");
     return {
-      key: `pres-${row.id}`,
+      key: `mayor-${row.id}`,
       rankNumber: idx + 1,
-      roleLabel: "President of Imperium",
+      roleLabel: "Mayor of New York City",
       userId,
       name,
       image: profileImageSrc(profile?.face_claim_url),
@@ -463,7 +463,7 @@ export default async function HistoryPage() {
                     <ProfileImageWithFallback
                       src={image}
                       name={name}
-                      className="h-full w-full object-cover"
+                      variant="portrait"
                       initialClassName="flex h-full w-full items-center justify-center text-xl font-semibold text-[var(--psc-muted)]"
                     />
                   </div>
@@ -527,21 +527,22 @@ export default async function HistoryPage() {
       </section>
 
       <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Presidential History</h2>
+        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Mayor History</h2>
         <div className="max-h-[44rem] overflow-y-auto pr-2">
-          {renderLeaderCards(presidentialTerms, "No closed presidential races yet.", simulationSettings)}
+          {renderLeaderCards(mayorTerms, "No closed mayoral races yet.", simulationSettings)}
         </div>
       </section>
 
-      <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Speaker History</h2>
+      <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6 opacity-80">
+        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Archived federal leadership</h2>
+        <p className="text-sm text-[var(--psc-muted)]">
+          Speaker and Senate leadership histories from the legacy federal simulator are kept for reference only.
+        </p>
+        <h3 className="text-lg font-semibold text-[var(--psc-ink)]">Speaker History</h3>
         <div className="max-h-[44rem] overflow-y-auto pr-2">
           {renderLeaderCards(speakerHistory, "No closed Speaker leadership sessions yet.", simulationSettings)}
         </div>
-      </section>
-
-      <section className="space-y-4 rounded-xl border border-[var(--psc-border)] bg-[var(--psc-panel)] p-6">
-        <h2 className="text-xl font-semibold text-[var(--psc-ink)]">Senate Majority Leader History</h2>
+        <h3 className="mt-6 text-lg font-semibold text-[var(--psc-ink)]">Senate Majority Leader History</h3>
         <div className="max-h-[44rem] overflow-y-auto pr-2">
           {renderLeaderCards(senateMajorityLeaderHistory, "No closed Senate Majority Leader sessions yet.", simulationSettings)}
         </div>

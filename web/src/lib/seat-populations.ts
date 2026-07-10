@@ -8,6 +8,48 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+export type WardPopulation = {
+  code: string;
+  name: string;
+  player_count: number;
+  incumbent_party: string | null;
+  incumbent_npc_name: string | null;
+};
+
+export async function loadWardPopulations(supabase: SupabaseClient): Promise<WardPopulation[]> {
+  const [wardsRes, profilesRes] = await Promise.all([
+    supabase
+      .from("wards")
+      .select("code, name, incumbent_party, incumbent_npc_name")
+      .eq("city_code", "MB")
+      .order("ward_number"),
+    supabase
+      .from("profiles")
+      .select("home_district_code")
+      .not("home_district_code", "is", null),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const row of (profilesRes.data ?? []) as Array<{ home_district_code: string | null }>) {
+    const code = (row.home_district_code ?? "").trim().toUpperCase();
+    if (!code) continue;
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+
+  return ((wardsRes.data ?? []) as Array<{
+    code: string;
+    name: string;
+    incumbent_party: string | null;
+    incumbent_npc_name: string | null;
+  }>).map((w) => ({
+    code: w.code,
+    name: w.name,
+    player_count: counts.get(w.code.toUpperCase()) ?? 0,
+    incumbent_party: w.incumbent_party,
+    incumbent_npc_name: w.incumbent_npc_name,
+  }));
+}
+
 export type DistrictPopulation = {
   code: string;
   state: string;

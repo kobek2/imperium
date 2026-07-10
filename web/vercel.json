@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/calendar-tick",
-      "schedule": "0 14 * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }

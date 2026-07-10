@@ -1,38 +1,76 @@
+/**
+ * @deprecated Legacy 3-region federal sim — New York City is the active geography.
+ * Re-exports city helpers and keeps legacy codes for unmigrated rows.
+ */
+
+import {
+  NYC_CITY_CODE,
+  NYC_CITY_NAME,
+  NYC_COUNCIL_DISTRICT_CODES,
+  NYC_COUNCIL_DISTRICTS,
+  MILLBROOK_CITY_CODE,
+  MILLBROOK_CITY_NAME,
+  MILLBROOK_WARD_CODES,
+  MILLBROOK_WARDS,
+  isNycCouncilDistrictCode,
+  isMillbrookWardCode,
+  normalizeResidenceCode,
+  councilDistrictByCode,
+  wardByCode,
+  councilDistrictLabel,
+  wardLabel,
+  type NycCouncilDistrictCode,
+  type MillbrookWardCode,
+} from "@/lib/city";
+
 export type UsRegion = "northeast_midwest" | "south" | "west";
 
-/** Three playable regions (stored as 2-letter codes in `states` / `profiles.residence_state`). */
+/** @deprecated Use NYC_COUNCIL_DISTRICTS — kept for legacy imports. */
 export const SIM_REGIONS = [
-  {
-    code: "NE",
-    name: "Northeast & Midwest",
-    region: "northeast_midwest" as UsRegion,
-    houseDistricts: 3,
-  },
-  { code: "SO", name: "South", region: "south" as UsRegion, houseDistricts: 3 },
-  { code: "WE", name: "West", region: "west" as UsRegion, houseDistricts: 4 },
+  { code: NYC_CITY_CODE, name: NYC_CITY_NAME, region: "northeast_midwest" as UsRegion, houseDistricts: 7 },
 ] as const;
 
-export type SimRegionCode = (typeof SIM_REGIONS)[number]["code"];
+export type SimRegionCode = typeof NYC_CITY_CODE | "NE" | "SO" | "WE";
 
-export const SIM_REGION_CODES = SIM_REGIONS.map((r) => r.code) as SimRegionCode[];
+export const SIM_REGION_CODES = [NYC_CITY_CODE, "NE", "SO", "WE"] as SimRegionCode[];
 
-const CODE_SET = new Set<string>(SIM_REGION_CODES);
+export {
+  NYC_CITY_CODE,
+  NYC_CITY_NAME,
+  NYC_COUNCIL_DISTRICTS,
+  NYC_COUNCIL_DISTRICT_CODES,
+  isNycCouncilDistrictCode,
+  councilDistrictByCode,
+  councilDistrictLabel,
+  MILLBROOK_CITY_CODE,
+  MILLBROOK_CITY_NAME,
+  MILLBROOK_WARDS,
+  MILLBROOK_WARD_CODES,
+  isMillbrookWardCode,
+  wardByCode,
+  wardLabel,
+  normalizeResidenceCode,
+  type NycCouncilDistrictCode,
+  type MillbrookWardCode,
+};
 
 export function isSimRegionCode(code: string): code is SimRegionCode {
-  return CODE_SET.has(code.trim().toUpperCase());
+  return SIM_REGION_CODES.includes(code.trim().toUpperCase() as SimRegionCode);
 }
 
 export function simRegionByCode(code: string) {
   const c = code.trim().toUpperCase();
-  return SIM_REGIONS.find((r) => r.code === c);
+  if (c === NYC_CITY_CODE) return SIM_REGIONS[0];
+  return undefined;
 }
 
 export function regionEnumForCode(code: string): UsRegion | undefined {
   return simRegionByCode(code)?.region;
 }
 
-/** @deprecated Use `regionEnumForCode` — maps legacy IRL state codes to a sim region enum. */
+/** @deprecated Maps legacy codes to a region enum. */
 export const STATE_REGION: Record<string, UsRegion> = {
+  MB: "northeast_midwest",
   NE: "northeast_midwest",
   SO: "south",
   WE: "west",
@@ -42,10 +80,7 @@ export function regionForState(state: string): UsRegion | undefined {
   return regionEnumForCode(state) ?? STATE_REGION[state.trim().toUpperCase()];
 }
 
-/** Coerce legacy profile residence codes to a sim region (defaults to NE). */
+/** Coerce profile residence to NYC (MB). */
 export function normalizeSimRegionCode(code: string | null | undefined): SimRegionCode {
-  const c = String(code ?? "")
-    .trim()
-    .toUpperCase();
-  return isSimRegionCode(c) ? c : "NE";
+  return normalizeResidenceCode(code);
 }
