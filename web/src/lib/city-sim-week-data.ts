@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NYC_CITY_CODE } from "@/lib/city";
+import { runElectionPhaseSchedule } from "@/lib/election-phase-schedule";
 import {
   activeCouncilClassForYear,
   mayorElectionActiveForYear,
@@ -18,6 +19,11 @@ export async function runCityRealtimeTick(
   } catch (err) {
     console.warn("[city-realtime] tick failed:", err);
   }
+}
+
+/** Page-load backup for city realtime automation (replaces Vercel cron). */
+export async function runBackgroundSimTicks(supabase: SupabaseClient): Promise<void> {
+  await Promise.all([runCityRealtimeTick(supabase), runElectionPhaseSchedule(supabase)]);
 }
 
 export async function reopenCityBienniumBudgetIfNeeded(

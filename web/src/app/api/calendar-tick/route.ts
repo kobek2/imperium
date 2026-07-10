@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NYC_CITY_CODE } from "@/lib/city";
 
-/** Cron + backup: advance city real-time scheduler (elections, budget windows, salaries). */
+/** Optional manual trigger: GET /api/calendar-tick with Authorization: Bearer <CRON_SECRET> */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   const auth = request.headers.get("authorization")?.trim();

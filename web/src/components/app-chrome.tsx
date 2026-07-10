@@ -3,6 +3,7 @@ import { MaybeBackButton } from "@/components/maybe-back-button";
 import { ProfileQuickDock } from "./profile-quick-dock";
 import { SignOut } from "@/components/sign-out";
 import { isProfileOnboardingComplete } from "@/lib/character-onboarding";
+import { runBackgroundSimTicks } from "@/lib/city-sim-week-data";
 import { getStaffAccess } from "@/lib/staff-access";
 import { getServerAuth } from "@/lib/supabase/server";
 
@@ -15,6 +16,8 @@ export async function AppChrome({ children }: { children: React.ReactNode }) {
   let needsCharacterSetup = false;
 
   if (supabase && user) {
+    await runBackgroundSimTicks(supabase);
+
     const { data: profileRow } = await supabase
       .from("profiles")
       .select("character_name, date_of_birth, residence_state, home_district_code, party, office_role")
